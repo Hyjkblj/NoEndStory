@@ -1,0 +1,159 @@
+/* 角色选择页面容器 */
+.character-selection-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f5f5dc;
+  overflow: hidden;
+}
+
+/* 背景图片 */
+.character-selection-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  z-index: 0;
+}
+
+/* 主内容区域 */
+.character-selection-content {
+  position: relative;
+  z-index: 1;
+  width: 1200px;
+  min-height: 600px;
+  background: #ffe4b5;
+  border: 3px solid #8b4513;
+  border-radius: 16px;
+  padding: 40px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+}
+
+.selection-title {
+  text-align: center;
+  font-size: 32px;
+  font-weight: bold;
+  color: #654321;
+  margin-bottom: 40px;
+}
+
+/* 角色选项网格 */
+.character-options-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 30px;
+  width: 100%;
+}
+
+/* 角色选项卡片 */
+.character-option-card {
+  background: #fff;
+  border: 2px solid #8b4513;
+  border-radius: 12px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.character-option-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 24px rgba(139, 69, 19, 0.3);
+  border-color: #654321;
+}
+
+.character-option-card.selected {
+  border-color: #654321;
+  border-width: 3px;
+  box-shadow: 0 8px 24px rgba(139, 69, 19, 0.5);
+}
+
+/* 角色图片容器 */
+.character-image-container {
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.character-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.character-image-placeholder {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.character-image-placeholder::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 30%;
+  height: 30%;
+  background: linear-gradient(135deg, transparent 50%, rgba(255, 255, 255, 0.1) 50%);
+  clip-path: polygon(100% 0, 0 0, 100% 100%);
+}
+
+.placeholder-text {
+  font-size: 48px;
+  font-weight: bold;
+  color: #fff;
+  z-index: 1;
+}
+
+/* 选择按钮 */
+.character-choice-button {
+  width: 100%;
+  height: 50px;
+  font-size: 18px;
+  font-weight: bold;
+  background: #d2691e !important;
+  border: 2px solid #654321 !important;
+  border-radius: 8px !important;
+  color: #fff !important;
+  transition: all 0.3s ease;
+  text-transform: uppercase;
+}
+
+.character-choice-button:hover {
+  background: #8b4513 !important;
+  border-color: #654321 !important;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.4);
+}
+
+.character-choice-button:active {
+  transform: scale(0.98);
+}
+
+.character-choice-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

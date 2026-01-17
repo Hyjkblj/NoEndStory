@@ -1,0 +1,741 @@
+"""AI文本生成模块 - 使用阿里云通义千问"""
+import config
+from typing import Optional, List, Dict
+
+# 尝试导入dashscope，如果未安装则使用回退模式
+try:
+    import dashscope
+    from dashscope import Generation
+    DASHSCOPE_AVAILABLE = True
+except ImportError:
+    DASHSCOPE_AVAILABLE = False
+    print("[警告] dashscope未安装，将使用规则生成。请运行: pip install dashscope")
+
+
+class AIGenerator:
+    """AI文本生成器"""
+    
+    def __init__(self):
+        """初始化AI生成器"""
+        if not DASHSCOPE_AVAILABLE:
+            self.enabled = False
+            print("[警告] dashscope未安装，将使用规则生成")
+            return
+        
+        if config.DASHSCOPE_API_KEY:
+            dashscope.api_key = config.DASHSCOPE_API_KEY
+            self.enabled = True
+            print(f"[信息] AI模型服务已启用 - 使用模型: {config.DASHSCOPE_MODEL}")
+        else:
+            self.enabled = False
+            print("[警告] 未配置DASHSCOPE_API_KEY，将使用规则生成")
+    
+    def generate_story_background(self, character_id: int, previous_events: List[str], 
+                                  current_context: str) -> str:
+        """生成故事背景文本
+        
+        Args:
+            character_id: 角色ID
+            previous_events: 历史事件列表（从向量数据库检索）
+            current_context: 当前事件上下文
+            
+        Returns:
+            生成的故事背景文本
+        """
+        if not self.enabled:
+            # 回退到规则生成
+            if previous_events:
+                return f"基于过往的经历，{previous_events[0][:200]}..."
+            return f"这是一个新的开始。{current_context}"
+        
+        # 构建提示词
+        previous_context = "\n".join([f"- {event}" for event in previous_events[:3]]) if previous_events else "这是第一次相遇。"
+        
+        prompt = f"""你是一个剧情游戏的故事背景生成器。请根据以下信息生成一段故事背景描述（100-150字）：
+
+【历史事件】（必须参考，确保连续性）：
+{previous_context}
+
+【当前情境】：
+{current_context}
+
+要求：
+1. 【连续性】基于历史事件合理推演新的事件发展，必须与历史事件有连续性，不能突兀
+2. 【不重复】不要重复之前已经发生过的场景和事件，要推进剧情发展，创造新的情节
+3. 【场景切换】可以自然地切换场景（如从学校到咖啡厅、从教室到操场、从图书馆到书店等），但要符合逻辑，有合理的过渡
+4. 【剧情推进】描述场景和发生了什么，让剧情有新的进展，不能原地踏步
+5. 【场景描述】明确描述当前场景，让玩家知道在哪里
+6. 语言自然流畅，符合剧情发展
+7. 不要包含角色对话，只描述背景和事件
+8. 如果历史事件中有约定或承诺，可以在新事件中体现
+9. 【避免重复】检查历史事件，确保新事件与之前的事件不重复，有新的内容
+
+故事背景："""
+        
+        try:
+            response = Generation.call(
+                model=config.DASHSCOPE_MODEL,
+                prompt=prompt,
+                max_tokens=300,
+                temperature=0.8
+            )
+            
+            if response.status_code == 200:
+                return response.output.text.strip()
+            else:
+                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
+                return self._fallback_story(previous_events, current_context)
+        except Exception as e:
+            print(f"[错误] AI生成异常: {e}")
+            return self._fallback_story(previous_events, current_context)
+    
+    def generate_character_dialogue(self, story_background: str, character_info: Dict, 
+                                    state_values: Dict, dialogue_round: int = 1, 
+                                    previous_dialogues: List[str] = None) -> str:
+        """生成角色对话文本
+        
+        Args:
+            story_background: 故事背景文本
+            character_info: 角色信息（包含决定因素）
+            state_values: 状态值
+            dialogue_round: 对话轮次（1-4+）
+            previous_dialogues: 之前的完整对话历史
+            
+        Returns:
+            生成的角色对话文本
+        """
+        if not self.enabled:
+            return self._fallback_dialogue(character_info, state_values)
+        
+        # 构建完整的角色属性描述（提高权重）
+        personality = character_info.get('personality', '')
+        gender = character_info.get('gender', '')
+        appearance = character_info.get('appearance', '')
+        attributes = character_info.get('attributes', {})
+        
+        # 提取所有角色属性（用于更详细的角色描述）
+        background = attributes.get('出身背景', '')
+        family_background = attributes.get('家庭背景', '')
+        social_identity = attributes.get('社会身份', '')
+        education = attributes.get('教育经历', '')
+        interests = attributes.get('兴趣偏好', '')
+        values = attributes.get('价值观体系', '')
+        flaws = attributes.get('角色缺陷', '')
+        fears = attributes.get('害怕与禁忌', '')
+        relationship_style = attributes.get('人际关系风格', '')
+        love_style = attributes.get('爱情风格', '')
+        trust_model = attributes.get('信任模型', '')
+        development_curve = attributes.get('发展曲线', '')
+        
+        # 构建详细的状态值描述（提高权重）
+        favorability = state_values.get('favorability', 0)
+        trust = state_values.get('trust', 0)
+        hostility = state_values.get('hostility', 0)
+        dependence = state_values.get('dependence', 0)
+        emotion = state_values.get('emotion', 50)
+        stress = state_values.get('stress', 0)
+        anxiety = state_values.get('anxiety', 0)
+        happiness = state_values.get('happiness', 50)
+        sadness = state_values.get('sadness', 0)
+        confidence = state_values.get('confidence', 50)
+        initiative = state_values.get('initiative', 50)
+        caution = state_values.get('caution', 50)
+        
+        # 构建状态值影响描述（更详细，权重更高）
+        state_impact = []
+        if favorability > 60:
+            state_impact.append("对玩家非常有好感，态度友好热情")
+        elif favorability > 30:
+            state_impact.append("对玩家有好感，态度友善")
+        elif favorability < -30:
+            state_impact.append("对玩家有敌意，态度冷淡")
+        elif favorability < 0:
+            state_impact.append("对玩家印象不佳，态度疏远")
+        else:
+            state_impact.append("对玩家印象中性，态度平常")
+        
+        if trust > 60:
+            state_impact.append("非常信任玩家，愿意分享内心想法")
+        elif trust > 30:
+            state_impact.append("信任玩家，愿意交流")
+        elif trust < -30:
+            state_impact.append("不信任玩家，保持警惕")
+        elif trust < 0:
+            state_impact.append("对玩家有疑虑，保持距离")
+        
+        if confidence > 70:
+            state_impact.append("非常自信，说话果断")
+        elif confidence < 30:
+            state_impact.append("缺乏自信，说话犹豫")
+        
+        if happiness > 70:
+            state_impact.append("心情很好，语气轻松愉快")
+        elif happiness < 30:
+            state_impact.append("心情低落，语气沉重")
+        
+        if stress > 70:
+            state_impact.append("压力很大，显得焦虑紧张")
+        elif stress > 40:
+            state_impact.append("有一定压力，略显疲惫")
+        
+        state_desc = "；".join(state_impact) if state_impact else "状态正常"
+        
+        # 构建完整的角色属性描述（强调这些对对话的影响）
+        character_attributes_desc = f"""
+【核心性格】{personality}
+【性别】{gender}
+【外观】{appearance}
+【出身背景】{background}
+【家庭背景】{family_background}
+【社会身份】{social_identity}
+【教育经历】{education}
+【兴趣偏好】{interests}
+【价值观】{values}
+【性格缺陷】{flaws}
+【害怕与禁忌】{fears}
+【人际关系风格】{relationship_style}
+【爱情风格】{love_style}
+【信任模型】{trust_model}
+【发展曲线】{development_curve}"""
+        
+        # 构建之前的对话上下文（区分当前事件对话和向量数据库历史对话）
+        previous_context = ""
+        if previous_dialogues and len(previous_dialogues) > 0:
+            # 区分当前事件的对话和向量数据库中的历史对话
+            current_event_dialogues = []
+            vector_db_dialogues = []
+            
+            for item in previous_dialogues:
+                if isinstance(item, str):
+                    if item.startswith("[历史]"):
+                        vector_db_dialogues.append(item.replace("[历史]", "").strip())
+                    else:
+                        current_event_dialogues.append(item)
+                else:
+                    current_event_dialogues.append(str(item))
+            
+            # 构建上下文
+            context_parts = []
+            if current_event_dialogues:
+                context_parts.append("当前事件的对话：\n" + "\n".join(current_event_dialogues[-4:]))
+            if vector_db_dialogues:
+                context_parts.append("历史对话（从向量数据库检索，用于推演）：\n" + "\n".join(vector_db_dialogues[-3:]))
+            
+            previous_context = "\n之前的对话：\n" + "\n".join(context_parts) if context_parts else "\n这是第一轮对话。"
+        else:
+            previous_context = "\n这是第一轮对话。"
+        
+        # 根据对话轮次确定对话的作用
+        dialogue_role = ""
+        if dialogue_round == 1:
+            dialogue_role = "开场/引入话题，开启对话"
+        elif dialogue_round == 2:
+            dialogue_role = "发展/深入讨论，推进话题"
+        elif dialogue_round == 3:
+            dialogue_role = "继续发展/深入交流，深化关系"
+        else:
+            dialogue_role = "结尾/总结/推进剧情，为事件收尾"
+        
+        # 提取之前所有角色对话，用于避免重复
+        previous_character_dialogues = []
+        if previous_dialogues:
+            for item in previous_dialogues:
+                if isinstance(item, str) and item.startswith("角色:"):
+                    previous_character_dialogues.append(item.replace("角色:", "").strip())
+                elif isinstance(item, dict) and item.get('type') == 'character':
+                    previous_character_dialogues.append(item.get('content', ''))
+        
+        previous_char_dialogues_text = ""
+        if previous_character_dialogues:
+            previous_char_dialogues_text = "\n之前角色说过的话（不要重复相似内容）：\n" + "\n".join([f"- {d}" for d in previous_character_dialogues])
+        
+        prompt = f"""你是一个剧情游戏的角色对话生成器。请根据以下信息生成角色的对话（20-40字）：
+
+【故事背景】（参考）：
+{story_background}
+
+【历史对话】（参考，保持连贯）：
+{previous_context}
+{previous_char_dialogues_text}
+
+【角色完整属性】（【最高优先级】必须严格遵循，这些属性决定角色的说话方式、用词、语气）：
+{character_attributes_desc}
+
+【当前状态值】（【最高优先级】必须严格遵循，这些状态值直接影响角色的语气、态度、情绪）：
+{state_desc}
+详细数值：好感度{favorability:.0f}，信任度{trust:.0f}，敌意{hostility:.0f}，依赖度{dependence:.0f}，情绪{emotion:.0f}，压力{stress:.0f}，焦虑{anxiety:.0f}，快乐{happiness:.0f}，悲伤{sadness:.0f}，自信度{confidence:.0f}，主动度{initiative:.0f}，谨慎度{caution:.0f}
+
+对话轮次：第{dialogue_round}轮对话（共4轮）
+本轮对话作用：{dialogue_role}
+
+【核心要求】（按优先级排序）：
+1. 【最高优先级】对话必须严格符合角色的完整属性（性格、背景、价值观、人际关系风格等），这些属性决定角色的说话方式
+2. 【最高优先级】对话必须严格反映当前状态值（好感度、信任度、情绪等），状态值直接影响语气和态度
+3. 【重要】对话要回应故事背景中的事件，但不能脱离角色属性
+4. 【重要】必须基于之前的对话内容，承上启下，保持连贯性
+5. 【禁止】绝对不要重复之前角色说过的话，内容、意思、表达方式都要完全不同
+6. 【禁止】绝对不要使用玩家可能说的话，角色对话和玩家选项必须完全隔离
+7. 【故事结构】对话要形成完整的故事结构：
+   - 第1轮：开场/引入话题
+   - 第2轮：发展/深入讨论
+   - 第3轮：继续发展/深化关系
+   - 第4轮：结尾/总结/推进剧情
+8. 如果之前有对话，要回应玩家的话或继续之前的话题，但要推进剧情
+9. 语言自然，像真实对话，但要符合角色属性
+10. 只生成角色说的话，不要加引号或说明
+
+角色对话："""
+        
+        try:
+            response = Generation.call(
+                model=config.DASHSCOPE_MODEL,
+                prompt=prompt,
+                max_tokens=100,
+                temperature=0.9
+            )
+            
+            if response.status_code == 200:
+                dialogue = response.output.text.strip()
+                # 清理可能的引号和其他标记
+                dialogue = dialogue.strip('"').strip("'").strip()
+                # 移除可能的"角色说："等前缀
+                if '：' in dialogue:
+                    parts = dialogue.split('：', 1)
+                    if len(parts) > 1:
+                        dialogue = parts[-1].strip()
+                if ':' in dialogue:
+                    parts = dialogue.split(':', 1)
+                    if len(parts) > 1 and len(parts[0]) < 10:  # 可能是前缀
+                        dialogue = parts[-1].strip()
+                
+                # 检查是否与之前的角色对话重复
+                if previous_character_dialogues:
+                    dialogue = self._ensure_dialogue_unique(dialogue, previous_character_dialogues, dialogue_round)
+                
+                return dialogue
+            else:
+                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
+                return self._fallback_dialogue(character_info, state_values)
+        except Exception as e:
+            print(f"[错误] AI生成异常: {e}")
+            return self._fallback_dialogue(character_info, state_values)
+    
+    def generate_player_options(self, story_background: str, character_dialogue: str, 
+                                dialogue_round: int, previous_dialogues: List[str] = None) -> List[Dict]:
+        """生成玩家选项（对话内容）
+        
+        Args:
+            story_background: 故事背景
+            character_dialogue: 角色刚才说的话
+            dialogue_round: 对话轮次
+            previous_dialogues: 之前的完整对话历史（用于保持对话连贯）
+            
+        Returns:
+            3个选项，每个选项包含对话文本和状态值变化
+        """
+        if not self.enabled:
+            return self._fallback_options()
+        
+        # 构建之前的对话上下文（区分当前事件对话和向量数据库历史对话）
+        previous_context = ""
+        if previous_dialogues and len(previous_dialogues) > 0:
+            # 区分当前事件的对话和向量数据库中的历史对话
+            current_event_dialogues = []
+            vector_db_dialogues = []
+            
+            for item in previous_dialogues:
+                if isinstance(item, str):
+                    if item.startswith("[历史]"):
+                        vector_db_dialogues.append(item.replace("[历史]", "").strip())
+                    else:
+                        current_event_dialogues.append(item)
+                else:
+                    current_event_dialogues.append(str(item))
+            
+            # 构建上下文
+            context_parts = []
+            if current_event_dialogues:
+                context_parts.append("当前事件的对话：\n" + "\n".join(current_event_dialogues[-4:]))
+            if vector_db_dialogues:
+                context_parts.append("历史对话（从向量数据库检索，用于推演）：\n" + "\n".join(vector_db_dialogues[-3:]))
+            
+            previous_context = "\n之前的对话：\n" + "\n".join(context_parts) if context_parts else "\n这是第一轮对话。"
+        else:
+            previous_context = "\n这是第一轮对话。"
+        
+        # 提取之前所有玩家选项，避免重复
+        previous_player_options = []
+        if previous_dialogues:
+            for item in previous_dialogues:
+                if isinstance(item, str):
+                    if item.startswith("玩家:"):
+                        previous_player_options.append(item.replace("玩家:", "").strip())
+                    # 也检查向量数据库中的历史对话
+                    elif "玩家:" in item:
+                        previous_player_options.append(item.split("玩家:")[-1].strip())
+                elif isinstance(item, dict) and item.get('type') == 'player':
+                    previous_player_options.append(item.get('content', ''))
+        
+        previous_options_text = ""
+        if previous_player_options:
+            previous_options_text = "\n之前玩家说过的话（不要重复相似内容）：\n" + "\n".join([f"- {d}" for d in previous_player_options[-3:]])
+        
+        # 根据对话轮次确定对话的作用
+        dialogue_role = ""
+        if dialogue_round == 1:
+            dialogue_role = "开场/回应开场，开启对话"
+        elif dialogue_round == 2:
+            dialogue_role = "发展/深入讨论，推进话题"
+        elif dialogue_round == 3:
+            dialogue_role = "继续发展/深化关系，深入交流"
+        else:
+            dialogue_role = "结尾/总结/推进剧情，为事件收尾"
+        
+        prompt = f"""你是一个剧情游戏的玩家选项生成器。请根据以下信息生成3个玩家回复选项：
+
+【故事背景】（参考）：
+{story_background}
+
+【历史对话】（参考，保持连贯）：
+{previous_context}
+{previous_options_text}
+
+【角色刚才说的话】（必须回应）：
+"{character_dialogue}"
+
+对话轮次：第{dialogue_round}轮（共4轮）
+本轮对话作用：{dialogue_role}
+
+【核心要求】（按优先级排序）：
+1. 【最高优先级】生成3个不同的玩家回复选项，每个10-25字
+2. 【最高优先级】选项1：积极回应（会提升好感度和信任度）- 友好、支持、鼓励
+3. 【最高优先级】选项2：中性回应（保持现状）- 中立、观察、不表态
+4. 【最高优先级】选项3：消极回应（会降低好感度和信任度）- 冷淡、拒绝、质疑
+5. 【重要】必须直接回应角色刚才说的话，不能脱离角色对话
+6. 【重要】必须考虑之前的对话内容，保持连贯性
+7. 【重要】回复要符合当前场景和事件背景
+8. 【禁止】绝对不要重复角色刚才说的话，玩家选项和角色对话必须完全隔离
+9. 【禁止】绝对不要使用角色可能说的话，玩家选项必须是玩家说的话
+10. 【禁止】不要重复之前玩家说过的话，内容、意思、表达方式都要完全不同
+11. 【禁止】不要模仿角色的说话风格，玩家选项应该有自己的表达方式
+12. 【故事结构】对话要形成完整的故事结构：
+    - 第1轮：开场/回应开场
+    - 第2轮：发展/深入讨论
+    - 第3轮：继续发展/深化关系
+    - 第4轮：结尾/总结/推进剧情
+13. 回复要像真实对话，自然流畅，但必须是玩家的表达方式
+14. 只输出选项内容，不要编号或说明
+15. 格式：每行一个选项
+
+【隔离要求】（非常重要）：
+- 玩家选项必须与角色对话完全隔离
+- 不能使用角色说过的话
+- 不能使用角色的表达方式
+- 必须是玩家自己的说话风格
+
+玩家选项："""
+        
+        try:
+            response = Generation.call(
+                model=config.DASHSCOPE_MODEL,
+                prompt=prompt,
+                max_tokens=150,
+                temperature=0.9
+            )
+            
+            if response.status_code == 200:
+                options_text = response.output.text.strip()
+                # 解析选项
+                options = self._parse_options(options_text)
+                
+                # 过滤掉与角色对话重复的选项
+                options = self._filter_duplicate_options(options, character_dialogue)
+                
+                # 如果过滤后选项不足3个，尝试重新生成或补充
+                if len(options) < 3:
+                    # 尝试补充选项
+                    options = self._supplement_options(options, character_dialogue, story_background, previous_dialogues)
+                
+                # 为每个选项分配状态值变化
+                if len(options) >= 3:
+                    return [
+                        {
+                            'id': 1,
+                            'text': options[0],
+                            'type': 'increase',
+                            'state_changes': {
+                                'favorability': 5.0,
+                                'trust': 3.0,
+                                'happiness': 5.0
+                            }
+                        },
+                        {
+                            'id': 2,
+                            'text': options[1],
+                            'type': 'neutral',
+                            'state_changes': {}
+                        },
+                        {
+                            'id': 3,
+                            'text': options[2],
+                            'type': 'decrease',
+                            'state_changes': {
+                                'favorability': -5.0,
+                                'trust': -3.0,
+                                'happiness': -5.0
+                            }
+                        }
+                    ]
+                else:
+                    return self._fallback_options()
+            else:
+                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
+                return self._fallback_options()
+        except Exception as e:
+            print(f"[错误] AI生成异常: {e}")
+            return self._fallback_options()
+    
+    def _parse_options(self, text: str) -> List[str]:
+        """解析AI生成的选项文本"""
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        options = []
+        
+        for line in lines:
+            # 移除可能的编号（1. 2. 3. 或 A. B. C.）
+            line = line.lstrip('1234567890.）)ABCabc、')
+            line = line.strip()
+            if line and len(line) > 5:  # 至少5个字符
+                options.append(line)
+                if len(options) >= 3:
+                    break
+        
+        # 如果解析不到3个，补充默认选项
+        while len(options) < 3:
+            options.append(f"选项{len(options)+1}")
+        
+        return options[:3]
+    
+    def _ensure_dialogue_unique(self, dialogue: str, previous_dialogues: List[str], dialogue_round: int) -> str:
+        """确保对话与之前的对话不重复，如果重复则调整"""
+        if not previous_dialogues:
+            return dialogue
+        
+        dialogue_lower = dialogue.lower().strip()
+        
+        # 检查是否与之前的对话重复
+        for prev_dialogue in previous_dialogues:
+            prev_lower = prev_dialogue.lower().strip()
+            
+            # 完全相同
+            if dialogue_lower == prev_lower:
+                # 如果是重复，根据轮次生成不同的内容
+                if dialogue_round == 1:
+                    return dialogue + "（开场）"
+                elif dialogue_round == 2:
+                    return dialogue + "（继续）"
+                elif dialogue_round == 3:
+                    return dialogue + "（深入）"
+                else:
+                    return dialogue + "（结尾）"
+            
+            # 高度相似（超过75%）
+            similarity = self._calculate_similarity(dialogue_lower, prev_lower)
+            if similarity > 0.75:
+                # 如果相似度过高，尝试调整
+                # 添加一些变化
+                if dialogue_round <= 2:
+                    return dialogue + "，你觉得呢？"
+                else:
+                    return dialogue + "，我们继续吧。"
+        
+        return dialogue
+    
+    def _filter_duplicate_options(self, options: List[str], character_dialogue: str) -> List[str]:
+        """过滤掉与角色对话重复的选项（更严格的隔离）"""
+        if not character_dialogue:
+            return options
+        
+        filtered = []
+        character_dialogue_lower = character_dialogue.lower().strip()
+        character_words = set(character_dialogue_lower.split())
+        
+        for option in options:
+            option_lower = option.lower().strip()
+            
+            # 检查是否与角色对话重复（更严格的检查）
+            # 1. 完全相同的文本
+            if option_lower == character_dialogue_lower:
+                continue
+            
+            # 2. 高度相似（降低阈值到70%，更严格）
+            similarity = self._calculate_similarity(option_lower, character_dialogue_lower)
+            if similarity > 0.7:
+                continue
+            
+            # 3. 包含角色对话的主要内容（降低阈值到40%，更严格）
+            if self._has_significant_overlap(option_lower, character_dialogue_lower, threshold=0.4):
+                continue
+            
+            # 4. 检查是否包含角色对话中的关键短语（新增，更严格）
+            if len(character_words) > 0:
+                option_words = set(option_lower.split())
+                # 如果选项中有超过30%的词汇来自角色对话，则过滤
+                common_words = option_words.intersection(character_words)
+                if len(common_words) > 0 and len(common_words) / len(option_words) > 0.3:
+                    continue
+            
+            # 5. 检查是否以相同的方式开头或结尾（新增）
+            if len(character_dialogue_lower) > 5 and len(option_lower) > 5:
+                # 检查前3个词或后3个词是否相同
+                char_start = ' '.join(character_dialogue_lower.split()[:3])
+                char_end = ' '.join(character_dialogue_lower.split()[-3:])
+                option_start = ' '.join(option_lower.split()[:3])
+                option_end = ' '.join(option_lower.split()[-3:])
+                
+                if option_start == char_start or option_end == char_end:
+                    continue
+            
+            filtered.append(option)
+        
+        return filtered
+    
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """计算两个文本的相似度（简单的词汇重叠度）"""
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        if not union:
+            return 0.0
+        
+        return len(intersection) / len(union)
+    
+    def _has_significant_overlap(self, text1: str, text2: str, threshold: float = 0.5) -> bool:
+        """检查两个文本是否有显著重叠（默认超过50%的词汇相同，可调整阈值）"""
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return False
+        
+        intersection = words1.intersection(words2)
+        min_len = min(len(words1), len(words2))
+        
+        if min_len == 0:
+            return False
+        
+        overlap_ratio = len(intersection) / min_len
+        return overlap_ratio > threshold
+    
+    def _supplement_options(self, options: List[str], character_dialogue: str, 
+                           story_background: str, previous_dialogues: List[str]) -> List[str]:
+        """补充选项，确保有3个不重复的选项"""
+        # 如果选项不足，生成补充选项
+        needed = 3 - len(options)
+        
+        if needed <= 0:
+            return options
+        
+        # 生成补充选项的提示词
+        previous_context = "\n".join(previous_dialogues[-2:]) if previous_dialogues else "这是第一轮对话。"
+        
+        supplement_prompt = f"""请生成{needed}个玩家回复选项，要求：
+1. 每个选项10-25字
+2. 必须回应角色的话："{character_dialogue}"
+3. 必须基于故事背景：{story_background[:100]}
+4. 必须考虑历史对话：{previous_context}
+5. 【禁止】绝对不要重复角色说的话
+6. 【禁止】绝对不要使用角色的表达方式
+7. 【禁止】选项内容必须与角色对话完全不同
+8. 【隔离】玩家选项和角色对话必须完全隔离
+9. 只输出选项内容，每行一个
+
+补充选项："""
+        
+        try:
+            if self.enabled:
+                response = Generation.call(
+                    model=config.DASHSCOPE_MODEL,
+                    prompt=supplement_prompt,
+                    max_tokens=100,
+                    temperature=0.9
+                )
+                
+                if response.status_code == 200:
+                    supplement_text = response.output.text.strip()
+                    supplement_options = self._parse_options(supplement_text)
+                    # 过滤重复
+                    supplement_options = self._filter_duplicate_options(supplement_options, character_dialogue)
+                    # 添加到现有选项
+                    options.extend(supplement_options[:needed])
+        except Exception as e:
+            print(f"[警告] 补充选项生成失败: {e}")
+        
+        # 如果还是不足，使用默认选项
+        while len(options) < 3:
+            if len(options) == 0:
+                options.append("我明白了")
+            elif len(options) == 1:
+                options.append("继续")
+            else:
+                options.append("好的")
+        
+        return options[:3]
+    
+    def _fallback_story(self, previous_events: List[str], current_context: str) -> str:
+        """回退的故事生成"""
+        if previous_events:
+            return f"基于过往的经历，{previous_events[0][:200]}..."
+        return f"这是一个新的开始。{current_context}"
+    
+    def _fallback_dialogue(self, character_info: Dict, state_values: Dict) -> str:
+        """回退的对话生成"""
+        personality = character_info.get('personality', '')
+        favorability = state_values.get('favorability', 0)
+        
+        if favorability > 60:
+            tone = "友好地"
+        elif favorability < 20:
+            tone = "冷淡地"
+        else:
+            tone = "平静地"
+        
+        return f"角色{tone}说道：\"...\""
+    
+    def _fallback_options(self) -> List[Dict]:
+        """回退的选项生成"""
+        import random
+        return [
+            {
+                'id': 1,
+                'text': '积极回应',
+                'type': 'increase',
+                'state_changes': {
+                    'favorability': random.uniform(5, 15),
+                    'trust': random.uniform(3, 10),
+                    'happiness': random.uniform(5, 12)
+                }
+            },
+            {
+                'id': 2,
+                'text': '保持距离',
+                'type': 'neutral',
+                'state_changes': {}
+            },
+            {
+                'id': 3,
+                'text': '消极回应',
+                'type': 'decrease',
+                'state_changes': {
+                    'favorability': random.uniform(-10, -5),
+                    'trust': random.uniform(-8, -3),
+                    'happiness': random.uniform(-10, -5)
+                }
+            }
+        ]
+
