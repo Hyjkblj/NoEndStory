@@ -83,13 +83,21 @@ export interface CreateCharacterRequest {
   initial_scene_prompt?: string;
 }
 
-// 创建角色
+// 创建角色（包含AI图片生成，需要较长超时时间）
 export const createCharacter = async (data: CreateCharacterRequest) => {
   try {
-    const response = await api.post('/v1/characters/create', data);
+    // 创建角色接口包含AI图片生成（组图3张），需要更长的超时时间
+    // 设置180秒（3分钟）超时，确保有足够时间生成图片
+    const response = await api.post('/v1/characters/create', data, {
+      timeout: 180000,  // 180秒（3分钟），足够生成3张组图
+    });
     return response;
   } catch (error: any) {
     console.error('创建角色失败:', error);
+    // 如果是超时错误，提供更友好的错误提示
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('创建角色超时，图片生成可能需要更长时间，请稍后重试');
+    }
     throw error;
   }
 };

@@ -224,7 +224,10 @@ function CharacterSetting() {
         style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
       };
 
-      // 发送JSON数据到后端服务器
+      // 更新加载消息，提示用户图片生成需要时间
+      setLoadingMessage('正在生成角色图片（3张组图），这可能需要1-3分钟，请耐心等待...');
+      
+      // 发送JSON数据到后端服务器（包含AI图片生成，超时时间已设置为180秒）
       const response = await createCharacter({
         name: name || '未命名角色',
         appearance: appearanceData,
@@ -245,7 +248,8 @@ function CharacterSetting() {
         appearance: selectedAppearance.length > 0 ? selectedAppearance.map(idx => appearanceOptions[idx]) : [],
         personality: selectedPersonality.length > 0 ? selectedPersonality.map(idx => personalityOptions[idx]) : [],
         style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
-        imageUrl: response.data.image_url, // 从后端响应中获取图片URL
+        imageUrl: response.data.image_url, // 从后端响应中获取图片URL（单张，兼容旧逻辑）
+        image_urls: response.data.image_urls || [], // 组图URL列表（3张图片，供三选一）
         timestamp: Date.now(),
       };
       sessionStorage.setItem('characterData', JSON.stringify(characterData));

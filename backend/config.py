@@ -36,6 +36,14 @@ ZHIPU_API_KEY = os.getenv('ZHIPU_API_KEY', '')  # 智谱AI
 BAIDU_API_KEY = os.getenv('BAIDU_API_KEY', '')  # 百度文心一言
 BAIDU_SECRET_KEY = os.getenv('BAIDU_SECRET_KEY', '')
 
+# 火山引擎配置（仅用于图片生成 - Seedream 4.0-4.5 API）
+# 注意：从.env读取时去除首尾空格，避免配置格式错误
+VOLCENGINE_ARK_API_KEY = os.getenv('VOLCENGINE_ARK_API_KEY', '').strip()  # Bearer Token (ARK API Key)
+VOLCENGINE_REGION = os.getenv('VOLCENGINE_REGION', 'cn-beijing')  # 区域，默认：cn-beijing
+# 图片生成配置
+VOLCENGINE_IMAGE_MODEL = os.getenv('VOLCENGINE_IMAGE_MODEL', 'doubao-seedream-4-5-251128')  # 图片生成模型：doubao-seedream-4-5-251128 或 doubao-seedream-4-0-250828
+VOLCENGINE_IMAGE_SIZE = os.getenv('VOLCENGINE_IMAGE_SIZE', '2K')  # 图片尺寸：2K, 4K, 1024x1024等
+
 # 本地模型配置（Ollama）
 OLLAMA_BASE_URL = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
 OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen:7b')  # 或 chatglm3:6b
@@ -45,4 +53,8 @@ GAME_CONFIG = {
     'max_events': 15,  # 中间事件数量
     'total_events': 17,  # 总事件数（开头1 + 中间15 + 结尾1）
 }
+
+# 图片保存配置
+IMAGE_SAVE_DIR = os.getenv('IMAGE_SAVE_DIR', './images/characters')  # 角色图片保存目录
+IMAGE_SAVE_ENABLED = os.getenv('IMAGE_SAVE_ENABLED', 'true').lower() == 'true'  # 是否启用本地保存
 

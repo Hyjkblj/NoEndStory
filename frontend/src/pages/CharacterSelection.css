@@ -81,10 +81,10 @@
   box-shadow: 0 8px 24px rgba(139, 69, 19, 0.5);
 }
 
-/* 角色图片容器 */
+/* 角色图片容器 - 9:16竖屏比例（适合人物立绘） */
 .character-image-container {
   width: 100%;
-  aspect-ratio: 3 / 4;
+  aspect-ratio: 9 / 16;  /* 9:16竖屏比例，适合人物立绘 */
   background: #000;
   border-radius: 8px;
   overflow: hidden;

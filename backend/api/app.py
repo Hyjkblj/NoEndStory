@@ -2,10 +2,13 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from api.routers import characters, game
 from database.db_manager import DatabaseManager
 import uvicorn
 import logging
+import os
+import config
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +46,25 @@ app.add_middleware(
 # 注册路由
 app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
+
+# 配置静态文件服务（用于提供本地保存的图片）
+try:
+    # 获取图片保存目录
+    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if os.path.isabs(config.IMAGE_SAVE_DIR):
+        images_dir = config.IMAGE_SAVE_DIR
+    else:
+        images_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+    
+    # 确保目录存在
+    os.makedirs(images_dir, exist_ok=True)
+    
+    # 挂载静态文件服务
+    # 访问路径：/static/images/characters/{filename}
+    app.mount("/static/images/characters", StaticFiles(directory=images_dir), name="character_images")
+    logger.info(f"静态文件服务已配置: {images_dir} -> /static/images/characters")
+except Exception as e:
+    logger.warning(f"配置静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
 
 @app.get("/health")

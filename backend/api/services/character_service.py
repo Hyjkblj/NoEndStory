@@ -1,8 +1,9 @@
 """角色服务"""
-from typing import Dict, Any
+from typing import Dict, Any, Optional, List
 from database.db_manager import DatabaseManager
 from game.character_creator import CharacterCreator
 from data.player_choices import GENDER_OPTIONS, APPEARANCE_OPTIONS, PERSONALITY_OPTIONS
+from api.services.image_service import ImageService
 import random
 
 
@@ -12,6 +13,7 @@ class CharacterService:
     def __init__(self):
         self.db_manager = DatabaseManager()
         self.character_creator = CharacterCreator(self.db_manager)
+        self.image_service = ImageService()  # 初始化图片生成服务
     
     def _parse_character_data(self, request_data: Dict[str, Any]) -> Dict[str, str]:
         """解析前端发送的JSON数据，生成完整的人物设定描述
@@ -302,7 +304,112 @@ class CharacterService:
         }
     
     def get_character_images(self, character_id: int) -> list:
-        """获取角色图片列表（当前返回空列表）"""
-        # TODO: 实现图片获取逻辑
-        return []
+        """根据角色ID从本地文件系统获取角色图片列表（根据格式化命名）
+        
+        查找格式：{玩家ID}_{角色ID:04d}_{角色名称}_{状态类型}_v{版本号}_{时间戳}.{扩展名}
+        示例：USER001_0042_Alice_portrait_v1_20241220_143025.jpg
+        
+        Args:
+            character_id: 角色ID
+            
+        Returns:
+            图片URL列表（本地文件路径，通过静态文件服务访问）
+        """
+        try:
+            import os
+            import re
+            import config
+            
+            # 获取保存目录
+            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            if os.path.isabs(config.IMAGE_SAVE_DIR):
+                save_dir = config.IMAGE_SAVE_DIR
+            else:
+                save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+            
+            if not os.path.exists(save_dir):
+                print(f"[信息] 图片保存目录不存在: {save_dir}")
+                return []
+            
+            # 构建匹配模式：查找该角色的所有图片
+            # 格式：{玩家ID}_{角色ID:04d}_{角色名称}_{状态类型}_v{版本号}_{时间戳}.{扩展名}
+            # 或者：{玩家ID}_{角色ID:04d}_{角色名称}_{状态类型}_img{索引}_v{版本号}_{时间戳}.{扩展名}（组图）
+            character_id_str = f"{character_id:04d}"
+            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_[^_]+(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(jpg|jpeg|png|webp)$", re.IGNORECASE)
+            
+            # 查找匹配的文件
+            matching_files = []
+            for filename in os.listdir(save_dir):
+                if pattern.match(filename):
+                    # 构建静态文件URL路径
+                    # 相对路径：/static/images/characters/{filename}
+                    static_url = f"/static/images/characters/{filename}"
+                    matching_files.append(static_url)
+            
+            # 按文件名排序（最新的在前）
+            matching_files.sort(reverse=True)
+            
+            if matching_files:
+                print(f"[信息] 找到角色 {character_id} 的 {len(matching_files)} 张本地图片")
+            else:
+                print(f"[信息] 未找到角色 {character_id} 的本地图片")
+            
+            return matching_files
+            
+        except Exception as e:
+            print(f"[错误] 获取角色本地图片失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return []
+    
+    def generate_character_image_prompt(self, request_data: Dict[str, Any], generate_group: bool = True, group_count: int = 3) -> str:
+        """生成角色图片的prompt
+        
+        Args:
+            request_data: 前端发送的角色创建请求数据
+            generate_group: 是否生成组图（默认：True）
+            group_count: 组图数量（默认：3）
+            
+        Returns:
+            专业的中文图片生成prompt
+        """
+        return self.image_service.generate_character_image_prompt(request_data, generate_group, group_count)
+    
+    def generate_character_image(self, request_data: Dict[str, Any], character_id: Optional[int] = None,
+                                 user_id: Optional[str] = None, image_type: str = 'portrait',
+                                 generate_group: bool = True, group_count: int = 3) -> Optional[List[str]]:
+        """生成角色图片（支持组图，供前端三选一）
+        
+        Args:
+            request_data: 前端发送的角色创建请求数据
+            character_id: 角色ID（可选）
+            user_id: 玩家ID（可选，用于文件命名）
+            image_type: 图片类型（portrait=立绘, avatar=头像，默认：portrait）
+            generate_group: 是否生成组图（默认：True，生成3张图片供前端选择）
+            group_count: 组图数量（默认：3）
+            
+        Returns:
+            图片URL列表，如果失败返回None
+        """
+        return self.image_service.generate_character_image_by_data(
+            request_data, character_id, user_id, image_type, generate_group, group_count
+        )
+    
+    def generate_scene_image(self, scene_data: Dict[str, Any], user_id: Optional[str] = None) -> Optional[str]:
+        """生成场景图片
+        
+        Args:
+            scene_data: 场景数据，包含：
+                - scene_id: 场景ID（如'school', 'library'等）
+                - scene_name: 场景名称（可选）
+                - scene_description: 场景描述（可选）
+                - atmosphere: 氛围描述（可选）
+                - time_of_day: 时间（如'白天', '夜晚'等，可选）
+                - weather: 天气（如'晴天', '雨天'等，可选）
+            user_id: 玩家ID（可选，用于文件命名）
+            
+        Returns:
+            图片URL，如果失败返回None
+        """
+        return self.image_service.generate_scene_image(scene_data, None, user_id)
 

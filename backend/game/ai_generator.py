@@ -30,6 +30,7 @@ class AIGenerator:
             self.enabled = False
             print("[警告] 未配置DASHSCOPE_API_KEY，将使用规则生成")
     
+    
     def generate_story_background(self, character_id: int, previous_events: List[str], 
                                   current_context: str) -> str:
         """生成故事背景文本

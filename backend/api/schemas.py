@@ -21,6 +21,8 @@ class CreateCharacterRequest(BaseModel):
     identity: Optional[str] = Field(None, description="身份（可选）")
     initial_scene: Optional[str] = Field(None, description="初始场景（可选）")
     initial_scene_prompt: Optional[str] = Field(None, description="初始场景提示（可选）")
+    user_id: Optional[str] = Field(None, description="玩家ID（可选，用于图片文件命名）")
+    image_type: Optional[str] = Field('portrait', description="图片类型（portrait=立绘, avatar=头像, scene=场景图，默认：portrait）")
 
 
 class CharacterResponse(BaseModel):
@@ -34,6 +36,7 @@ class CharacterResponse(BaseModel):
     age: Optional[int] = None
     identity: Optional[str] = None
     initial_scene: Optional[str] = None
+    image_urls: Optional[List[str]] = Field(None, description="角色图片URL列表（组图，供前端三选一）")
 
 
 class GameInitRequest(BaseModel):
