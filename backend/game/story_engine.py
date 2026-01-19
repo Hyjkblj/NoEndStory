@@ -1,5 +1,6 @@
 """剧情推进引擎"""
 import random
+import os
 from typing import Dict, List
 from data.scenes import SCENES, SCENE_DERIVATIONS
 from game.event_generator import EventGenerator
@@ -26,8 +27,36 @@ class StoryEngine:
         if not scene:
             raise ValueError(f"场景 {scene_id} 不存在")
         
-        opening_events = scene['opening_events']
+        # 如果场景没有定义opening_events，使用默认的初遇事件
+        opening_events = scene.get('opening_events', [{
+            'id': f'{scene_id}_meet',
+            'title': f'在{scene.get("name", scene_id)}初遇',
+            'description': f'在{scene.get("name", scene_id)}中，你们第一次相遇'
+        }])
+        
+        if not opening_events:
+            # 如果opening_events为空，创建一个默认事件
+            opening_events = [{
+                'id': f'{scene_id}_meet',
+                'title': f'在{scene.get("name", scene_id)}初遇',
+                'description': f'在{scene.get("name", scene_id)}中，你们第一次相遇'
+            }]
+        
         selected_event = random.choice(opening_events)
+        
+        # 检查事件ID是否对应一个场景（用于场景图片显示）
+        # 例如：school场景的opening_events中，cafeteria事件ID对应cafeteria场景
+        event_scene_id = scene_id  # 默认使用传入的场景ID
+        event_id = selected_event['id']
+        
+        # 如果事件ID在SCENES中存在，且该场景有图片，使用事件ID作为场景ID
+        # 这样可以解决school场景没有图片，但cafeteria事件可以使用cafeteria场景图片的问题
+        if event_id in SCENES:
+            # 检查该场景是否有图片文件（通过检查是否在SCENE_DERIVATIONS中，或直接使用）
+            # 为了简化，如果事件ID是场景ID，且不是school，则使用事件ID作为场景ID
+            if event_id != 'school' and event_id in SCENES:
+                event_scene_id = event_id
+                print(f"[初遇事件] 事件ID {event_id} 对应场景 {event_id}，使用该场景的图片")
         
         # 生成事件（包含故事背景）
         event = self.event_generator.generate_event(
@@ -39,9 +68,16 @@ class StoryEngine:
         
         event['title'] = selected_event['title']
         event['event_context'] = selected_event['description']
+        event['scene'] = event_scene_id  # 使用事件对应的场景ID（如果有），否则使用传入的场景ID
+        event['original_scene'] = scene_id  # 保存原始选择的场景ID
         self.current_event_count = 1
         self.current_event = event
         self.dialogue_history = []  # 重置对话历史
+        
+        # 更新当前场景为事件对应的场景（如果有）
+        if event_scene_id != scene_id:
+            print(f"[初遇事件] 场景从 {scene_id} 切换到 {event_scene_id}（基于事件ID）")
+            self.current_scene = event_scene_id
         
         return event
     
@@ -89,6 +125,65 @@ class StoryEngine:
             scene_name = SCENES.get(next_scene, {}).get('name', next_scene)
             print(f"[场景切换] 从 {SCENES.get(self.current_scene, {}).get('name', self.current_scene)} 切换到 {scene_name}")
             self.current_scene = next_scene
+            
+            # 场景切换时生成场景图片并合成
+            try:
+                from api.services.image_service import ImageService
+                image_service = ImageService()
+                if image_service.enabled:
+                    scene_info = SCENES.get(next_scene, {})
+                    scene_data = {
+                        'scene_id': next_scene,
+                        'scene_name': scene_info.get('name', next_scene),
+                        'scene_description': scene_info.get('description', '')
+                    }
+                    print(f"[场景切换] 正在生成场景图片: {scene_name}")
+                    scene_image_url = image_service.generate_scene_image(scene_data, next_scene)
+                    if scene_image_url:
+                        print(f"[场景切换] 场景图片生成成功: {scene_image_url}")
+                        
+                        # 尝试合成场景图和人物图
+                        try:
+                            # 获取角色最新的图片路径
+                            character_image_path = image_service.get_latest_character_image_path(character_id)
+                            if character_image_path:
+                                print(f"[场景切换] 找到角色图片: {character_image_path}")
+                                
+                                # 获取场景图片路径（优先使用本地保存的路径）
+                                scene_image_path = image_service.get_latest_scene_image_path(next_scene)
+                                if not scene_image_path:
+                                    # 如果本地没有，使用URL（会先下载）
+                                    scene_image_path = scene_image_url
+                                
+                                # 合成图片
+                                print(f"[场景切换] 正在合成场景图和人物图...")
+                                composite_path = image_service.composite_scene_with_character(
+                                    scene_image_path=scene_image_path,
+                                    character_image_path=character_image_path,
+                                    character_id=character_id,
+                                    scene_id=next_scene,
+                                    user_id=None  # 可以从session中获取user_id
+                                )
+                                
+                                if composite_path:
+                                    # 构建静态文件URL
+                                    filename = os.path.basename(composite_path)
+                                    composite_url = f"/static/images/composite/{filename}"
+                                    print(f"[场景切换] 合成图片成功: {composite_url}")
+                                else:
+                                    print(f"[场景切换] 合成图片失败")
+                            else:
+                                print(f"[场景切换] 未找到角色图片，跳过合成")
+                        except Exception as e:
+                            print(f"[警告] 图片合成过程出错: {e}")
+                            import traceback
+                            print(traceback.format_exc())
+                    else:
+                        print(f"[场景切换] 场景图片生成失败或未启用")
+            except Exception as e:
+                print(f"[警告] 场景切换时生成图片失败: {e}")
+                import traceback
+                print(traceback.format_exc())
         
         event_id = f"middle_event_{event_number}"
         

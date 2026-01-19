@@ -20,22 +20,31 @@ game_service = GameService()
 async def init_game(request: GameInitRequest):
     """初始化游戏"""
     try:
+        print(f"[游戏初始化] 收到初始化请求: user_id={request.user_id}, character_id={request.character_id}, game_mode={request.game_mode}")
+        
         character_id = None
         if request.character_id:
             character_id = int(request.character_id)
         else:
+            print("[游戏初始化] 错误: character_id is required")
             return error_response(code=400, message="character_id is required")
         
+        print(f"[游戏初始化] 开始初始化游戏会话...")
         result = game_service.init_game(
             user_id=request.user_id,
             character_id=character_id,
             game_mode=request.game_mode
         )
         
+        print(f"[游戏初始化] 游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
         return success_response(data=result)
     except ValueError as e:
+        print(f"[游戏初始化] 参数错误: {str(e)}")
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
+        print(f"[游戏初始化] 初始化失败: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return error_response(code=500, message=f"初始化游戏失败: {str(e)}")
 
 

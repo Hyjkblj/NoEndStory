@@ -87,8 +87,17 @@ class InitializeStoryRequest(BaseModel):
     """初始化故事请求"""
     thread_id: str = Field(..., description="线程ID")
     character_id: str = Field(..., description="角色ID")
+    scene_id: Optional[str] = Field('school', description="初遇场景ID（可选，默认：school）")
+    character_image_url: Optional[str] = Field(None, description="用户选择的角色图片URL（可选，如果不提供则使用最新图片）")
 
 
 class CharacterImagesResponse(BaseModel):
     """角色图片响应"""
     images: List[str] = Field(default_factory=list, description="图片URL数组")
+
+
+class RemoveBackgroundRequest(BaseModel):
+    """去除背景请求"""
+    image_url: Optional[str] = Field(None, description="图片URL（可选，如果不提供则使用角色最新图片）")
+    image_urls: Optional[List[str]] = Field(None, description="所有图片URL列表（用于删除未选中的图片）")
+    selected_index: Optional[int] = Field(None, description="选中的图片索引（0, 1, 2）")

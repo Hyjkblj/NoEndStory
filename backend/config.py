@@ -56,5 +56,7 @@ GAME_CONFIG = {
 
 # 图片保存配置
 IMAGE_SAVE_DIR = os.getenv('IMAGE_SAVE_DIR', './images/characters')  # 角色图片保存目录
+SCENE_IMAGE_SAVE_DIR = os.getenv('SCENE_IMAGE_SAVE_DIR', './images/scenes')  # 场景图片保存目录
+COMPOSITE_IMAGE_SAVE_DIR = os.getenv('COMPOSITE_IMAGE_SAVE_DIR', './images/composite')  # 合成图片保存目录（场景+人物）
 IMAGE_SAVE_ENABLED = os.getenv('IMAGE_SAVE_ENABLED', 'true').lower() == 'true'  # 是否启用本地保存
 

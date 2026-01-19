@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, message } from 'antd';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import LoadingScreen from '@/components/loading';
-import { checkServerHealth, getCharacterImages } from '@/services/api';
+import { checkServerHealth, getCharacterImages, removeCharacterBackground } from '@/services/api';
 import './CharacterSelection.css';
 
 interface CharacterOption {
@@ -126,10 +126,10 @@ function CharacterSelection() {
         sessionStorage.setItem('characterData', JSON.stringify(characterData));
       }
       
-      // 直接跳转到下一页面（按下CHOICE按钮即为选择）
+      // 开始处理流程
       try {
         setLoading(true);
-        setLoadingMessage('正在跳转...');
+        setLoadingMessage('正在检查服务器连接...');
         
         // 检查后端服务是否可用
         const isHealthy = await checkServerHealth();
@@ -140,8 +140,47 @@ function CharacterSelection() {
           return;
         }
 
-        // 跳转到初遇场景选择页面
-        navigate('/firstmeeting');
+        // 使用rembg去除背景（高质量处理）
+        setLoadingMessage('正在使用AI去除图片背景...');
+        try {
+          // 传递所有图片URL和选中的索引，用于删除未选中的图片
+          const bgRemovalResponse = await removeCharacterBackground(
+            characterId, 
+            selectedImageUrl,
+            character.imageUrls,  // 所有图片URL列表
+            imageIndex  // 选中的图片索引
+          );
+          
+          if (bgRemovalResponse.data?.transparent_url) {
+            // 保存透明背景图片URL
+            const characterDataStr = sessionStorage.getItem('characterData');
+            if (characterDataStr) {
+              const characterData = JSON.parse(characterDataStr);
+              characterData.transparentImageUrl = bgRemovalResponse.data.transparent_url;
+              characterData.originalImageUrl = selectedImageUrl;
+              sessionStorage.setItem('characterData', JSON.stringify(characterData));
+            }
+            
+            setLoadingMessage('背景去除完成，正在跳转...');
+            // 短暂延迟，让用户看到完成消息
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            // 跳转到初遇场景选择页面
+            navigate('/firstmeeting');
+          } else {
+            message.warning('背景去除完成，但未获取到透明图片URL');
+            setLoadingMessage('正在跳转...');
+            await new Promise(resolve => setTimeout(resolve, 500));
+            navigate('/firstmeeting');
+          }
+        } catch (bgError: any) {
+          console.error('去除背景失败:', bgError);
+          // 即使背景去除失败，也继续流程（使用原图）
+          message.warning('背景去除失败，将使用原图继续');
+          setLoadingMessage('正在跳转...');
+          await new Promise(resolve => setTimeout(resolve, 500));
+          navigate('/firstmeeting');
+        }
       } catch (error) {
         console.error('选择角色失败:', error);
         message.error('选择角色失败，请稍后重试');

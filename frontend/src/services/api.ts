@@ -124,16 +124,63 @@ export const getCharacterImages = async (characterId: string) => {
   }
 };
 
+// 去除角色图片背景（使用rembg高质量模型）
+export interface RemoveBackgroundRequest {
+  image_url?: string;  // 可选，如果不提供则使用角色最新图片
+}
+
+export interface RemoveBackgroundResponse {
+  original_url: string;
+  transparent_url: string;
+  local_path: string;
+}
+
+export const removeCharacterBackground = async (characterId: string, imageUrl?: string, imageUrls?: string[], selectedIndex?: number) => {
+  try {
+    // 去除背景可能需要较长时间，设置更长超时（60秒）
+    const response = await api.post<RemoveBackgroundResponse>(
+      `/v1/characters/${characterId}/remove-background`,
+      { 
+        image_url: imageUrl,
+        image_urls: imageUrls,
+        selected_index: selectedIndex
+      },
+      { timeout: 60000 }  // 60秒超时
+    );
+    return response;
+  } catch (error: any) {
+    console.error('去除背景失败:', error);
+    // 如果是超时错误，提供更友好的错误提示
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('去除背景超时，处理可能需要更长时间，请稍后重试');
+    }
+    throw error;
+  }
+};
+
 // 初始化故事（触发初遇场景）
-export const initializeStory = async (threadId: string, characterId: string) => {
+export const initializeStory = async (threadId: string, characterId: string, sceneId?: string, characterImageUrl?: string) => {
   try {
     const response = await api.post('/v1/characters/initialize-story', {
       thread_id: threadId,
       character_id: characterId,
+      scene_id: sceneId || 'school',  // 默认使用school场景
+      character_image_url: characterImageUrl,  // 用户选择的角色图片URL（透明背景）
     });
     return response;
   } catch (error: any) {
     console.error('初始化故事失败:', error);
+    throw error;
+  }
+};
+
+// 获取场景列表
+export const getScenes = async () => {
+  try {
+    const response = await api.get('/v1/characters/scenes');
+    return response;
+  } catch (error: any) {
+    console.error('获取场景列表失败:', error);
     throw error;
   }
 };
@@ -155,13 +202,20 @@ export interface GameInputRequest {
   character_id?: string;  // 用于会话恢复
 }
 
-// 初始化游戏
+// 初始化游戏（可能需要较长时间，设置更长超时）
 export const initGame = async (data: GameInitRequest) => {
   try {
-    const response = await api.post('/v1/game/init', data);
+    // 初始化游戏可能涉及AI生成，需要更长的超时时间
+    const response = await api.post('/v1/game/init', data, {
+      timeout: 60000,  // 60秒超时
+    });
     return response;
   } catch (error: any) {
     console.error('初始化游戏失败:', error);
+    // 如果是超时错误，提供更友好的错误提示
+    if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      throw new Error('初始化游戏超时，请检查后端服务是否正常运行');
+    }
     throw error;
   }
 };

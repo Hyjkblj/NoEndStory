@@ -48,23 +48,58 @@ app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
 
 # 配置静态文件服务（用于提供本地保存的图片）
+backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 配置角色图片静态文件服务
 try:
-    # 获取图片保存目录
-    backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if os.path.isabs(config.IMAGE_SAVE_DIR):
-        images_dir = config.IMAGE_SAVE_DIR
+        character_images_dir = config.IMAGE_SAVE_DIR
     else:
-        images_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+        character_images_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
     
     # 确保目录存在
-    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(character_images_dir, exist_ok=True)
     
     # 挂载静态文件服务
     # 访问路径：/static/images/characters/{filename}
-    app.mount("/static/images/characters", StaticFiles(directory=images_dir), name="character_images")
-    logger.info(f"静态文件服务已配置: {images_dir} -> /static/images/characters")
+    app.mount("/static/images/characters", StaticFiles(directory=character_images_dir), name="character_images")
+    logger.info(f"角色图片静态文件服务已配置: {character_images_dir} -> /static/images/characters")
 except Exception as e:
-    logger.warning(f"配置静态文件服务失败: {e}，本地图片将无法通过URL访问")
+    logger.warning(f"配置角色图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+
+# 配置场景图片静态文件服务
+try:
+    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+        scene_images_dir = config.SCENE_IMAGE_SAVE_DIR
+    else:
+        scene_images_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
+    
+    # 确保目录存在
+    os.makedirs(scene_images_dir, exist_ok=True)
+    
+    # 挂载静态文件服务
+    # 访问路径：/static/images/scenes/{filename}
+    app.mount("/static/images/scenes", StaticFiles(directory=scene_images_dir), name="scene_images")
+    logger.info(f"场景图片静态文件服务已配置: {scene_images_dir} -> /static/images/scenes")
+except Exception as e:
+    logger.warning(f"配置场景图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+
+# 配置合成图片静态文件服务
+try:
+    if os.path.isabs(config.COMPOSITE_IMAGE_SAVE_DIR):
+        composite_images_dir = config.COMPOSITE_IMAGE_SAVE_DIR
+    else:
+        composite_images_dir = os.path.join(backend_dir, config.COMPOSITE_IMAGE_SAVE_DIR)
+    
+    # 确保目录存在
+    os.makedirs(composite_images_dir, exist_ok=True)
+    
+    # 挂载静态文件服务
+    # 访问路径：/static/images/composite/{filename}
+    app.mount("/static/images/composite", StaticFiles(directory=composite_images_dir), name="composite_images")
+    logger.info(f"合成图片静态文件服务已配置: {composite_images_dir} -> /static/images/composite")
+except Exception as e:
+    logger.warning(f"配置合成图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
 
 @app.get("/health")

@@ -29,6 +29,22 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     print("[警告] requests未安装，火山引擎图片生成功能将不可用。请运行: pip install requests")
 
+# 尝试导入PIL（用于图片合成）
+try:
+    from PIL import Image, ImageDraw
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+    print("[警告] Pillow未安装，图片合成功能将不可用。请运行: pip install Pillow")
+
+# 尝试导入rembg（用于高质量背景去除）
+try:
+    from rembg import remove, new_session
+    REMBG_AVAILABLE = True
+except ImportError:
+    REMBG_AVAILABLE = False
+    print("[警告] rembg未安装，高质量背景去除功能将不可用。请运行: pip install rembg")
+
 
 class ImageService:
     """AI图片生成服务"""
@@ -78,6 +94,132 @@ class ImageService:
         
         if not self.enabled:
             print("[警告] 所有图片生成服务均不可用，请配置至少一个服务")
+        
+        # 初始化rembg会话（使用isnet-general-use模型）
+        self.rembg_session = None
+        if REMBG_AVAILABLE:
+            try:
+                # 使用isnet-general-use模型（高质量通用模型）
+                self.rembg_session = new_session('isnet-general-use')
+                print("[信息] rembg背景去除服务已初始化 - 使用模型: isnet-general-use")
+            except Exception as e:
+                print(f"[警告] rembg会话初始化失败: {e}")
+                self.rembg_session = None
+    
+    def remove_background_with_rembg(self, image_path: str, output_path: Optional[str] = None, 
+                                     character_id: Optional[int] = None, 
+                                     rename_to_standard: bool = False) -> Optional[str]:
+        """使用rembg的isnet-general-use模型去除图片背景（高质量）
+        
+        Args:
+            image_path: 输入图片路径（本地文件路径或URL）
+            output_path: 输出图片路径（可选，如果不提供则自动生成）
+            character_id: 角色ID（用于文件命名）
+            
+        Returns:
+            处理后的图片路径（PNG格式，透明背景），如果失败返回None
+        """
+        if not REMBG_AVAILABLE:
+            print("[警告] rembg未安装，无法使用高质量背景去除")
+            return None
+        
+        if not PIL_AVAILABLE:
+            print("[警告] Pillow未安装，无法处理图片")
+            return None
+        
+        if not self.rembg_session:
+            print("[警告] rembg会话未初始化，无法去除背景")
+            return None
+        
+        try:
+            from io import BytesIO
+            import requests
+            
+            # 读取输入图片
+            input_bytes = None
+            if image_path.startswith('http://') or image_path.startswith('https://'):
+                # 从URL下载
+                response = requests.get(image_path, timeout=30)
+                if response.status_code == 200:
+                    input_bytes = response.content
+                else:
+                    print(f"[警告] 下载图片失败: HTTP {response.status_code}")
+                    return None
+            else:
+                # 本地文件路径
+                if os.path.exists(image_path):
+                    with open(image_path, 'rb') as f:
+                        input_bytes = f.read()
+                else:
+                    print(f"[警告] 图片文件不存在: {image_path}")
+                    return None
+            
+            # 使用rembg去除背景
+            print(f"[背景去除] 开始处理图片: {image_path}")
+            output_bytes = remove(input_bytes, session=self.rembg_session)
+            
+            # 确定输出路径
+            if not output_path:
+                # 自动生成输出路径（使用角色图片保存目录）
+                # 处理相对路径和绝对路径
+                if os.path.isabs(config.IMAGE_SAVE_DIR):
+                    base_dir = config.IMAGE_SAVE_DIR
+                else:
+                    base_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+                
+                if character_id:
+                    if rename_to_standard:
+                        # 重命名为标准格式：{玩家ID}_{角色ID:04d}_{角色名称}_portrait_v{版本号}_{时间戳}.png
+                        # 获取角色信息
+                        character_info = self._get_character_info(character_id)
+                        character_name = character_info.get('name', f'角色{character_id}')
+                        safe_name = re.sub(r'[<>:"/\\|?*\s]', '_', character_name).strip()
+                        if not safe_name:
+                            safe_name = '角色'
+                        
+                        # 使用UNKNOWN作为默认用户ID（与_save_image_to_local保持一致）
+                        safe_user_id = 'UNKNOWN'
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        
+                        # 构建标准文件名（不包含_img索引，因为这是唯一图片）
+                        base_filename = f"{safe_user_id}_{character_id:04d}_{safe_name}_portrait"
+                        
+                        # 确定版本号
+                        version = self._get_next_version(base_dir, base_filename, '.png')
+                        
+                        # 完整文件名（标准格式）
+                        filename = f"{base_filename}_v{version}_{timestamp}.png"
+                        output_path = os.path.join(base_dir, filename)
+                        print(f"[背景去除] 将重命名为标准格式: {filename}")
+                    else:
+                        # 使用原始文件名加_transparent后缀
+                        base_name = os.path.splitext(os.path.basename(image_path))[0]
+                        # 移除URL参数（如果有）
+                        base_name = base_name.split('?')[0]
+                        # 添加_transparent后缀
+                        base_name = f"{base_name}_transparent"
+                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                        output_path = os.path.join(base_dir, f"{base_name}_{timestamp}.png")
+                else:
+                    # 使用时间戳
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    output_path = os.path.join(base_dir, f"removed_bg_{timestamp}.png")
+            
+            # 确保输出目录存在
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            
+            # 保存处理后的图片
+            with open(output_path, 'wb') as f:
+                f.write(output_bytes)
+            
+            print(f"[背景去除] 背景去除完成，保存到: {output_path}")
+            return output_path
+            
+        except Exception as e:
+            print(f"[错误] 背景去除失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
     
     def generate_character_image_prompt(self, request_data: Dict[str, Any], generate_group: bool = True, group_count: int = 3) -> str:
         """根据前端接收的人物设定数据生成完整的图片生成prompt
@@ -181,7 +323,8 @@ class ImageService:
             '8k分辨率',
             '柔和光线',
             '细腻笔触',
-            '透明背景',
+            '纯白背景',
+            '白色背景',
             'PNG格式'
         ]
         prompt_parts.extend(quality_parts)
@@ -189,9 +332,7 @@ class ImageService:
         # 组合成完整的prompt（用逗号分隔，自然流畅的描述性文本）
         prompt = '，'.join(prompt_parts)
         
-        # 如果启用组图生成，在提示词末尾添加组图指令
-        if generate_group and group_count > 1:
-            prompt += f'，返回一组图，一组为{group_count}张'
+        # 不再在prompt中添加组图指令，改为通过多次API调用来生成组图
         
         return prompt
     
@@ -208,7 +349,7 @@ class ImageService:
                 - weather: 天气（如'晴天', '雨天'等，可选）
             
         Returns:
-            专业的中文场景图片生成prompt（简洁描述性文本，适合豆包Seedream模型）
+            专业的中文场景图片生成prompt（格式：生成一个XXX场景图片 二次元写实画风 图中无人物）
         """
         scene_id = scene_data.get('scene_id', '')
         scene_name = scene_data.get('scene_name', '')
@@ -228,52 +369,26 @@ class ImageService:
             except:
                 scene_name = scene_id
         
-        # 构建prompt描述部分
-        prompt_parts = []
+        # 构建场景描述（优先使用场景名称，如果没有则使用场景描述）
+        scene_desc = scene_name if scene_name else (scene_description if scene_description else scene_id)
         
-        # 1. 场景基础信息
-        scene_desc_parts = []
+        # 构建完整的prompt（按照用户要求的格式）
+        prompt = f"生成一个{scene_desc}场景图片"
         
-        if scene_name:
-            scene_desc_parts.append(scene_name)
-        
-        if scene_description:
-            scene_desc_parts.append(scene_description)
-        
-        if scene_desc_parts:
-            prompt_parts.append('，'.join(scene_desc_parts))
-        
-        # 2. 时间和天气（影响场景氛围）
-        time_weather_parts = []
+        # 添加时间和天气信息（如果有）
+        additional_info = []
         if time_of_day:
-            time_weather_parts.append(time_of_day)
+            additional_info.append(time_of_day)
         if weather:
-            time_weather_parts.append(weather)
-        if time_weather_parts:
-            prompt_parts.append('，'.join(time_weather_parts))
-        
-        # 3. 氛围描述
+            additional_info.append(weather)
         if atmosphere:
-            prompt_parts.append(f'氛围{atmosphere}')
+            additional_info.append(f"氛围{atmosphere}")
         
-        # 4. 图片质量和技术要求（场景图不需要透明背景）
-        quality_parts = [
-            '二次元动漫风格',
-            '高质量场景图',
-            '全景视角',
-            '细节丰富',
-            '精美插画',
-            '专业画质',
-            '8k分辨率',
-            '柔和光线',
-            '细腻笔触',
-            '自然背景',
-            '环境氛围感强'
-        ]
-        prompt_parts.extend(quality_parts)
+        if additional_info:
+            prompt += f"，{''.join(additional_info)}"
         
-        # 组合成完整的prompt
-        prompt = '，'.join(prompt_parts)
+        # 添加固定的风格和要求
+        prompt += "，二次元写实画风，图中无人物"
         
         return prompt
     
@@ -320,7 +435,7 @@ class ImageService:
         """使用火山引擎Seedream 4.0-4.5 API生成图片（支持组图）
         
         Args:
-            prompt: 图片生成prompt
+            prompt: 图片生成prompt（基础prompt，会根据组图需求添加变体）
             character_id: 角色ID（可选）
             user_id: 玩家ID（可选，用于文件命名）
             image_type: 图片类型（portrait=立绘, avatar=头像）
@@ -333,9 +448,10 @@ class ImageService:
         try:
             if generate_group:
                 print(f"[AI生图] 正在使用火山引擎Seedream生成角色组图 (角色ID: {character_id}, 数量: {group_count}, 比例: 9:16, 无水印)")
+                print(f"[AI生图] 将调用 {group_count} 次API生成 {group_count} 张不同变体的图片")
             else:
                 print(f"[AI生图] 正在使用火山引擎Seedream生成角色图片 (角色ID: {character_id}, 比例: 9:16, 无水印)")
-            print(f"[AI生图] Prompt: {prompt[:100]}...")
+            print(f"[AI生图] 基础Prompt: {prompt[:100]}...")
             
             # 构建请求头
             headers = {
@@ -343,84 +459,153 @@ class ImageService:
                 "Content-Type": "application/json"
             }
             
-            # 构建请求体
             # 人物图片使用9:16竖屏比例（适合人物立绘）
-            # 火山引擎API支持格式：9:16（比例）或 1080x1920（具体像素）
-            # 使用"9:16"比例，API会自动选择合适的分辨率
-            character_image_size = "9:16"  # 9:16竖屏比例
+            # 火山引擎API要求格式：'WIDTHxHEIGHT'（如 '1440x2560'）或 '1k'、'2k'、'4k'
+            # 最小像素要求：3,686,400 像素（1440x2560 = 3,686,400，正好满足要求）
+            # 使用 1440x2560 分辨率（9:16比例，2K质量）
+            character_image_size = "1440x2560"  # 9:16竖屏比例，2K分辨率（满足最小像素要求）
             
-            payload = {
-                "model": config.VOLCENGINE_IMAGE_MODEL,
-                "prompt": prompt,
-                "size": character_image_size,  # 人物图片固定使用9:16比例
-                "response_format": "url",
-                "watermark": False,  # 不带水印（用户要求）
-                "stream": False  # 非流式输出
-            }
-            
-            # 组图生成已通过提示词实现（在prompt末尾添加"返回一组图 一组为3张"）
-            # 不再使用API的sequential_image_generation参数，直接由提示词控制
-            
-            # 发送请求
-            response = requests.post(
-                self.volcengine_api_url,
-                headers=headers,
-                json=payload,
-                timeout=180  # 组图生成可能需要更长时间
-            )
-            
-            # 检查HTTP状态码
-            if response.status_code != 200:
-                print(f"[警告] 火山引擎API请求失败: HTTP {response.status_code}")
-                print(f"[警告] 响应内容: {response.text[:200]}")
-                return None
-            
-            # 解析响应
-            resp_data = response.json()
-            
-            # 检查是否有错误
-            if 'error' in resp_data:
-                error_info = resp_data['error']
-                error_msg = error_info.get('message', '未知错误')
-                print(f"[警告] 火山引擎图片生成失败: {error_msg}")
-                return None
-            
-            # 提取图片URL列表
-            image_urls = []
-            if 'data' in resp_data and len(resp_data['data']) > 0:
-                # 提取所有图片URL
-                for image_data in resp_data['data']:
-                    image_url = image_data.get('url')
-                    if image_url:
-                        image_urls.append(image_url)
+            # 如果生成组图，循环调用API生成多张不同变体的图片
+            if generate_group and group_count > 1:
+                image_urls = []
                 
+                # 定义每张图片的变体描述（让3张图片有差异）
+                variant_descriptions = [
+                    "正面全身像，微笑表情，自然站立姿势",
+                    "正面全身像，温和表情，优雅姿态",
+                    "正面半身像，自信表情，手部动作"
+                ]
+                
+                # 如果组图数量超过预定义的变体数量，循环使用
+                for i in range(group_count):
+                    variant_idx = i % len(variant_descriptions)
+                    variant_desc = variant_descriptions[variant_idx]
+                    
+                    # 为每张图片构建独特的prompt
+                    variant_prompt = f"{prompt}，{variant_desc}"
+                    
+                    print(f"[AI生图] 正在生成第 {i + 1}/{group_count} 张图片...")
+                    print(f"[AI生图] 变体Prompt: {variant_prompt[:120]}...")
+                    
+                    # 构建请求体
+                    payload = {
+                        "model": config.VOLCENGINE_IMAGE_MODEL,
+                        "prompt": variant_prompt,
+                        "size": character_image_size,
+                        "response_format": "url",
+                        "watermark": False,  # 不带水印（用户要求）
+                        "stream": False  # 非流式输出
+                    }
+                    
+                    # 发送请求
+                    response = requests.post(
+                        self.volcengine_api_url,
+                        headers=headers,
+                        json=payload,
+                        timeout=120  # 单张图片生成超时时间
+                    )
+                    
+                    # 检查HTTP状态码
+                    if response.status_code != 200:
+                        print(f"[警告] 第 {i + 1} 张图片生成失败: HTTP {response.status_code}")
+                        print(f"[警告] 响应内容: {response.text[:200]}")
+                        continue  # 继续生成下一张
+                    
+                    # 解析响应
+                    resp_data = response.json()
+                    
+                    # 检查是否有错误
+                    if 'error' in resp_data:
+                        error_info = resp_data['error']
+                        error_msg = error_info.get('message', '未知错误')
+                        print(f"[警告] 第 {i + 1} 张图片生成失败: {error_msg}")
+                        continue  # 继续生成下一张
+                    
+                    # 提取图片URL
+                    if 'data' in resp_data and len(resp_data['data']) > 0:
+                        image_data = resp_data['data'][0]  # 每次调用只生成一张图片
+                        image_url = image_data.get('url')
+                        if image_url:
+                            image_urls.append(image_url)
+                            print(f"[AI生图] 第 {i + 1} 张图片生成成功: {image_url}")
+                            
+                            # 保存图片到本地（如果启用）
+                            if config.IMAGE_SAVE_ENABLED and character_id:
+                                local_path = self._save_image_to_local(
+                                    image_url, character_id, user_id, image_type,
+                                    image_index=i + 1  # 图片索引（1, 2, 3）
+                                )
+                                if local_path:
+                                    print(f"[AI生图] 第 {i + 1} 张图片已保存到本地: {local_path}")
+                        else:
+                            print(f"[警告] 第 {i + 1} 张图片响应中未找到URL")
+                    else:
+                        print(f"[警告] 第 {i + 1} 张图片响应中未找到data字段")
+                
+                # 检查是否成功生成了至少一张图片
                 if image_urls:
-                    print(f"[AI生图] 图片生成成功: 共生成 {len(image_urls)} 张图片")
-                    for i, url in enumerate(image_urls, 1):
-                        print(f"[AI生图] 图片 {i}: {url}")
-                    
-                    # 保存图片到本地（如果启用）- 人物图片
-                    if config.IMAGE_SAVE_ENABLED and character_id:
-                        for idx, image_url in enumerate(image_urls):
-                            local_path = self._save_image_to_local(
-                                image_url, character_id, user_id, image_type,
-                                image_index=idx + 1  # 图片索引（1, 2, 3）
-                            )
-                            if local_path:
-                                print(f"[AI生图] 图片 {idx + 1} 已保存到本地: {local_path}")
-                    
-                    # TODO: 保存图片URL列表到数据库（关联到character_id）
-                    if character_id:
-                        # self._save_image_urls(character_id, image_urls)
-                        pass
-                    
+                    print(f"[AI生图] 组图生成完成: 成功生成 {len(image_urls)}/{group_count} 张图片")
                     return image_urls
                 else:
-                    print(f"[警告] 响应中未找到图片URL: {resp_data}")
+                    print(f"[警告] 组图生成失败: 未能生成任何图片")
                     return None
             else:
-                print(f"[警告] 响应中未找到data字段或data为空: {resp_data}")
-                return None
+                # 单张图片生成（原有逻辑）
+                payload = {
+                    "model": config.VOLCENGINE_IMAGE_MODEL,
+                    "prompt": prompt,
+                    "size": character_image_size,
+                    "response_format": "url",
+                    "watermark": False,
+                    "stream": False
+                }
+                
+                # 发送请求
+                response = requests.post(
+                    self.volcengine_api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=120
+                )
+                
+                # 检查HTTP状态码
+                if response.status_code != 200:
+                    print(f"[警告] 火山引擎API请求失败: HTTP {response.status_code}")
+                    print(f"[警告] 响应内容: {response.text[:200]}")
+                    return None
+                
+                # 解析响应
+                resp_data = response.json()
+                
+                # 检查是否有错误
+                if 'error' in resp_data:
+                    error_info = resp_data['error']
+                    error_msg = error_info.get('message', '未知错误')
+                    print(f"[警告] 火山引擎图片生成失败: {error_msg}")
+                    return None
+                
+                # 提取图片URL
+                if 'data' in resp_data and len(resp_data['data']) > 0:
+                    image_data = resp_data['data'][0]
+                    image_url = image_data.get('url')
+                    if image_url:
+                        print(f"[AI生图] 图片生成成功: {image_url}")
+                        
+                        # 保存图片到本地（如果启用）
+                        if config.IMAGE_SAVE_ENABLED and character_id:
+                            local_path = self._save_image_to_local(
+                                image_url, character_id, user_id, image_type
+                            )
+                            if local_path:
+                                print(f"[AI生图] 图片已保存到本地: {local_path}")
+                        
+                        return [image_url]
+                    else:
+                        print(f"[警告] 响应中未找到图片URL: {resp_data}")
+                        return None
+                else:
+                    print(f"[警告] 响应中未找到data字段或data为空: {resp_data}")
+                    return None
                 
         except requests.exceptions.RequestException as e:
             print(f"[错误] 火山引擎API请求异常: {e}")
@@ -564,10 +749,15 @@ class ImageService:
             }
             
             # 构建请求体
+            # 场景图片使用16:9比例（2560x1440，满足最小像素要求 3,686,400）
+            # 1920x1080 = 2,073,600 像素（不满足要求）
+            # 2560x1440 = 3,686,400 像素（正好满足最小要求，16:9比例）
+            scene_image_size = "2560x1440"  # 16:9 比例，2K分辨率
+            
             payload = {
                 "model": config.VOLCENGINE_IMAGE_MODEL,
                 "prompt": prompt,
-                "size": config.VOLCENGINE_IMAGE_SIZE,
+                "size": scene_image_size,  # 场景图片固定为16:9，2K分辨率
                 "response_format": "url",
                 "watermark": False,  # 场景图不需要水印
                 "stream": False  # 非流式输出
@@ -648,11 +838,14 @@ class ImageService:
             print(f"[AI生图] 正在生成场景图片 (场景ID: {scene_id})")
             print(f"[AI生图] Prompt: {prompt[:100]}...")
             
+            # 场景图片使用16:9比例（1920x1080）
+            scene_image_size = '1920*1080'  # 16:9 比例
+            
             response = ImageSynthesis.call(
                 model='wanx-v1',  # 通义万相模型
                 prompt=prompt,
                 n=1,  # 生成1张图片
-                size='1024*1024'  # 图片尺寸
+                size=scene_image_size  # 场景图片固定为16:9
             )
             
             if response.status_code == 200:
@@ -719,23 +912,30 @@ class ImageService:
                 return None
             
             # 确定文件扩展名（从Content-Type或URL）
-            content_type = img_response.headers.get('Content-Type', '')
-            if 'jpeg' in content_type or 'jpg' in content_type:
-                ext = '.jpg'
-            elif 'png' in content_type:
+            # 人物图片固定使用PNG格式，场景图片保持原格式
+            if character_id is not None:
+                # 人物图片：固定使用PNG格式
                 ext = '.png'
-            elif 'webp' in content_type:
-                ext = '.webp'
+                print(f"[图片保存] 人物图片固定使用PNG格式")
             else:
-                # 从URL推断
-                if '.jpg' in image_url.lower() or '.jpeg' in image_url.lower():
+                # 场景图片：根据Content-Type或URL推断
+                content_type = img_response.headers.get('Content-Type', '')
+                if 'jpeg' in content_type or 'jpg' in content_type:
                     ext = '.jpg'
-                elif '.png' in image_url.lower():
+                elif 'png' in content_type:
                     ext = '.png'
-                elif '.webp' in image_url.lower():
+                elif 'webp' in content_type:
                     ext = '.webp'
                 else:
-                    ext = '.jpg'  # 默认使用jpg
+                    # 从URL推断
+                    if '.jpg' in image_url.lower() or '.jpeg' in image_url.lower():
+                        ext = '.jpg'
+                    elif '.png' in image_url.lower():
+                        ext = '.png'
+                    elif '.webp' in image_url.lower():
+                        ext = '.webp'
+                    else:
+                        ext = '.jpg'  # 默认使用jpg
             
             # 规范化图片类型
             image_type_map = {
@@ -802,8 +1002,50 @@ class ImageService:
             filepath = os.path.join(save_dir, filename)
             
             # 保存文件
-            with open(filepath, 'wb') as f:
-                f.write(img_response.content)
+            # 如果是人物图片且需要转换为PNG，使用PIL进行转换
+            if character_id is not None and ext == '.png':
+                # 检查下载的图片是否已经是PNG格式
+                content_type = img_response.headers.get('Content-Type', '')
+                is_png = 'png' in content_type or image_url.lower().endswith('.png')
+                
+                if is_png:
+                    # 如果已经是PNG，直接保存
+                    with open(filepath, 'wb') as f:
+                        f.write(img_response.content)
+                else:
+                    # 如果不是PNG，使用PIL转换为PNG
+                    if PIL_AVAILABLE:
+                        try:
+                            from io import BytesIO
+                            # 从响应内容创建PIL Image对象
+                            img = Image.open(BytesIO(img_response.content))
+                            
+                            # 人物图片使用纯白背景，保存为PNG格式
+                            # 保持原始模式（RGB或RGBA），PNG格式支持两种模式
+                            # 合成时会自动去除白色背景
+                            if img.mode == 'RGBA':
+                                # 如果已经是RGBA，直接保存
+                                img.save(filepath, 'PNG')
+                            else:
+                                # RGB模式，直接保存为PNG（PNG支持RGB模式）
+                                # 纯白背景会在合成时被去除
+                                img.save(filepath, 'PNG')
+                            
+                            print(f"[图片保存] 已将图片转换为PNG格式（纯白背景）: {filepath}")
+                        except Exception as e:
+                            print(f"[警告] 图片格式转换失败，使用原始格式保存: {e}")
+                            # 转换失败，直接保存原始内容
+                            with open(filepath, 'wb') as f:
+                                f.write(img_response.content)
+                    else:
+                        # PIL不可用，直接保存原始内容（但文件名仍然是.png）
+                        print(f"[警告] Pillow未安装，无法转换图片格式，直接保存原始内容")
+                        with open(filepath, 'wb') as f:
+                            f.write(img_response.content)
+            else:
+                # 场景图片或其他情况，直接保存
+                with open(filepath, 'wb') as f:
+                    f.write(img_response.content)
             
             return filepath
             
@@ -871,4 +1113,374 @@ class ImageService:
             'name': f'角色{character_id}',
             'gender': ''
         }
+    
+    def composite_scene_with_character(self, scene_image_path: str, character_image_path: str,
+                                       character_id: Optional[int] = None, scene_id: Optional[str] = None,
+                                       user_id: Optional[str] = None) -> Optional[str]:
+        """将场景图和人物图合成（场景图作为背景，人物图叠加在上方）
+        
+        Args:
+            scene_image_path: 场景图片本地路径或URL
+            character_image_path: 人物图片本地路径或URL（纯白背景，合成时会自动去除）
+            character_id: 角色ID（用于文件命名）
+            scene_id: 场景ID（用于文件命名）
+            user_id: 玩家ID（用于文件命名）
+            
+        Returns:
+            合成后的图片本地路径，如果失败返回None
+        """
+        if not PIL_AVAILABLE:
+            print("[警告] Pillow未安装，无法进行图片合成")
+            return None
+        
+        try:
+            # 处理玩家ID
+            if not user_id:
+                user_id = 'UNKNOWN'
+            safe_user_id = re.sub(r'[<>:"/\\|?*\s]', '_', user_id)[:20]
+            
+            # 下载或读取场景图片
+            scene_img = None
+            if scene_image_path.startswith('http://') or scene_image_path.startswith('https://'):
+                # 从URL下载
+                scene_response = requests.get(scene_image_path, timeout=30)
+                if scene_response.status_code == 200:
+                    from io import BytesIO
+                    scene_img = Image.open(BytesIO(scene_response.content))
+                else:
+                    print(f"[警告] 下载场景图片失败: HTTP {scene_response.status_code}")
+                    return None
+            else:
+                # 本地文件路径
+                if os.path.exists(scene_image_path):
+                    scene_img = Image.open(scene_image_path)
+                else:
+                    print(f"[警告] 场景图片文件不存在: {scene_image_path}")
+                    return None
+            
+            # 下载或读取人物图片
+            character_img = None
+            if character_image_path.startswith('http://') or character_image_path.startswith('https://'):
+                # 从URL下载
+                char_response = requests.get(character_image_path, timeout=30)
+                if char_response.status_code == 200:
+                    from io import BytesIO
+                    character_img = Image.open(BytesIO(char_response.content))
+                else:
+                    print(f"[警告] 下载人物图片失败: HTTP {char_response.status_code}")
+                    return None
+            elif character_image_path.startswith('/static/'):
+                # 静态文件URL路径，转换为实际文件系统路径
+                # 例如：/static/images/characters/filename.png -> backend/images/characters/filename.png
+                filename = os.path.basename(character_image_path)
+                if '/images/characters/' in character_image_path:
+                    # 角色图片
+                    if os.path.isabs(config.IMAGE_SAVE_DIR):
+                        actual_path = os.path.join(config.IMAGE_SAVE_DIR, filename)
+                    else:
+                        actual_path = os.path.join(backend_dir, config.IMAGE_SAVE_DIR, filename)
+                elif '/images/scenes/' in character_image_path:
+                    # 场景图片
+                    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                        actual_path = os.path.join(config.SCENE_IMAGE_SAVE_DIR, filename)
+                    else:
+                        actual_path = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR, filename)
+                else:
+                    actual_path = None
+                
+                if actual_path and os.path.exists(actual_path):
+                    character_img = Image.open(actual_path)
+                    print(f"[图片合成] 从静态文件路径转换为实际路径: {character_image_path} -> {actual_path}")
+                else:
+                    print(f"[警告] 人物图片文件不存在: {character_image_path} (实际路径: {actual_path})")
+                    return None
+            else:
+                # 本地文件路径
+                if os.path.exists(character_image_path):
+                    character_img = Image.open(character_image_path)
+                else:
+                    print(f"[警告] 人物图片文件不存在: {character_image_path}")
+                    return None
+            
+            # 确保人物图片有透明通道（RGBA模式）
+            if character_img.mode != 'RGBA':
+                character_img = character_img.convert('RGBA')
+            
+            # 去除纯白背景：将纯白色像素转换为透明
+            # 注意：人物图片现在使用纯白背景，合成时需要去除白色背景以便叠加到场景上
+            if character_img.mode == 'RGBA':
+                # 获取图片数据
+                data = character_img.getdata()
+                new_data = []
+                
+                # 阈值：RGB值都大于等于245的像素视为纯白背景（更精确的阈值）
+                # 这样可以更准确地识别纯白色背景，避免误删人物边缘的浅色像素
+                threshold = 245
+                
+                white_pixel_count = 0
+                total_pixel_count = len(data)
+                
+                for item in data:
+                    # 如果像素是纯白色或接近纯白色，设置为透明
+                    if item[0] >= threshold and item[1] >= threshold and item[2] >= threshold:
+                        new_data.append((255, 255, 255, 0))  # 透明
+                        white_pixel_count += 1
+                    else:
+                        new_data.append(item)
+                
+                character_img.putdata(new_data)
+                white_percentage = (white_pixel_count / total_pixel_count * 100) if total_pixel_count > 0 else 0
+                print(f"[图片合成] 已去除白色背景: {white_pixel_count}/{total_pixel_count} 像素 ({white_percentage:.1f}%)")
+            
+            # 确保场景图片是RGB模式（合成后转换为RGBA）
+            if scene_img.mode != 'RGB':
+                scene_img = scene_img.convert('RGB')
+            
+            # 场景图尺寸（16:9，1920x1080）
+            scene_width, scene_height = scene_img.size
+            print(f"[图片合成] 场景图尺寸: {scene_width}x{scene_height}")
+            
+            # 调整人物图片大小（保持宽高比，高度约为场景高度的80-85%）
+            # 放大人物，让人物在场景中更加突出
+            target_character_height = int(scene_height * 0.85)
+            char_width, char_height = character_img.size
+            aspect_ratio = char_width / char_height
+            target_character_width = int(target_character_height * aspect_ratio)
+            
+            # 如果人物宽度超过场景宽度，按宽度缩放
+            if target_character_width > scene_width * 0.9:
+                target_character_width = int(scene_width * 0.9)
+                target_character_height = int(target_character_width / aspect_ratio)
+            
+            print(f"[图片合成] 人物图原始尺寸: {char_width}x{char_height}")
+            print(f"[图片合成] 人物图调整后尺寸: {target_character_width}x{target_character_height}")
+            
+            # 调整人物图片大小（使用高质量重采样）
+            character_img_resized = character_img.resize(
+                (target_character_width, target_character_height),
+                Image.Resampling.LANCZOS
+            )
+            
+            # 创建合成画布（使用场景图作为背景）
+            composite = Image.new('RGBA', (scene_width, scene_height))
+            composite.paste(scene_img, (0, 0))
+            
+            # 计算人物图片在场景中的位置（完全居中）
+            # 水平居中
+            char_x = (scene_width - target_character_width) // 2
+            # 垂直居中
+            char_y = (scene_height - target_character_height) // 2
+            
+            print(f"[图片合成] 人物图位置: ({char_x}, {char_y})")
+            
+            # 将人物图片叠加到场景图上（使用alpha通道进行透明合成）
+            # 第三个参数是mask，使用图片本身的alpha通道
+            composite.paste(character_img_resized, (char_x, char_y), character_img_resized)
+            
+            # 转换为RGB模式（保存为JPEG格式）
+            composite_rgb = composite.convert('RGB')
+            
+            # 创建保存目录
+            if os.path.isabs(config.COMPOSITE_IMAGE_SAVE_DIR):
+                save_dir = config.COMPOSITE_IMAGE_SAVE_DIR
+            else:
+                save_dir = os.path.join(backend_dir, config.COMPOSITE_IMAGE_SAVE_DIR)
+            os.makedirs(save_dir, exist_ok=True)
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            safe_scene_id = re.sub(r'[<>:"/\\|?*\s]', '_', scene_id or 'unknown')[:30]
+            safe_character_id = f"{character_id:04d}" if character_id else "0000"
+            
+            filename = f"{safe_user_id}_{safe_character_id}_SCENE_{safe_scene_id}_composite_v1_{timestamp}.jpg"
+            filepath = os.path.join(save_dir, filename)
+            
+            # 保存合成图片（JPEG格式，高质量）
+            composite_rgb.save(filepath, 'JPEG', quality=95)
+            
+            print(f"[图片合成] 合成图片已保存: {filepath}")
+            return filepath
+            
+        except Exception as e:
+            print(f"[错误] 图片合成失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return None
+    
+    def delete_unselected_character_images(self, character_id: int, image_urls: List[str], 
+                                           selected_index: int) -> int:
+        """删除未选中的角色图片
+        
+        Args:
+            character_id: 角色ID
+            image_urls: 所有图片URL列表（3张图片的URL）
+            selected_index: 选中的图片索引（0, 1, 2）
+            
+        Returns:
+            删除的图片数量
+        """
+        deleted_count = 0
+        try:
+            import config
+            
+            # 获取保存目录
+            if os.path.isabs(config.IMAGE_SAVE_DIR):
+                save_dir = config.IMAGE_SAVE_DIR
+            else:
+                save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+            
+            if not os.path.exists(save_dir):
+                return 0
+            
+            # 从URL中提取文件名（去除路径和参数）
+            selected_url = image_urls[selected_index] if selected_index < len(image_urls) else None
+            
+            # 构建选中图片的文件名（从URL中提取）
+            selected_filename = None
+            if selected_url:
+                # 从URL中提取文件名（可能是完整URL或相对路径）
+                if '/static/images/characters/' in selected_url:
+                    selected_filename = selected_url.split('/static/images/characters/')[-1].split('?')[0]
+                elif '/characters/' in selected_url:
+                    selected_filename = selected_url.split('/characters/')[-1].split('?')[0]
+                else:
+                    # 尝试从URL中提取文件名
+                    selected_filename = os.path.basename(selected_url).split('?')[0]
+            
+            # 查找该角色的所有图片文件（包含_img索引的组图）
+            character_id_str = f"{character_id:04d}"
+            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait_img\d+_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+            
+            for filename in os.listdir(save_dir):
+                if pattern.match(filename):
+                    filepath = os.path.join(save_dir, filename)
+                    
+                    # 检查是否是选中的图片
+                    is_selected = False
+                    if selected_filename:
+                        # 通过文件名匹配（忽略时间戳和版本号，只匹配基础部分）
+                        # 提取基础部分：{user_id}_{character_id}_{name}_portrait_img{index}
+                        base_match = re.match(rf"^([^_]+_{re.escape(character_id_str)}_[^_]+_portrait_img\d+)_", filename)
+                        if base_match:
+                            base_part = base_match.group(1)
+                            # 检查选中图片是否包含相同的基础部分
+                            if base_part in selected_filename or selected_filename.startswith(base_part.split('_img')[0]):
+                                # 进一步检查索引是否匹配
+                                img_match = re.search(r'_img(\d+)', filename)
+                                selected_img_match = re.search(r'_img(\d+)', selected_filename) if selected_filename else None
+                                if img_match and selected_img_match:
+                                    img_index = int(img_match.group(1)) - 1  # img1 -> index 0
+                                    selected_img_index = int(selected_img_match.group(1)) - 1
+                                    if img_index == selected_index and selected_img_index == selected_index:
+                                        is_selected = True
+                                elif filename == selected_filename:
+                                    is_selected = True
+                    
+                    # 如果文件名包含_img，且不是选中的，则删除
+                    if not is_selected and '_img' in filename:
+                        try:
+                            os.remove(filepath)
+                            deleted_count += 1
+                            print(f"[图片清理] 已删除未选中的图片: {filename}")
+                        except Exception as e:
+                            print(f"[警告] 删除图片失败 {filename}: {e}")
+            
+            return deleted_count
+        except Exception as e:
+            print(f"[错误] 删除未选中图片失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return deleted_count
+    
+    def get_latest_character_image_path(self, character_id: int) -> Optional[str]:
+        """获取角色最新的图片本地路径
+        
+        Args:
+            character_id: 角色ID
+            
+        Returns:
+            最新图片的本地路径，如果不存在返回None
+        """
+        try:
+            import config
+            
+            # 获取保存目录
+            if os.path.isabs(config.IMAGE_SAVE_DIR):
+                save_dir = config.IMAGE_SAVE_DIR
+            else:
+                save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+            
+            if not os.path.exists(save_dir):
+                return None
+            
+            # 构建匹配模式（人物图片现在固定为PNG格式，但兼容旧格式）
+            character_id_str = f"{character_id:04d}"
+            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+            
+            # 查找匹配的文件
+            matching_files = []
+            for filename in os.listdir(save_dir):
+                if pattern.match(filename):
+                    filepath = os.path.join(save_dir, filename)
+                    matching_files.append((filepath, os.path.getmtime(filepath)))
+            
+            if not matching_files:
+                return None
+            
+            # 按修改时间排序，返回最新的
+            matching_files.sort(key=lambda x: x[1], reverse=True)
+            return matching_files[0][0]
+            
+        except Exception as e:
+            print(f"[警告] 获取角色图片路径失败: {e}")
+            return None
+    
+    def get_latest_scene_image_path(self, scene_id: str) -> Optional[str]:
+        """获取场景最新的图片本地路径
+        
+        Args:
+            scene_id: 场景ID
+            
+        Returns:
+            最新图片的本地路径，如果不存在返回None
+        """
+        try:
+            import config
+            
+            # 获取保存目录
+            if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                save_dir = config.SCENE_IMAGE_SAVE_DIR
+            else:
+                save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
+            
+            if not os.path.exists(save_dir):
+                return None
+            
+            # 构建匹配模式（支持多种命名格式）
+            safe_scene_id = re.sub(r'[<>:"/\\|?*\s]', '_', scene_id)[:30]
+            patterns = [
+                re.compile(rf"^[^_]+_SCENE_{re.escape(safe_scene_id)}_[^_]+_scene_v\d+_\d{{8}}_\d{{6}}\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
+                re.compile(rf"^{re.escape(safe_scene_id)}_[^_]+\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
+                re.compile(rf"^{re.escape(safe_scene_id)}\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
+            ]
+            
+            # 查找匹配的文件
+            matching_files = []
+            for filename in os.listdir(save_dir):
+                for pattern in patterns:
+                    if pattern.match(filename):
+                        filepath = os.path.join(save_dir, filename)
+                        matching_files.append((filepath, os.path.getmtime(filepath)))
+                        break
+            
+            if not matching_files:
+                return None
+            
+            # 按修改时间排序，返回最新的
+            matching_files.sort(key=lambda x: x[1], reverse=True)
+            return matching_files[0][0]
+            
+        except Exception as e:
+            print(f"[警告] 获取场景图片路径失败: {e}")
+            return None
     

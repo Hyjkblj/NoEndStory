@@ -1,6 +1,7 @@
 """游戏服务"""
 from typing import Dict, Any, Optional
 import json
+import time
 from api.services.game_session import GameSessionManager, GameSession
 from api.services.character_service import CharacterService
 from data.scenes import SCENES
@@ -20,15 +21,19 @@ class GameService:
         game_mode: str
     ) -> Dict[str, str]:
         """初始化游戏"""
+        print(f"[游戏服务] init_game 被调用: user_id={user_id}, character_id={character_id}, game_mode={game_mode}")
+        
         if not character_id:
             raise ValueError("character_id is required")
         
         # 创建游戏会话
+        print(f"[游戏服务] 正在创建游戏会话...")
         session = self.session_manager.create_session(
             user_id=user_id,
             character_id=character_id,
             game_mode=game_mode
         )
+        print(f"[游戏服务] 游戏会话创建成功: thread_id={session.thread_id}")
         
         return {
             'thread_id': session.thread_id,
@@ -36,8 +41,16 @@ class GameService:
             'game_mode': session.game_mode
         }
     
-    def initialize_story(self, thread_id: str, character_id: int) -> Dict[str, Any]:
-        """初始化故事（触发初遇场景）"""
+    def initialize_story(self, thread_id: str, character_id: int, scene_id: str = 'school', 
+                         character_image_url: Optional[str] = None) -> Dict[str, Any]:
+        """初始化故事（触发初遇场景）
+        
+        Args:
+            thread_id: 游戏会话ID
+            character_id: 角色ID
+            scene_id: 初遇场景ID（玩家选择的场景）
+            character_image_url: 用户选择的角色图片URL（可选，如果不提供则使用最新图片）
+        """
         session = self.session_manager.get_session(thread_id)
         if not session:
             raise ValueError(f"Thread {thread_id} not found")
@@ -45,28 +58,124 @@ class GameService:
         if session.character_id != character_id:
             raise ValueError("Character ID mismatch")
         
-        # 获取开头事件
-        scene_id = 'school'  # 默认场景
-        event = session.story_engine.get_opening_event(
-            character_id=character_id,
-            scene_id=scene_id
-        )
+        # 使用玩家选择的场景ID获取开头事件
+        print(f"[游戏服务] 初始化故事，使用场景: {scene_id}")
+        try:
+            event = session.story_engine.get_opening_event(
+                character_id=character_id,
+                scene_id=scene_id
+            )
+            print(f"[游戏服务] 获取开头事件成功: {event.get('title', '未知')}")
+        except Exception as e:
+            print(f"[游戏服务错误] 获取开头事件失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise
+        
+        # 更新当前场景（使用事件返回的场景ID，可能因为事件ID对应场景而改变）
+        # 例如：school场景的cafeteria事件会使用cafeteria场景
+        event_scene = event.get('scene', scene_id)
+        session.story_engine.current_scene = event_scene
+        print(f"[游戏服务] 当前场景设置为: {event_scene} (原始选择: {scene_id})")
         
         session.is_initialized = True
         
         # 获取第一轮对话
-        dialogue_data = session.story_engine.get_next_dialogue_round(character_id)
-        session.current_dialogue_round = dialogue_data
+        try:
+            dialogue_data = session.story_engine.get_next_dialogue_round(character_id)
+            session.current_dialogue_round = dialogue_data
+            print(f"[游戏服务] 获取对话成功，角色对话: {dialogue_data.get('character_dialogue', '')[:50]}...")
+            
+            # 记录角色对话
+            session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
+        except Exception as e:
+            print(f"[游戏服务错误] 获取对话失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+            raise
         
-        # 记录角色对话
-        session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
+        # 尝试生成合成图片（场景+人物）
+        composite_image_url = None
+        try:
+            from api.services.image_service import ImageService
+            import os
+            import config
+            image_service = ImageService()
+            
+            if image_service.enabled:
+                # 使用事件对应的场景ID生成场景图片（可能不同于玩家选择的场景ID）
+                event_scene = event.get('scene', scene_id)
+                scene_info = SCENES.get(event_scene, {})
+                scene_data = {
+                    'scene_id': event_scene,
+                    'scene_name': scene_info.get('name', event_scene),
+                    'scene_description': scene_info.get('description', '')
+                }
+                print(f"[游戏服务] 正在生成初遇场景图片: {scene_info.get('name', event_scene)} (场景ID: {event_scene})")
+                scene_image_url = image_service.generate_scene_image(scene_data, event_scene)
+                
+                if scene_image_url:
+                    # 如果启用了本地保存，等待一小段时间让图片保存完成
+                    if config.IMAGE_SAVE_ENABLED:
+                        time.sleep(2)  # 等待2秒，让图片保存完成
+                    
+                    # 获取角色图片并合成
+                    # 优先使用用户选择的图片URL，否则使用最新保存的图片
+                    character_image_path = None
+                    if character_image_url:
+                        # 使用用户选择的图片（可能是URL或本地路径）
+                        print(f"[游戏服务] 使用用户选择的角色图片: {character_image_url}")
+                        character_image_path = character_image_url
+                    else:
+                        # 使用最新保存的图片
+                        character_image_path = image_service.get_latest_character_image_path(character_id)
+                        if character_image_path:
+                            print(f"[游戏服务] 使用最新保存的角色图片: {character_image_path}")
+                    
+                    if character_image_path:
+                        print(f"[游戏服务] 找到角色图片，开始合成...")
+                        # 优先使用本地保存的场景图片路径，如果没有则使用URL
+                        # 使用事件对应的场景ID查找场景图片
+                        event_scene = event.get('scene', scene_id)
+                        scene_image_path = image_service.get_latest_scene_image_path(event_scene)
+                        if not scene_image_path:
+                            # 如果本地没有，使用URL（composite_scene_with_character支持URL）
+                            scene_image_path = scene_image_url
+                            print(f"[游戏服务] 使用场景图片URL进行合成: {scene_image_url}")
+                        else:
+                            print(f"[游戏服务] 使用本地场景图片进行合成: {scene_image_path}")
+                        
+                        composite_path = image_service.composite_scene_with_character(
+                            scene_image_path=scene_image_path,
+                            character_image_path=character_image_path,
+                            character_id=character_id,
+                            scene_id=event_scene,  # 使用事件对应的场景ID
+                            user_id=None
+                        )
+                        
+                        if composite_path:
+                            filename = os.path.basename(composite_path)
+                            composite_image_url = f"/static/images/composite/{filename}"
+                            print(f"[游戏服务] 合成图片生成成功: {composite_image_url}")
+                    else:
+                        print(f"[警告] 未找到角色图片 (character_id: {character_id})")
+                else:
+                    print(f"[警告] 场景图片生成失败")
+        except Exception as e:
+            print(f"[警告] 生成合成图片失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+        
+        # 使用事件返回的场景ID（可能因为事件ID对应场景而改变）
+        event_scene = event.get('scene', scene_id)
         
         return {
             'event_title': event.get('title', '初遇'),
             'story_background': event.get('story_background', ''),
-            'scene': event.get('scene', scene_id),
+            'scene': event_scene,  # 返回事件对应的场景ID（可能不同于玩家选择的场景ID）
             'character_dialogue': dialogue_data['character_dialogue'],
-            'player_options': dialogue_data['player_options']
+            'player_options': dialogue_data['player_options'],
+            'composite_image_url': composite_image_url  # 合成后的游戏场景图片
         }
     
     def process_input(
@@ -201,12 +310,51 @@ class GameService:
                 # 输出详细信息到控制台
                 self._print_dialogue_info(character_id, next_event, dialogue_data)
                 
+                # 获取合成图片URL（如果场景切换时已生成）
+                composite_image_url = None
+                if next_event.get('scene'):
+                    try:
+                        from api.services.image_service import ImageService
+                        import os
+                        import config
+                        image_service = ImageService()
+                        
+                        # 查找最新的合成图片
+                        scene_id = next_event.get('scene')
+                        if os.path.isabs(config.COMPOSITE_IMAGE_SAVE_DIR):
+                            composite_dir = config.COMPOSITE_IMAGE_SAVE_DIR
+                        else:
+                            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                            composite_dir = os.path.join(backend_dir, config.COMPOSITE_IMAGE_SAVE_DIR)
+                        
+                        if os.path.exists(composite_dir):
+                            # 查找该角色和场景的最新合成图片
+                            import re
+                            character_id_str = f"{character_id:04d}"
+                            safe_scene_id = re.sub(r'[<>:"/\\|?*\s]', '_', scene_id)[:30]
+                            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_SCENE_{re.escape(safe_scene_id)}_composite_v\d+_\d{{8}}_\d{{6}}\.(jpg|jpeg|png)$", re.IGNORECASE)
+                            
+                            matching_files = []
+                            for filename in os.listdir(composite_dir):
+                                if pattern.match(filename):
+                                    filepath = os.path.join(composite_dir, filename)
+                                    matching_files.append((filename, os.path.getmtime(filepath)))
+                            
+                            if matching_files:
+                                matching_files.sort(key=lambda x: x[1], reverse=True)
+                                latest_filename = matching_files[0][0]
+                                composite_image_url = f"/static/images/composite/{latest_filename}"
+                                print(f"[游戏服务] 找到合成图片: {composite_image_url}")
+                    except Exception as e:
+                        print(f"[警告] 获取合成图片URL失败: {e}")
+                
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
                     'player_options': dialogue_data['player_options'],
                     'story_background': next_event.get('story_background'),
                     'event_title': next_event.get('title'),
                     'scene': next_event.get('scene'),
+                    'composite_image_url': composite_image_url,  # 合成后的游戏场景图片
                     'is_event_finished': True
                 })
         

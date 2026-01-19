@@ -334,8 +334,9 @@ class CharacterService:
             # 构建匹配模式：查找该角色的所有图片
             # 格式：{玩家ID}_{角色ID:04d}_{角色名称}_{状态类型}_v{版本号}_{时间戳}.{扩展名}
             # 或者：{玩家ID}_{角色ID:04d}_{角色名称}_{状态类型}_img{索引}_v{版本号}_{时间戳}.{扩展名}（组图）
+            # 注意：人物图片现在固定为PNG格式，但兼容旧格式（jpg/jpeg/webp）
             character_id_str = f"{character_id:04d}"
-            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_[^_]+(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(jpg|jpeg|png|webp)$", re.IGNORECASE)
+            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_[^_]+(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
             
             # 查找匹配的文件
             matching_files = []

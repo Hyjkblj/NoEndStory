@@ -15,11 +15,17 @@ class GameSession:
         self.character_id = character_id
         self.game_mode = game_mode
         
-        # 初始化游戏组件
+        # 初始化游戏组件（添加日志）
+        print(f"[游戏会话] 正在初始化会话组件 (thread_id: {thread_id})...")
+        print(f"[游戏会话] 初始化数据库管理器...")
         self.db_manager = DatabaseManager()
+        print(f"[游戏会话] 初始化向量数据库...")
         self.vector_db = VectorDatabase()
+        print(f"[游戏会话] 初始化事件生成器...")
         self.event_generator = EventGenerator(self.vector_db, self.db_manager)
+        print(f"[游戏会话] 初始化故事引擎...")
         self.story_engine = StoryEngine(self.event_generator, self.db_manager)
+        print(f"[游戏会话] 会话初始化完成 (thread_id: {thread_id})")
         
         # 游戏状态
         self.is_initialized = False
