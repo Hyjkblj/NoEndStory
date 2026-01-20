@@ -1,0 +1,135 @@
+"""游戏管理API路由"""
+from fastapi import APIRouter, HTTPException
+from api.schemas import (
+    GameInitRequest,
+    GameInitResponse,
+    GameInputRequest,
+    GameInputResponse,
+    CheckEndingResponse,
+    TriggerEndingRequest
+)
+from api.response import success_response, error_response, not_found_response
+from api.services.game_service import GameService
+
+router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
+
+game_service = GameService()
+
+
+@router.post("/init", response_model=dict)
+async def init_game(request: GameInitRequest):
+    """初始化游戏"""
+    try:
+        print(f"[游戏初始化] 收到初始化请求: user_id={request.user_id}, character_id={request.character_id}, game_mode={request.game_mode}")
+        
+        character_id = None
+        if request.character_id:
+            character_id = int(request.character_id)
+        else:
+            print("[游戏初始化] 错误: character_id is required")
+            return error_response(code=400, message="character_id is required")
+        
+        print(f"[游戏初始化] 开始初始化游戏会话...")
+        result = game_service.init_game(
+            user_id=request.user_id,
+            character_id=character_id,
+            game_mode=request.game_mode
+        )
+        
+        print(f"[游戏初始化] 游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
+        return success_response(data=result)
+    except ValueError as e:
+        print(f"[游戏初始化] 参数错误: {str(e)}")
+        return error_response(code=400, message=f"参数错误: {str(e)}")
+    except Exception as e:
+        print(f"[游戏初始化] 初始化失败: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        return error_response(code=500, message=f"初始化游戏失败: {str(e)}")
+
+
+@router.post("/input", response_model=dict)
+async def process_input(request: GameInputRequest):
+    """处理玩家输入"""
+    try:
+        # 尝试从user_input中解析option_id（如果格式为"option:1"）
+        option_id = None
+        user_input = request.user_input
+        
+        if user_input.startswith("option:"):
+            try:
+                option_id = int(user_input.split(":")[1]) - 1  # 转换为0-based索引
+                user_input = ""  # 清空user_input，使用选项
+            except:
+                pass
+        
+        try:
+            result = game_service.process_input(
+                thread_id=request.thread_id,
+                user_input=user_input,
+                option_id=option_id
+            )
+        except ValueError as e:
+            # 如果会话不存在，尝试自动恢复
+            if "not found" in str(e).lower() and request.character_id:
+                try:
+                    # 重新初始化游戏会话
+                    character_id_int = int(request.character_id)
+                    init_result = game_service.init_game(
+                        user_id=request.user_id,
+                        character_id=character_id_int,
+                        game_mode='solo'
+                    )
+                    new_thread_id = init_result['thread_id']
+                    
+                    # 初始化故事
+                    game_service.initialize_story(new_thread_id, character_id_int)
+                    
+                    # 使用新的thread_id重试
+                    result = game_service.process_input(
+                        thread_id=new_thread_id,
+                        user_input=user_input,
+                        option_id=option_id
+                    )
+                    
+                    # 在响应中返回新的thread_id，让前端更新
+                    result['thread_id'] = new_thread_id
+                    result['session_restored'] = True
+                except Exception as restore_error:
+                    return error_response(
+                        code=400, 
+                        message=f"会话已过期且无法恢复: {str(e)}。请重新开始游戏。"
+                    )
+            else:
+                raise
+        
+        return success_response(data=result)
+    except ValueError as e:
+        return error_response(code=400, message=f"参数错误: {str(e)}")
+    except Exception as e:
+        return error_response(code=500, message=f"处理输入失败: {str(e)}")
+
+
+@router.get("/check-ending/{thread_id}", response_model=dict)
+async def check_ending(thread_id: str):
+    """检查是否满足结局条件"""
+    try:
+        result = game_service.check_ending(thread_id)
+        return success_response(data=result)
+    except ValueError as e:
+        return not_found_response(message=str(e))
+    except Exception as e:
+        return error_response(code=500, message=f"检查结局失败: {str(e)}")
+
+
+@router.post("/trigger-ending", response_model=dict)
+async def trigger_ending(request: TriggerEndingRequest):
+    """触发结局"""
+    try:
+        result = game_service.trigger_ending(request.thread_id)
+        return success_response(data=result)
+    except ValueError as e:
+        return not_found_response(message=str(e))
+    except Exception as e:
+        return error_response(code=500, message=f"触发结局失败: {str(e)}")
+
