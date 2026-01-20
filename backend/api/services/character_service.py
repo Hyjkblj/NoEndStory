@@ -130,94 +130,92 @@ class CharacterService:
         }
     
     def create_character(self, request_data: Dict[str, Any]) -> int:
-        """创建角色
+        """创建角色（重构版：将前端数据作为字典存储）
         
         Args:
-            request_data: 创建角色请求数据
+            request_data: 创建角色请求数据，包含：
+                - name: 角色名称
+                - appearance: 外观设定（字典，包含keywords, height, weight等）
+                - personality: 性格设定（字典）
+                - background: 背景设定（字典）
+                - gender: 性别（可选）
+                - age: 年龄（可选）
+                - weight: 体重（在appearance中）
             
         Returns:
-            角色ID
+            角色ID（用于与ChromaDB关联的key）
         """
-        # 解析前端发送的JSON数据
+        # 解析前端发送的JSON数据（用于AI生成和兼容）
         parsed_data = self._parse_character_data(request_data)
         
         scene_id = request_data.get('initial_scene', 'school')
         
-        # 保存原始结构化数据到character_attributes表（用于后续返回）
-        appearance_data = request_data.get('appearance', {})
-        personality_data = request_data.get('personality', {})
-        background_data = request_data.get('background', {})
-        age = request_data.get('age')
-        gender_raw = request_data.get('gender', '')
+        # 构建完整的角色数据字典（存储到character_data字段）
+        character_data_dict = {
+            'name': request_data.get('name', '未命名角色'),
+            'gender': request_data.get('gender', ''),
+            'age': request_data.get('age'),
+            'appearance': request_data.get('appearance', {}),
+            'personality': request_data.get('personality', {}),
+            'background': request_data.get('background', {}),
+            'initial_scene': scene_id,
+            # 提取体重（如果存在）
+            'weight': request_data.get('appearance', {}).get('weight'),
+            # 提取身高（如果存在）
+            'height': request_data.get('appearance', {}).get('height'),
+            # 保留解析后的文本描述（用于AI生成）
+            'appearance_text': parsed_data.get('appearance', ''),
+            'personality_text': parsed_data.get('personality', ''),
+        }
         
-        # 创建角色（使用解析后的数据用于AI生成）
+        # 创建角色（将完整的字典数据存储到character_data字段）
         character_id = self.character_creator.create_character(
             name=parsed_data['name'],
             gender=parsed_data['gender'],
             appearance=parsed_data['appearance'],
             personality=parsed_data['personality'],
-            scene_id=scene_id
+            scene_id=scene_id,
+            character_data=character_data_dict  # 传递完整的字典数据
         )
         
-        # 保存结构化数据到character_attributes表
-        import json
-        from models.character import CharacterAttribute
-        
-        with self.db_manager.get_session() as session:
-            # 保存年龄
-            if age is not None:
-                attr = CharacterAttribute(
-                    character_id=character_id,
-                    attribute_type='age',
-                    attribute_value=str(age)
-                )
-                session.add(attr)
-            
-            # 保存原始性别（用于返回）
-            if gender_raw:
-                attr = CharacterAttribute(
-                    character_id=character_id,
-                    attribute_type='gender_raw',
-                    attribute_value=gender_raw
-                )
-                session.add(attr)
-            
-            # 保存结构化外观数据
-            if appearance_data:
-                attr = CharacterAttribute(
-                    character_id=character_id,
-                    attribute_type='appearance_data',
-                    attribute_value=json.dumps(appearance_data, ensure_ascii=False)
-                )
-                session.add(attr)
-            
-            # 保存结构化性格数据
-            if personality_data:
-                attr = CharacterAttribute(
-                    character_id=character_id,
-                    attribute_type='personality_data',
-                    attribute_value=json.dumps(personality_data, ensure_ascii=False)
-                )
-                session.add(attr)
-            
-            # 保存结构化背景数据
-            if background_data:
-                attr = CharacterAttribute(
-                    character_id=character_id,
-                    attribute_type='background_data',
-                    attribute_value=json.dumps(background_data, ensure_ascii=False)
-                )
-                session.add(attr)
-        
+        # 返回角色ID（作为与ChromaDB关联的key）
         return character_id
     
     def get_character(self, character_id: int) -> Dict[str, Any]:
-        """获取角色信息（返回结构化数据）"""
-        character_info = self.character_creator.get_character_info(character_id)
-        attributes = character_info.get('attributes', {})
+        """获取角色信息（重构版：优先返回character_data字典）
         
-        # 从attributes中提取结构化数据
+        Args:
+            character_id: 角色ID（与ChromaDB关联的key）
+        
+        Returns:
+            角色信息字典，包含完整的character_data数据
+        """
+        character_info = self.character_creator.get_character_info(character_id)
+        
+        # 优先使用character_data字段（新系统）
+        # 检查是否是字典类型（新系统）还是字符串类型（旧系统）
+        appearance_value = character_info.get('appearance')
+        is_new_system = isinstance(appearance_value, dict) or character_info.get('character_data') is not None
+        
+        if is_new_system:
+            # 新系统：直接返回character_data字典或从character_info中提取
+            return {
+                'character_id': str(character_info.get('id') or character_info.get('character_id')),
+                'name': character_info.get('name', ''),
+                'gender': character_info.get('gender', ''),
+                'age': character_info.get('age'),
+                'height': character_info.get('height'),
+                'weight': character_info.get('weight'),
+                'appearance': character_info.get('appearance', {}),
+                'personality': character_info.get('personality', {}),
+                'background': character_info.get('background', {}),
+                'initial_scene': character_info.get('initial_scene', character_info.get('scene_id', 'school')),
+                'identity': character_info.get('initial_scene', character_info.get('scene_id', 'school'))
+            }
+        
+        # 兼容旧系统：从attributes中提取结构化数据
         import json
+        attributes = character_info.get('attributes', {})
         
         # 提取年龄
         age = None
@@ -230,7 +228,6 @@ class CharacterService:
         # 提取原始性别
         gender_raw = attributes.get('gender_raw', '')
         if not gender_raw:
-            # 如果没有保存原始性别，从character表转换
             gender_db = character_info.get('gender', '')
             if gender_db == '男':
                 gender_raw = 'male'
@@ -250,9 +247,8 @@ class CharacterService:
             appearance_data = {
                 'keywords': character_info['appearance'].split('，') if '，' in character_info['appearance'] else [character_info['appearance']],
             }
-            # 尝试从appearance字符串中提取height和weight
-            appearance_str = character_info['appearance']
             import re
+            appearance_str = character_info['appearance']
             height_match = re.search(r'身高(\d+)cm', appearance_str)
             weight_match = re.search(r'体重(\d+)kg', appearance_str)
             if height_match:
@@ -268,7 +264,6 @@ class CharacterService:
             except:
                 pass
         
-        # 如果没有结构化数据，从原始数据重建
         if not personality_data:
             personality_data = {
                 'keywords': character_info['personality'].split('，') if '，' in character_info['personality'] else [character_info['personality']],
@@ -282,7 +277,7 @@ class CharacterService:
             except:
                 pass
         
-        # 转换为API响应格式（保持结构化）
+        # 转换为API响应格式
         return {
             'character_id': str(character_info['id']),
             'name': character_info['name'],

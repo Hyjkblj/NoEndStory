@@ -121,24 +121,29 @@ class StoryEngine:
         return event
     
     def get_middle_event(self, character_id: int, event_number: int) -> Dict:
-        """获取中间事件（基于向量数据库历史事件推演场景，避免重复，支持场景切换）"""
-        # 1. 从向量数据库获取历史内容，用于推演下一个场景
-        # 约束：第1个中间事件不做“历史事件”广泛检索，只用“上一事件（开头事件）的历史对话”
-        if event_number == 1 and self.current_event and self.current_event.get('event_id'):
+        """获取中间事件（重构版：通过检索向量数据库历史事件来推演故事背景）
+        
+        历史事件包括：故事背景文本、角色文本、玩家选项文本
+        """
+        # 从向量数据库检索历史事件（包括故事背景文本、角色文本、玩家选项文本）
+        # 用于推演后续事件的故事背景
+        # 统一使用 search_similar_events 检索，确保能获取到完整的历史事件内容
+        previous_events = self.event_generator.vector_db.search_similar_events(
+            character_id=character_id,
+            query="故事背景 角色文本 玩家选项 剧情发展 事件 对话",  # 检索完整的历史事件
+            n_results=15  # 增加检索数量，获取更多历史信息
+        )
+        previous_docs = self._flatten_documents(previous_events.get('documents', []))
+        
+        # 如果检索结果为空，尝试使用更宽泛的查询
+        if not previous_docs and event_number == 1:
+            # 第1个中间事件：如果语义搜索失败，尝试检索最近的对话
             previous_dialogues = self.event_generator.vector_db.search_recent_dialogues(
                 character_id=character_id,
-                event_id=self.current_event['event_id'],
+                event_id=self.current_event['event_id'] if self.current_event else None,
                 n_results=10
             )
             previous_docs = self._flatten_documents(previous_dialogues.get('documents', []))
-        else:
-            # 检索最近的历史事件，重点关注场景相关的信息
-            previous_events = self.event_generator.vector_db.search_similar_events(
-                character_id=character_id,
-                query="场景 地点 位置 去 到 在",
-                n_results=10  # 增加检索数量，更好地提取场景信息
-            )
-            previous_docs = self._flatten_documents(previous_events.get('documents', []))
         
         # 2. 从历史事件中提取场景关键词，推演下一个场景
         next_scene = self._infer_next_scene_from_history(
@@ -770,8 +775,14 @@ class StoryEngine:
         # 默认继续（保守策略）
         return True
     
-    def save_dialogue_round_to_vector_db(self, character_id: int, dialogue_round: int):
-        """将当前轮次的对话保存到向量数据库"""
+    def save_dialogue_round_to_vector_db(self, character_id: int, dialogue_round: int, state_changes: dict = None):
+        """将当前轮次的对话保存到向量数据库（重构版：支持四类文本存储）
+        
+        Args:
+            character_id: 角色ID
+            dialogue_round: 对话轮次
+            state_changes: 玩家选项带来的状态值变化字典
+        """
         if not self.current_event:
             return
         
@@ -789,7 +800,10 @@ class StoryEngine:
                 elif item['type'] == 'player' and not player_choice:
                     player_choice = item['content']
         
-        # 如果找到了对话内容，保存到向量数据库
+        # 获取角色当前状态值（用于存储）
+        states = self.db_manager.get_character_states(character_id)
+        
+        # 如果找到了对话内容，保存到向量数据库（包含四类文本）
         if character_dialogue and player_choice:
             self.event_generator.vector_db.add_dialogue_round(
                 character_id=character_id,
@@ -802,7 +816,9 @@ class StoryEngine:
                     'event_context': self.current_event.get('event_context', ''),
                     'title': self.current_event.get('title', ''),
                     'scene': self.current_event.get('scene', '')
-                }
+                },
+                states=states,  # 传递角色状态值
+                state_changes=state_changes  # 传递状态值变化
             )
     
     def save_event_to_vector_db(self, character_id: int):

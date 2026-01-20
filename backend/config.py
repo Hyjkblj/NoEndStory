@@ -35,7 +35,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 # 国内AI模型配置（替代方案）
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')  # 通义千问（阿里云）
 # 通义千问模型选择：qwen-turbo（快速，成本低）、qwen-plus（平衡）、qwen-max（最强，成本高）
-DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-max')  # 默认使用qwen-max
+DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-turbo')  # 默认使用qwen-turbo
 ZHIPU_API_KEY = os.getenv('ZHIPU_API_KEY', '')  # 智谱AI
 BAIDU_API_KEY = os.getenv('BAIDU_API_KEY', '')  # 百度文心一言
 BAIDU_SECRET_KEY = os.getenv('BAIDU_SECRET_KEY', '')

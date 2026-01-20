@@ -175,7 +175,7 @@ class Game:
                 print("\n" + "=" * 50)
                 game_finished = True
         
-        # 显示最终状态
+        # 显示最终状态（显示全部12个状态值）
         states = self.db_manager.get_character_states(self.character_id)
         print("\n最终状态值：")
         print(f"  好感度: {states.favorability:.1f}")
@@ -183,6 +183,13 @@ class Game:
         print(f"  敌意: {states.hostility:.1f}")
         print(f"  依赖度: {states.dependence:.1f}")
         print(f"  情绪: {states.emotion:.1f}")
+        print(f"  压力: {states.stress:.1f}")
+        print(f"  焦虑: {states.anxiety:.1f}")
+        print(f"  快乐: {states.happiness:.1f}")
+        print(f"  悲伤: {states.sadness:.1f}")
+        print(f"  自信度: {states.confidence:.1f}")
+        print(f"  主动度: {states.initiative:.1f}")
+        print(f"  谨慎度: {states.caution:.1f}")
         print(f"  快乐: {states.happiness:.1f}")
         print(f"  自信度: {states.confidence:.1f}")
         print(f"  主动度: {states.initiative:.1f}")
@@ -235,23 +242,35 @@ class Game:
             # 处理选择（更新状态值并记录对话历史）
             self.story_engine.process_player_choice(self.character_id, selected_option)
             
-            # 显示状态变化
+            # 显示状态变化（显示所有状态值）
             if selected_option.get('state_changes'):
                 print("\n[状态值变化]")
+                state_names = {
+                    'favorability': '好感度',
+                    'trust': '信任度',
+                    'hostility': '敌意',
+                    'dependence': '依赖度',
+                    'emotion': '情绪',
+                    'stress': '压力',
+                    'anxiety': '焦虑',
+                    'happiness': '快乐',
+                    'sadness': '悲伤',
+                    'confidence': '自信度',
+                    'initiative': '主动度',
+                    'caution': '谨慎度'
+                }
                 for state, change in selected_option['state_changes'].items():
                     sign = "+" if change > 0 else ""
-                    state_names = {
-                        'favorability': '好感度',
-                        'trust': '信任度',
-                        'happiness': '快乐',
-                        'hostility': '敌意',
-                        'dependence': '依赖度'
-                    }
                     state_name = state_names.get(state, state)
                     print(f"  {state_name}: {sign}{change:.1f}")
             
-            # 保存本轮对话到向量数据库
-            self.story_engine.save_dialogue_round_to_vector_db(self.character_id, dialogue_round)
+            # 保存本轮对话到向量数据库（传递状态值变化）
+            state_changes = selected_option.get('state_changes', {})
+            self.story_engine.save_dialogue_round_to_vector_db(
+                self.character_id, 
+                dialogue_round,
+                state_changes=state_changes
+            )
             
             print("\n" + "-" * 50)
             

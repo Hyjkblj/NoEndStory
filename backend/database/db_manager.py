@@ -35,8 +35,22 @@ class DatabaseManager:
             session.close()
     
     def create_character(self, name: str, gender: str, appearance: str, 
-                        personality: str, attributes: dict, scene_id: str = 'school') -> int:
-        """创建角色"""
+                        personality: str, attributes: dict, scene_id: str = 'school',
+                        character_data: dict = None) -> int:
+        """创建角色
+        
+        Args:
+            name: 角色名称
+            gender: 性别
+            appearance: 外观描述（文本，用于兼容）
+            personality: 性格描述（文本，用于兼容）
+            attributes: 角色属性字典（用于兼容旧系统）
+            scene_id: 场景ID
+            character_data: 完整的角色数据字典（新系统，包含所有前端数据）
+        
+        Returns:
+            角色ID（用于与ChromaDB关联）
+        """
         with self.get_session() as session:
             # 创建角色
             character = Character(
@@ -44,32 +58,53 @@ class DatabaseManager:
                 gender=gender,
                 appearance=appearance,
                 personality=personality,
-                scene_id=scene_id
+                scene_id=scene_id,
+                character_data=character_data  # 存储完整的角色数据字典
             )
             session.add(character)
             session.flush()
             
-            # 添加决定因素
-            for attr_type, attr_value in attributes.items():
-                attr = CharacterAttribute(
-                    character_id=character.id,
-                    attribute_type=attr_type,
-                    attribute_value=attr_value
-                )
-                session.add(attr)
+            # 添加决定因素（保留用于兼容）
+            if attributes:
+                for attr_type, attr_value in attributes.items():
+                    attr = CharacterAttribute(
+                        character_id=character.id,
+                        attribute_type=attr_type,
+                        attribute_value=attr_value
+                    )
+                    session.add(attr)
             
             # 初始化状态值
             state = CharacterState(character_id=character.id)
             session.add(state)
             
             session.commit()
-            return character.id
+            return character.id  # 返回角色ID，作为与ChromaDB关联的key
     
     def get_character(self, character_id: int) -> Character:
-        """获取角色信息"""
+        """获取角色信息
+        
+        Returns:
+            Character对象，包含character_data字段（完整的角色数据字典）
+        """
         with self.get_session() as session:
             character = session.query(Character).filter(Character.id == character_id).first()
             return character
+    
+    def get_character_data(self, character_id: int) -> dict:
+        """获取角色的完整数据字典
+        
+        Args:
+            character_id: 角色ID（与ChromaDB关联的key）
+        
+        Returns:
+            完整的角色数据字典，如果不存在则返回None
+        """
+        with self.get_session() as session:
+            character = session.query(Character).filter(Character.id == character_id).first()
+            if character and character.character_data:
+                return character.character_data
+            return None
     
     def get_character_states(self, character_id: int) -> CharacterState:
         """获取角色状态值"""

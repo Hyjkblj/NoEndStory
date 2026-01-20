@@ -120,7 +120,8 @@ class AIGenerator:
     def generate_character_dialogue(self, story_background: str, character_info: Dict, 
                                     state_values: Dict, dialogue_round: int = 1, 
                                     previous_dialogues: List[str] = None, 
-                                    character_name: str = None) -> str:
+                                    character_name: str = None,
+                                    historical_impacts: List[str] = None) -> str:
         """生成角色对话文本
         
         Args:
@@ -137,7 +138,15 @@ class AIGenerator:
             return self._fallback_dialogue(character_info, state_values)
         
         # 构建完整的角色属性描述（提高权重）
-        personality = character_info.get('personality', '')
+        # 优先使用字典格式的性格（新系统）
+        personality_dict = character_info.get('personality', {})
+        if isinstance(personality_dict, dict):
+            # 从字典中提取性格关键词
+            personality_keywords = personality_dict.get('keywords', [])
+            personality_text = '，'.join(personality_keywords) if personality_keywords else character_info.get('personality_text', '')
+        else:
+            personality_text = personality_dict if personality_dict else character_info.get('personality_text', '')
+        
         gender = character_info.get('gender', '')
         appearance = character_info.get('appearance', '')
         attributes = character_info.get('attributes', {})
@@ -211,7 +220,7 @@ class AIGenerator:
         
         # 构建完整的角色属性描述（强调这些对对话的影响）
         character_attributes_desc = f"""
-【核心性格】{personality}
+【核心性格】{personality_text}
 【性别】{gender}
 【外观】{appearance}
 【出身背景】{background}
@@ -287,6 +296,11 @@ class AIGenerator:
         if previous_character_dialogues:
             previous_char_dialogues_text = "\n之前角色说过的话（不要重复相似内容）：\n" + "\n".join([f"- {d}" for d in previous_character_dialogues])
         
+        # 构建玩家历史选项的影响描述
+        historical_impacts_text = ""
+        if historical_impacts:
+            historical_impacts_text = "\n【玩家历史选项的影响】（参考，影响角色当前态度）：\n" + "\n".join([f"- {impact}" for impact in historical_impacts[-3:]])
+        
         prompt = f"""你是一个剧情游戏的角色对话生成器。请根据以下信息生成角色的对话（20-40字）：
 
 【故事背景】（参考）：
@@ -301,6 +315,12 @@ class AIGenerator:
 【角色完整属性】（【最高优先级】必须严格遵循，这些属性决定角色的说话方式、用词、语气）：
 {character_attributes_desc}
 
+【角色性格】（【最高优先级】必须严格遵循，不同性格在同一情绪状态下说话方式完全不同）：
+性格关键词：{personality_text}
+- 性格直接影响对话风格：高冷性格说话简洁冷淡，热情性格说话热情主动，内向性格说话含蓄谨慎
+- 必须严格符合角色性格，不能脱离性格特征
+{historical_impacts_text}
+
 【当前状态值】（【最高优先级】必须严格遵循，这些状态值直接影响角色的语气、态度、情绪）：
 {state_desc}
 详细数值：好感度{favorability:.0f}，信任度{trust:.0f}，敌意{hostility:.0f}，依赖度{dependence:.0f}，情绪{emotion:.0f}，压力{stress:.0f}，焦虑{anxiety:.0f}，快乐{happiness:.0f}，悲伤{sadness:.0f}，自信度{confidence:.0f}，主动度{initiative:.0f}，谨慎度{caution:.0f}
@@ -313,8 +333,9 @@ class AIGenerator:
 
 【核心要求】（按优先级排序）：
 1. 【必须基于历史】必须基于历史对话内容生成，不能脱离历史对话
-2. 【最高优先级】对话必须严格符合角色的完整属性（性格、背景、价值观、人际关系风格等），这些属性决定角色的说话方式
+2. 【最高优先级】对话必须严格符合角色性格（{personality_text}），不同性格在同一情绪状态下说话方式完全不同
 3. 【最高优先级】对话必须严格反映当前状态值（好感度、信任度、情绪等），状态值直接影响语气和态度
+4. 【最高优先级】对话必须考虑玩家历史选项的影响，这些影响会影响角色对玩家的态度
 4. 【格式要求】对话必须以"{character_name}:"开头，例如："{character_name}: 你好，很高兴认识你"
 5. 【重要】对话要回应故事背景中的事件，但不能脱离角色属性
 6. 【重要】必须基于之前的对话内容，承上启下，保持连贯性
@@ -362,7 +383,8 @@ class AIGenerator:
             return self._fallback_dialogue(character_info, state_values)
     
     def generate_player_options(self, story_background: str, character_dialogue: str, 
-                                dialogue_round: int, previous_dialogues: List[str] = None) -> List[Dict]:
+                                dialogue_round: int, previous_dialogues: List[str] = None,
+                                personality_dict: dict = None, current_states: object = None) -> List[Dict]:
         """生成玩家选项（对话内容）
         
         Args:
@@ -501,18 +523,18 @@ class AIGenerator:
                     # 尝试补充选项
                     options = self._supplement_options(options, character_dialogue, story_background, previous_dialogues)
                 
-                # 为每个选项分配状态值变化
+                # 为每个选项动态计算状态值变化（根据角色性格和当前情绪状态）
                 if len(options) >= 3:
                     return [
                         {
                             'id': 1,
                             'text': options[0],
                             'type': 'increase',
-                            'state_changes': {
-                                'favorability': 5.0,
-                                'trust': 3.0,
-                                'happiness': 5.0
-                            }
+                            'state_changes': self._calculate_dynamic_state_changes(
+                                personality_dict=personality_dict,
+                                current_states=current_states,
+                                option_type='increase'
+                            )
                         },
                         {
                             'id': 2,
@@ -524,11 +546,11 @@ class AIGenerator:
                             'id': 3,
                             'text': options[2],
                             'type': 'decrease',
-                            'state_changes': {
-                                'favorability': -5.0,
-                                'trust': -3.0,
-                                'happiness': -5.0
-                            }
+                            'state_changes': self._calculate_dynamic_state_changes(
+                                personality_dict=personality_dict,
+                                current_states=current_states,
+                                option_type='decrease'
+                            )
                         }
                     ]
                 else:
@@ -758,6 +780,94 @@ class AIGenerator:
             tone = "平静地"
         
         return f"角色{tone}说道：\"...\""
+    
+    def _calculate_dynamic_state_changes(self, personality_dict: dict = None, 
+                                        current_states: object = None, 
+                                        option_type: str = 'increase') -> dict:
+        """动态计算状态值变化（根据角色性格和当前情绪状态）
+        
+        Args:
+            personality_dict: 角色性格字典（包含keywords等）
+            current_states: 当前角色状态对象
+            option_type: 选项类型（'increase'或'decrease'）
+        
+        Returns:
+            状态值变化字典
+        """
+        import random
+        
+        # 基础影响值
+        base_favorability = 5.0
+        base_trust = 3.0
+        base_happiness = 5.0
+        base_emotion = 3.0
+        
+        # 根据角色性格调整影响值
+        personality_keywords = []
+        if personality_dict and isinstance(personality_dict, dict):
+            personality_keywords = personality_dict.get('keywords', [])
+        
+        # 性格影响系数
+        personality_multiplier = 1.0
+        
+        # 高冷性格：对积极选项反应较小，对消极选项反应较大
+        if any('高冷' in kw or '冷淡' in kw or '冷漠' in kw for kw in personality_keywords):
+            if option_type == 'increase':
+                personality_multiplier = 0.7  # 高冷性格对积极选项反应较小
+            else:
+                personality_multiplier = 1.3  # 对消极选项反应较大
+        
+        # 热情性格：对积极选项反应较大，对消极选项反应较小
+        elif any('热情' in kw or '开朗' in kw or '活泼' in kw for kw in personality_keywords):
+            if option_type == 'increase':
+                personality_multiplier = 1.3  # 热情性格对积极选项反应较大
+            else:
+                personality_multiplier = 0.7  # 对消极选项反应较小
+        
+        # 内向性格：所有反应都较小
+        elif any('内向' in kw or '害羞' in kw or '腼腆' in kw for kw in personality_keywords):
+            personality_multiplier = 0.8
+        
+        # 外向性格：所有反应都较大
+        elif any('外向' in kw or '健谈' in kw or '社交' in kw for kw in personality_keywords):
+            personality_multiplier = 1.2
+        
+        # 根据当前情绪状态调整影响值
+        emotion_multiplier = 1.0
+        if current_states:
+            emotion = current_states.emotion
+            
+            # 情绪高涨时：对积极选项反应更大，对消极选项反应更小
+            if emotion >= 70:
+                if option_type == 'increase':
+                    emotion_multiplier = 1.2
+                else:
+                    emotion_multiplier = 0.8
+            
+            # 情绪低落时：对积极选项反应更小，对消极选项反应更大
+            elif emotion <= 30:
+                if option_type == 'increase':
+                    emotion_multiplier = 0.8
+                else:
+                    emotion_multiplier = 1.2
+        
+        # 计算最终影响值
+        final_multiplier = personality_multiplier * emotion_multiplier
+        
+        if option_type == 'increase':
+            return {
+                'favorability': round(base_favorability * final_multiplier + random.uniform(-1, 1), 1),
+                'trust': round(base_trust * final_multiplier + random.uniform(-0.5, 0.5), 1),
+                'happiness': round(base_happiness * final_multiplier + random.uniform(-1, 1), 1),
+                'emotion': round(base_emotion * final_multiplier + random.uniform(-0.5, 0.5), 1)
+            }
+        else:  # decrease
+            return {
+                'favorability': round(-base_favorability * final_multiplier + random.uniform(-1, 1), 1),
+                'trust': round(-base_trust * final_multiplier + random.uniform(-0.5, 0.5), 1),
+                'happiness': round(-base_happiness * final_multiplier + random.uniform(-1, 1), 1),
+                'emotion': round(-base_emotion * final_multiplier + random.uniform(-0.5, 0.5), 1)
+            }
     
     def _fallback_options(self) -> List[Dict]:
         """回退的选项生成"""

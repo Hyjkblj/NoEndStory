@@ -1,5 +1,5 @@
 """角色相关数据库模型"""
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -14,9 +14,11 @@ class Character(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), nullable=False)
     gender = Column(String(20), nullable=False)  # 性别
-    appearance = Column(Text, nullable=False)  # 外观描述
-    personality = Column(Text, nullable=False)  # 性格描述
+    appearance = Column(Text, nullable=False)  # 外观描述（保留用于兼容）
+    personality = Column(Text, nullable=False)  # 性格描述（保留用于兼容）
     scene_id = Column(String(50), default='school')  # 场景ID
+    # 新增：存储完整的角色数据字典（JSON格式）
+    character_data = Column(JSON, nullable=True, comment='完整的角色数据字典，包含外观、性格、年龄、体重等所有前端数据')
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
