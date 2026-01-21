@@ -4,7 +4,7 @@ import json
 import time
 from api.services.game_session import GameSessionManager, GameSession
 from api.services.character_service import CharacterService
-from data.scenes import SCENES
+from data.scenes import SCENES, SUB_SCENES
 
 
 class GameService:
@@ -48,7 +48,7 @@ class GameService:
         Args:
             thread_id: 游戏会话ID
             character_id: 角色ID
-            scene_id: 初遇场景ID（玩家选择的场景）
+            scene_id: 初遇大场景ID（玩家选择的大场景，如'school'）
             character_image_url: 用户选择的角色图片URL（可选，如果不提供则使用最新图片）
         """
         session = self.session_manager.get_session(thread_id)
@@ -105,7 +105,7 @@ class GameService:
             if image_service.enabled:
                 # 使用事件对应的场景ID生成场景图片（可能不同于玩家选择的场景ID）
                 event_scene = event.get('scene', scene_id)
-                scene_info = SCENES.get(event_scene, {})
+                scene_info = SUB_SCENES.get(event_scene, {})
                 scene_data = {
                     'scene_id': event_scene,
                     'scene_name': scene_info.get('name', event_scene),
@@ -215,11 +215,13 @@ class GameService:
                     choice=selected_option
                 )
                 
-                # 保存对话轮次到向量数据库
+                # 保存对话轮次到向量数据库（传递状态值变化）
                 dialogue_round = len(session.story_engine.dialogue_history) // 2
+                state_changes = selected_option.get('state_changes', {}) if isinstance(selected_option, dict) else {}
                 session.story_engine.save_dialogue_round_to_vector_db(
                     character_id=character_id,
-                    dialogue_round=dialogue_round
+                    dialogue_round=dialogue_round,
+                    state_changes=state_changes
                 )
             else:
                 # 无效的option_id，创建中性选项
@@ -248,8 +250,27 @@ class GameService:
                 choice=temp_option
             )
         
-        # 检查是否应该继续当前事件的对话
-        should_continue = session.story_engine.should_continue_dialogue()
+        # 检查是否应该继续当前事件的对话（AI判断）
+        should_continue = session.story_engine.should_continue_dialogue(character_id)
+        
+        # 获取当前状态值（全部12个）
+        states = session.db_manager.get_character_states(character_id)
+        current_states = None
+        if states:
+            current_states = {
+                'favorability': states.favorability,
+                'trust': states.trust,
+                'hostility': states.hostility,
+                'dependence': states.dependence,
+                'emotion': states.emotion,
+                'stress': states.stress,
+                'anxiety': states.anxiety,
+                'happiness': states.happiness,
+                'sadness': states.sadness,
+                'confidence': states.confidence,
+                'initiative': states.initiative,
+                'caution': states.caution
+            }
         
         response_data = {
             'character_dialogue': None,
@@ -257,6 +278,7 @@ class GameService:
             'story_background': None,
             'event_title': None,
             'scene': None,
+            'current_states': current_states,  # 添加全部12个状态值
             'is_event_finished': False,
             'is_game_finished': False
         }
@@ -270,12 +292,33 @@ class GameService:
             # 输出详细信息到控制台
             self._print_dialogue_info(character_id, session.story_engine.current_event, dialogue_data)
             
+            # 更新状态值
+            states = session.db_manager.get_character_states(character_id)
+            if states:
+                current_states = {
+                    'favorability': states.favorability,
+                    'trust': states.trust,
+                    'hostility': states.hostility,
+                    'dependence': states.dependence,
+                    'emotion': states.emotion,
+                    'stress': states.stress,
+                    'anxiety': states.anxiety,
+                    'happiness': states.happiness,
+                    'sadness': states.sadness,
+                    'confidence': states.confidence,
+                    'initiative': states.initiative,
+                    'caution': states.caution
+                }
+            else:
+                current_states = None
+            
             response_data.update({
                 'character_dialogue': dialogue_data['character_dialogue'],
                 'player_options': dialogue_data['player_options'],
                 'story_background': session.story_engine.current_event.get('story_background') if session.story_engine.current_event else None,
                 'event_title': session.story_engine.current_event.get('title') if session.story_engine.current_event else None,
                 'scene': session.story_engine.current_event.get('scene') if session.story_engine.current_event else None,
+                'current_states': current_states,  # 更新状态值
             })
         else:
             # 当前事件对话结束，保存事件并进入下一个事件
@@ -292,12 +335,33 @@ class GameService:
                 # 输出详细信息到控制台
                 self._print_dialogue_info(character_id, ending_event, dialogue_data)
                 
+                # 更新状态值
+                states = session.db_manager.get_character_states(character_id)
+                if states:
+                    current_states = {
+                        'favorability': states.favorability,
+                        'trust': states.trust,
+                        'hostility': states.hostility,
+                        'dependence': states.dependence,
+                        'emotion': states.emotion,
+                        'stress': states.stress,
+                        'anxiety': states.anxiety,
+                        'happiness': states.happiness,
+                        'sadness': states.sadness,
+                        'confidence': states.confidence,
+                        'initiative': states.initiative,
+                        'caution': states.caution
+                    }
+                else:
+                    current_states = None
+                
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
                     'player_options': dialogue_data['player_options'],
                     'story_background': ending_event.get('story_background'),
                     'event_title': ending_event.get('title', '结局'),
                     'scene': ending_event.get('scene'),
+                    'current_states': current_states,  # 更新状态值
                     'is_game_finished': True
                 })
             else:
@@ -348,12 +412,33 @@ class GameService:
                     except Exception as e:
                         print(f"[警告] 获取合成图片URL失败: {e}")
                 
+                # 更新状态值
+                states = session.db_manager.get_character_states(character_id)
+                if states:
+                    current_states = {
+                        'favorability': states.favorability,
+                        'trust': states.trust,
+                        'hostility': states.hostility,
+                        'dependence': states.dependence,
+                        'emotion': states.emotion,
+                        'stress': states.stress,
+                        'anxiety': states.anxiety,
+                        'happiness': states.happiness,
+                        'sadness': states.sadness,
+                        'confidence': states.confidence,
+                        'initiative': states.initiative,
+                        'caution': states.caution
+                    }
+                else:
+                    current_states = None
+                
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
                     'player_options': dialogue_data['player_options'],
                     'story_background': next_event.get('story_background'),
                     'event_title': next_event.get('title'),
                     'scene': next_event.get('scene'),
+                    'current_states': current_states,  # 更新状态值
                     'composite_image_url': composite_image_url,  # 合成后的游戏场景图片
                     'is_event_finished': True
                 })

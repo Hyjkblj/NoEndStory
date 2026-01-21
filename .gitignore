@@ -49,6 +49,7 @@ venv.bak/
 *.sqlite
 *.sqlite3
 chroma_db/
+vector_db/
 *.sql
 
 # 日志

@@ -32,27 +32,47 @@ class AIGenerator:
     
     
     def generate_story_background(self, character_id: int, previous_events: List[str], 
-                                  current_context: str) -> str:
-        """生成故事背景文本
+                                  current_context: str, character_name: str = None) -> str:
+        """生成故事背景文本（必须基于向量数据库检索的历史事件）
         
         Args:
             character_id: 角色ID
-            previous_events: 历史事件列表（从向量数据库检索）
+            previous_events: 历史事件列表（从向量数据库检索，必须提供）
             current_context: 当前事件上下文
+            character_name: 角色名称（用于在文本中标识）
             
         Returns:
-            生成的故事背景文本
+            生成的故事背景文本（包含player和角色名）
         """
+        # 如果没有历史事件，从向量数据库检索
+        if not previous_events or len(previous_events) == 0:
+            # 这里应该由调用者从向量数据库检索，但为了安全，我们也可以在这里检索
+            print("[警告] generate_story_background未提供历史事件，应该从向量数据库检索")
+        
         if not self.enabled:
             # 回退到规则生成
             if previous_events:
-                return f"基于过往的经历，{previous_events[0][:200]}..."
-            return f"这是一个新的开始。{current_context}"
+                return f"基于过往的经历，player和{character_name or '角色'}继续他们的故事。{previous_events[0][:200]}..."
+            return f"这是一个新的开始。player和{character_name or '角色'}开始了新的相遇。{current_context}"
         
-        # 构建提示词
-        previous_context = "\n".join([f"- {event}" for event in previous_events[:3]]) if previous_events else "这是第一次相遇。"
+        # 构建提示词（强调必须基于历史事件）
+        previous_context = "\n".join([f"- {event}" for event in previous_events[:5]]) if previous_events else "这是第一次相遇，没有历史事件。"
+        
+        # 如果没有提供角色名，尝试从数据库获取
+        if not character_name:
+            try:
+                from database.db_manager import DatabaseManager
+                db_manager = DatabaseManager()
+                character = db_manager.get_character(character_id)
+                if character:
+                    character_name = character.name
+            except:
+                character_name = "角色"
         
         prompt = f"""你是一个剧情游戏的故事背景生成器。请根据以下信息生成一段故事背景描述（100-150字）：
+
+【重要】必须基于历史事件生成，不能脱离历史事件凭空创造！
+【时间设定】故事发生在当下（现代），禁止出现“20世纪初/古代/民国/未来”等年代背景。
 
 【历史事件】（必须参考，确保连续性）：
 {previous_context}
@@ -60,18 +80,25 @@ class AIGenerator:
 【当前情境】：
 {current_context}
 
-要求：
-1. 【连续性】基于历史事件合理推演新的事件发展，必须与历史事件有连续性，不能突兀
-2. 【不重复】不要重复之前已经发生过的场景和事件，要推进剧情发展，创造新的情节
-3. 【场景切换】可以自然地切换场景（如从学校到咖啡厅、从教室到操场、从图书馆到书店等），但要符合逻辑，有合理的过渡
-4. 【剧情推进】描述场景和发生了什么，让剧情有新的进展，不能原地踏步
-5. 【场景描述】明确描述当前场景，让玩家知道在哪里
-6. 语言自然流畅，符合剧情发展
-7. 不要包含角色对话，只描述背景和事件
-8. 如果历史事件中有约定或承诺，可以在新事件中体现
-9. 【避免重复】检查历史事件，确保新事件与之前的事件不重复，有新的内容
+【角色信息】：
+- 玩家：player
+- 角色：{character_name}
 
-故事背景："""
+要求：
+1. 【必须基于历史】必须基于历史事件合理推演新的事件发展，不能脱离历史事件
+2. 【连续性】新事件必须与历史事件有明确的因果关系或时间顺序
+3. 【明确标识】在描述中明确使用"player"和"{character_name}"来标识玩家和角色，不要混淆
+4. 【不重复】不要重复之前已经发生过的场景和事件，要推进剧情发展
+5. 【场景切换】可以自然地切换场景，但要符合逻辑，有合理的过渡
+6. 【剧情推进】描述场景和发生了什么，让剧情有新的进展
+7. 【场景描述】明确描述当前场景，让玩家知道在哪里
+8. 【第三人称】使用第三人称描述，例如："player和{character_name}在图书馆相遇..."
+9. 语言自然流畅，符合剧情发展
+10. 不要包含角色对话，只描述背景和事件
+11. 如果历史事件中有约定或承诺，可以在新事件中体现
+12. 【当下语境】用当代校园/日常生活语境与细节，不要出现年代错位的道具与社会背景。
+
+故事背景（必须包含player和{character_name}的名字）："""
         
         try:
             response = Generation.call(
@@ -92,7 +119,9 @@ class AIGenerator:
     
     def generate_character_dialogue(self, story_background: str, character_info: Dict, 
                                     state_values: Dict, dialogue_round: int = 1, 
-                                    previous_dialogues: List[str] = None) -> str:
+                                    previous_dialogues: List[str] = None, 
+                                    character_name: str = None,
+                                    historical_impacts: List[str] = None) -> str:
         """生成角色对话文本
         
         Args:
@@ -109,7 +138,15 @@ class AIGenerator:
             return self._fallback_dialogue(character_info, state_values)
         
         # 构建完整的角色属性描述（提高权重）
-        personality = character_info.get('personality', '')
+        # 优先使用字典格式的性格（新系统）
+        personality_dict = character_info.get('personality', {})
+        if isinstance(personality_dict, dict):
+            # 从字典中提取性格关键词
+            personality_keywords = personality_dict.get('keywords', [])
+            personality_text = '，'.join(personality_keywords) if personality_keywords else character_info.get('personality_text', '')
+        else:
+            personality_text = personality_dict if personality_dict else character_info.get('personality_text', '')
+        
         gender = character_info.get('gender', '')
         appearance = character_info.get('appearance', '')
         attributes = character_info.get('attributes', {})
@@ -183,7 +220,7 @@ class AIGenerator:
         
         # 构建完整的角色属性描述（强调这些对对话的影响）
         character_attributes_desc = f"""
-【核心性格】{personality}
+【核心性格】{personality_text}
 【性别】{gender}
 【外观】{appearance}
 【出身背景】{background}
@@ -237,12 +274,21 @@ class AIGenerator:
         else:
             dialogue_role = "结尾/总结/推进剧情，为事件收尾"
         
+        # 如果没有提供角色名，尝试从character_info获取
+        if not character_name:
+            # character_info可能包含name字段，或者需要从数据库获取
+            character_name = character_info.get('name', '角色')
+        
         # 提取之前所有角色对话，用于避免重复
         previous_character_dialogues = []
         if previous_dialogues:
             for item in previous_dialogues:
-                if isinstance(item, str) and item.startswith("角色:"):
-                    previous_character_dialogues.append(item.replace("角色:", "").strip())
+                if isinstance(item, str):
+                    # 检查格式："{角色名}: ..." 或 "角色: ..."
+                    if f"{character_name}:" in item:
+                        previous_character_dialogues.append(item.split(f"{character_name}:")[-1].strip())
+                    elif item.startswith("角色:"):
+                        previous_character_dialogues.append(item.replace("角色:", "").strip())
                 elif isinstance(item, dict) and item.get('type') == 'character':
                     previous_character_dialogues.append(item.get('content', ''))
         
@@ -250,42 +296,57 @@ class AIGenerator:
         if previous_character_dialogues:
             previous_char_dialogues_text = "\n之前角色说过的话（不要重复相似内容）：\n" + "\n".join([f"- {d}" for d in previous_character_dialogues])
         
+        # 构建玩家历史选项的影响描述
+        historical_impacts_text = ""
+        if historical_impacts:
+            historical_impacts_text = "\n【玩家历史选项的影响】（参考，影响角色当前态度）：\n" + "\n".join([f"- {impact}" for impact in historical_impacts[-3:]])
+        
         prompt = f"""你是一个剧情游戏的角色对话生成器。请根据以下信息生成角色的对话（20-40字）：
 
 【故事背景】（参考）：
 {story_background}
 
-【历史对话】（参考，保持连贯）：
+【时间设定】故事发生在当下（现代），不要出现年代错位背景。
+
+【历史对话】（参考，保持连贯，必须基于这些对话生成）：
 {previous_context}
 {previous_char_dialogues_text}
 
 【角色完整属性】（【最高优先级】必须严格遵循，这些属性决定角色的说话方式、用词、语气）：
 {character_attributes_desc}
 
+【角色性格】（【最高优先级】必须严格遵循，不同性格在同一情绪状态下说话方式完全不同）：
+性格关键词：{personality_text}
+- 性格直接影响对话风格：高冷性格说话简洁冷淡，热情性格说话热情主动，内向性格说话含蓄谨慎
+- 必须严格符合角色性格，不能脱离性格特征
+{historical_impacts_text}
+
 【当前状态值】（【最高优先级】必须严格遵循，这些状态值直接影响角色的语气、态度、情绪）：
 {state_desc}
 详细数值：好感度{favorability:.0f}，信任度{trust:.0f}，敌意{hostility:.0f}，依赖度{dependence:.0f}，情绪{emotion:.0f}，压力{stress:.0f}，焦虑{anxiety:.0f}，快乐{happiness:.0f}，悲伤{sadness:.0f}，自信度{confidence:.0f}，主动度{initiative:.0f}，谨慎度{caution:.0f}
 
-对话轮次：第{dialogue_round}轮对话（共4轮）
+【角色名称】：{character_name}
+【玩家名称】：player
+
+对话轮次：第{dialogue_round}轮对话（最多5轮）
 本轮对话作用：{dialogue_role}
 
 【核心要求】（按优先级排序）：
-1. 【最高优先级】对话必须严格符合角色的完整属性（性格、背景、价值观、人际关系风格等），这些属性决定角色的说话方式
-2. 【最高优先级】对话必须严格反映当前状态值（好感度、信任度、情绪等），状态值直接影响语气和态度
-3. 【重要】对话要回应故事背景中的事件，但不能脱离角色属性
-4. 【重要】必须基于之前的对话内容，承上启下，保持连贯性
-5. 【禁止】绝对不要重复之前角色说过的话，内容、意思、表达方式都要完全不同
-6. 【禁止】绝对不要使用玩家可能说的话，角色对话和玩家选项必须完全隔离
-7. 【故事结构】对话要形成完整的故事结构：
-   - 第1轮：开场/引入话题
-   - 第2轮：发展/深入讨论
-   - 第3轮：继续发展/深化关系
-   - 第4轮：结尾/总结/推进剧情
-8. 如果之前有对话，要回应玩家的话或继续之前的话题，但要推进剧情
-9. 语言自然，像真实对话，但要符合角色属性
-10. 只生成角色说的话，不要加引号或说明
+1. 【必须基于历史】必须基于历史对话内容生成，不能脱离历史对话
+2. 【最高优先级】对话必须严格符合角色性格（{personality_text}），不同性格在同一情绪状态下说话方式完全不同
+3. 【最高优先级】对话必须严格反映当前状态值（好感度、信任度、情绪等），状态值直接影响语气和态度
+4. 【最高优先级】对话必须考虑玩家历史选项的影响，这些影响会影响角色对玩家的态度
+4. 【格式要求】对话必须以"{character_name}:"开头，例如："{character_name}: 你好，很高兴认识你"
+5. 【重要】对话要回应故事背景中的事件，但不能脱离角色属性
+6. 【重要】必须基于之前的对话内容，承上启下，保持连贯性
+7. 【禁止】绝对不要重复之前角色说过的话，内容、意思、表达方式都要完全不同
+8. 【禁止】绝对不要使用玩家可能说的话，角色对话和玩家选项必须完全隔离
+9. 【禁止】不要混淆player和{character_name}，角色对话必须是{character_name}说的话
+10. 如果之前有对话，要回应player的话或继续之前的话题，但要推进剧情
+11. 语言自然，像真实对话，但要符合角色属性
+12. 对话要有头有尾，能够完整概述事件或承上启下
 
-角色对话："""
+角色对话（必须以"{character_name}:"开头）："""
         
         try:
             response = Generation.call(
@@ -299,15 +360,15 @@ class AIGenerator:
                 dialogue = response.output.text.strip()
                 # 清理可能的引号和其他标记
                 dialogue = dialogue.strip('"').strip("'").strip()
-                # 移除可能的"角色说："等前缀
-                if '：' in dialogue:
-                    parts = dialogue.split('：', 1)
-                    if len(parts) > 1:
-                        dialogue = parts[-1].strip()
-                if ':' in dialogue:
-                    parts = dialogue.split(':', 1)
-                    if len(parts) > 1 and len(parts[0]) < 10:  # 可能是前缀
-                        dialogue = parts[-1].strip()
+                
+                # 确保对话包含角色名
+                if not dialogue.startswith(f"{character_name}:") and not dialogue.startswith(f"{character_name}："):
+                    # 如果AI没有加上名字，我们加上
+                    dialogue = f"{character_name}: {dialogue}"
+                else:
+                    # 清理可能的重复前缀
+                    if dialogue.startswith(f"{character_name}："):
+                        dialogue = dialogue.replace(f"{character_name}：", f"{character_name}:", 1)
                 
                 # 检查是否与之前的角色对话重复
                 if previous_character_dialogues:
@@ -322,7 +383,8 @@ class AIGenerator:
             return self._fallback_dialogue(character_info, state_values)
     
     def generate_player_options(self, story_background: str, character_dialogue: str, 
-                                dialogue_round: int, previous_dialogues: List[str] = None) -> List[Dict]:
+                                dialogue_round: int, previous_dialogues: List[str] = None,
+                                personality_dict: dict = None, current_states: object = None) -> List[Dict]:
         """生成玩家选项（对话内容）
         
         Args:
@@ -397,44 +459,48 @@ class AIGenerator:
 【故事背景】（参考）：
 {story_background}
 
-【历史对话】（参考，保持连贯）：
+【时间设定】故事发生在当下（现代），不要出现年代错位背景。
+
+【历史对话】（参考，保持连贯，必须基于这些对话生成）：
 {previous_context}
 {previous_options_text}
 
 【角色刚才说的话】（必须回应）：
 "{character_dialogue}"
 
-对话轮次：第{dialogue_round}轮（共4轮）
+【玩家名称】：player
+【格式要求】：每个选项必须以"player:"开头
+
+对话轮次：第{dialogue_round}轮（最多5轮）
 本轮对话作用：{dialogue_role}
 
 【核心要求】（按优先级排序）：
-1. 【最高优先级】生成3个不同的玩家回复选项，每个10-25字
-2. 【最高优先级】选项1：积极回应（会提升好感度和信任度）- 友好、支持、鼓励
-3. 【最高优先级】选项2：中性回应（保持现状）- 中立、观察、不表态
-4. 【最高优先级】选项3：消极回应（会降低好感度和信任度）- 冷淡、拒绝、质疑
-5. 【重要】必须直接回应角色刚才说的话，不能脱离角色对话
-6. 【重要】必须考虑之前的对话内容，保持连贯性
-7. 【重要】回复要符合当前场景和事件背景
-8. 【禁止】绝对不要重复角色刚才说的话，玩家选项和角色对话必须完全隔离
-9. 【禁止】绝对不要使用角色可能说的话，玩家选项必须是玩家说的话
-10. 【禁止】不要重复之前玩家说过的话，内容、意思、表达方式都要完全不同
-11. 【禁止】不要模仿角色的说话风格，玩家选项应该有自己的表达方式
-12. 【故事结构】对话要形成完整的故事结构：
-    - 第1轮：开场/回应开场
-    - 第2轮：发展/深入讨论
-    - 第3轮：继续发展/深化关系
-    - 第4轮：结尾/总结/推进剧情
-13. 回复要像真实对话，自然流畅，但必须是玩家的表达方式
-14. 只输出选项内容，不要编号或说明
-15. 格式：每行一个选项
+1. 【必须基于历史】必须基于历史对话内容生成，不能脱离历史对话
+2. 【最高优先级】生成3个不同的玩家回复选项，每个10-25字
+3. 【格式要求】每个选项必须以"player:"开头，例如："player: 你好，很高兴认识你"
+4. 【最高优先级】选项1：积极回应（会提升好感度和信任度）- 友好、支持、鼓励
+5. 【最高优先级】选项2：中性回应（保持现状）- 中立、观察、不表态
+6. 【最高优先级】选项3：消极回应（会降低好感度和信任度）- 冷淡、拒绝、质疑
+7. 【重要】必须直接回应角色刚才说的话，不能脱离角色对话
+8. 【重要】必须考虑之前的对话内容，保持连贯性
+9. 【重要】回复要符合当前场景和事件背景
+10. 【禁止】绝对不要重复角色刚才说的话，玩家选项和角色对话必须完全隔离
+11. 【禁止】绝对不要使用角色可能说的话，玩家选项必须是玩家说的话
+12. 【禁止】不要重复之前玩家说过的话，内容、意思、表达方式都要完全不同
+13. 【禁止】不要模仿角色的说话风格，玩家选项应该有自己的表达方式
+14. 【禁止】不要混淆player和角色，玩家选项必须是player说的话
+15. 回复要像真实对话，自然流畅，但必须是玩家的表达方式
+16. 对话要有头有尾，能够完整概述事件或承上启下
+17. 格式：每行一个选项，每个选项以"player:"开头
 
 【隔离要求】（非常重要）：
 - 玩家选项必须与角色对话完全隔离
 - 不能使用角色说过的话
 - 不能使用角色的表达方式
 - 必须是玩家自己的说话风格
+- 明确标识：使用"player:"开头
 
-玩家选项："""
+玩家选项（每个选项必须以"player:"开头）："""
         
         try:
             response = Generation.call(
@@ -457,18 +523,18 @@ class AIGenerator:
                     # 尝试补充选项
                     options = self._supplement_options(options, character_dialogue, story_background, previous_dialogues)
                 
-                # 为每个选项分配状态值变化
+                # 为每个选项动态计算状态值变化（根据角色性格和当前情绪状态）
                 if len(options) >= 3:
                     return [
                         {
                             'id': 1,
                             'text': options[0],
                             'type': 'increase',
-                            'state_changes': {
-                                'favorability': 5.0,
-                                'trust': 3.0,
-                                'happiness': 5.0
-                            }
+                            'state_changes': self._calculate_dynamic_state_changes(
+                                personality_dict=personality_dict,
+                                current_states=current_states,
+                                option_type='increase'
+                            )
                         },
                         {
                             'id': 2,
@@ -480,11 +546,11 @@ class AIGenerator:
                             'id': 3,
                             'text': options[2],
                             'type': 'decrease',
-                            'state_changes': {
-                                'favorability': -5.0,
-                                'trust': -3.0,
-                                'happiness': -5.0
-                            }
+                            'state_changes': self._calculate_dynamic_state_changes(
+                                personality_dict=personality_dict,
+                                current_states=current_states,
+                                option_type='decrease'
+                            )
                         }
                     ]
                 else:
@@ -497,7 +563,7 @@ class AIGenerator:
             return self._fallback_options()
     
     def _parse_options(self, text: str) -> List[str]:
-        """解析AI生成的选项文本"""
+        """解析AI生成的选项文本，确保包含player:前缀"""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         options = []
         
@@ -506,13 +572,20 @@ class AIGenerator:
             line = line.lstrip('1234567890.）)ABCabc、')
             line = line.strip()
             if line and len(line) > 5:  # 至少5个字符
+                # 确保包含player:前缀
+                if not line.startswith("player:") and not line.startswith("player："):
+                    line = f"player: {line}"
+                else:
+                    # 统一使用英文冒号
+                    if line.startswith("player："):
+                        line = line.replace("player：", "player:", 1)
                 options.append(line)
                 if len(options) >= 3:
                     break
         
         # 如果解析不到3个，补充默认选项
         while len(options) < 3:
-            options.append(f"选项{len(options)+1}")
+            options.append(f"player: 选项{len(options)+1}")
         
         return options[:3]
     
@@ -707,6 +780,94 @@ class AIGenerator:
             tone = "平静地"
         
         return f"角色{tone}说道：\"...\""
+    
+    def _calculate_dynamic_state_changes(self, personality_dict: dict = None, 
+                                        current_states: object = None, 
+                                        option_type: str = 'increase') -> dict:
+        """动态计算状态值变化（根据角色性格和当前情绪状态）
+        
+        Args:
+            personality_dict: 角色性格字典（包含keywords等）
+            current_states: 当前角色状态对象
+            option_type: 选项类型（'increase'或'decrease'）
+        
+        Returns:
+            状态值变化字典
+        """
+        import random
+        
+        # 基础影响值
+        base_favorability = 5.0
+        base_trust = 3.0
+        base_happiness = 5.0
+        base_emotion = 3.0
+        
+        # 根据角色性格调整影响值
+        personality_keywords = []
+        if personality_dict and isinstance(personality_dict, dict):
+            personality_keywords = personality_dict.get('keywords', [])
+        
+        # 性格影响系数
+        personality_multiplier = 1.0
+        
+        # 高冷性格：对积极选项反应较小，对消极选项反应较大
+        if any('高冷' in kw or '冷淡' in kw or '冷漠' in kw for kw in personality_keywords):
+            if option_type == 'increase':
+                personality_multiplier = 0.7  # 高冷性格对积极选项反应较小
+            else:
+                personality_multiplier = 1.3  # 对消极选项反应较大
+        
+        # 热情性格：对积极选项反应较大，对消极选项反应较小
+        elif any('热情' in kw or '开朗' in kw or '活泼' in kw for kw in personality_keywords):
+            if option_type == 'increase':
+                personality_multiplier = 1.3  # 热情性格对积极选项反应较大
+            else:
+                personality_multiplier = 0.7  # 对消极选项反应较小
+        
+        # 内向性格：所有反应都较小
+        elif any('内向' in kw or '害羞' in kw or '腼腆' in kw for kw in personality_keywords):
+            personality_multiplier = 0.8
+        
+        # 外向性格：所有反应都较大
+        elif any('外向' in kw or '健谈' in kw or '社交' in kw for kw in personality_keywords):
+            personality_multiplier = 1.2
+        
+        # 根据当前情绪状态调整影响值
+        emotion_multiplier = 1.0
+        if current_states:
+            emotion = current_states.emotion
+            
+            # 情绪高涨时：对积极选项反应更大，对消极选项反应更小
+            if emotion >= 70:
+                if option_type == 'increase':
+                    emotion_multiplier = 1.2
+                else:
+                    emotion_multiplier = 0.8
+            
+            # 情绪低落时：对积极选项反应更小，对消极选项反应更大
+            elif emotion <= 30:
+                if option_type == 'increase':
+                    emotion_multiplier = 0.8
+                else:
+                    emotion_multiplier = 1.2
+        
+        # 计算最终影响值
+        final_multiplier = personality_multiplier * emotion_multiplier
+        
+        if option_type == 'increase':
+            return {
+                'favorability': round(base_favorability * final_multiplier + random.uniform(-1, 1), 1),
+                'trust': round(base_trust * final_multiplier + random.uniform(-0.5, 0.5), 1),
+                'happiness': round(base_happiness * final_multiplier + random.uniform(-1, 1), 1),
+                'emotion': round(base_emotion * final_multiplier + random.uniform(-0.5, 0.5), 1)
+            }
+        else:  # decrease
+            return {
+                'favorability': round(-base_favorability * final_multiplier + random.uniform(-1, 1), 1),
+                'trust': round(-base_trust * final_multiplier + random.uniform(-0.5, 0.5), 1),
+                'happiness': round(-base_happiness * final_multiplier + random.uniform(-1, 1), 1),
+                'emotion': round(-base_emotion * final_multiplier + random.uniform(-0.5, 0.5), 1)
+            }
     
     def _fallback_options(self) -> List[Dict]:
         """回退的选项生成"""

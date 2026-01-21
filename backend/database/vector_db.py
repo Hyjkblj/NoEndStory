@@ -264,32 +264,84 @@ class VectorDatabase:
     
     def add_dialogue_round(self, character_id: int, event_id: str, story_background: str,
                           dialogue_round: int, character_dialogue: str, player_choice: str,
-                          metadata: dict = None):
-        """添加单轮对话到向量数据库
+                          metadata: dict = None, states: object = None, state_changes: dict = None):
+        """添加单轮对话到向量数据库（重构版：支持四类文本存储）
         
         Args:
-            character_id: 角色ID
+            character_id: 角色ID（与PostgreSQL关联的key）
             event_id: 事件ID
-            story_background: 故事背景
+            story_background: 故事背景（原始文本，会进行概括）
             dialogue_round: 对话轮次
-            character_dialogue: 角色对话
-            player_choice: 玩家选择
+            character_dialogue: 角色对话（原封不动存储，但会加上状态值）
+            player_choice: 玩家选择（原封不动存储，但会加上状态值影响）
             metadata: 额外元数据
+            states: 角色状态对象（CharacterState）
+            state_changes: 玩家选项带来的状态值变化字典
         """
-        # 组合内容：故事背景 + 本轮对话
-        content = f"{story_background}\n\n第{dialogue_round}轮对话：\n角色: {character_dialogue}\n玩家: {player_choice}"
+        from game.emotion_utils import (
+            get_emotion_tags, 
+            get_all_states_text, 
+            get_state_changes_text,
+            summarize_story_background
+        )
+        
+        # 1. 概括故事背景文本（在什么时间、什么地点、玩家和角色做了什么）
+        summarized_background = summarize_story_background(story_background)
+        
+        # 2. 角色文本 + 所有12个状态值
+        states_text = get_all_states_text(states) if states else "状态值未知"
+        character_text_with_states = f"{character_dialogue}\n[角色状态：{states_text}]"
+        
+        # 3. 玩家选项文本 + 状态值影响
+        state_changes_text = get_state_changes_text(state_changes) if state_changes else "无状态变化"
+        player_choice_with_impact = f"{player_choice}\n[状态影响：{state_changes_text}]"
+        
+        # 4. 情绪状态标签（用于向量化）
+        emotion_tags = get_emotion_tags(states) if states else "情绪状态未知"
+        
+        # 组合四类文本（用于向量化检索）
+        content = f"""
+[故事背景概括]：{summarized_background}
+
+[角色文本]：{character_text_with_states}
+
+[玩家选项]：{player_choice_with_impact}
+
+[情绪状态]：{emotion_tags}
+""".strip()
         
         # 创建唯一ID（包含轮次）
         doc_id = f"{character_id}_{event_id}_round_{dialogue_round}"
         
-        # 准备元数据
+        # 准备元数据（混合方案：metadata存储精确值用于过滤）
         dialogue_metadata = {
             'character_id': str(character_id),
             'event_id': event_id,
             'dialogue_round': str(dialogue_round),
-            'type': 'dialogue_round',  # 标记为单轮对话
-            **{k: str(v) for k, v in (metadata or {}).items()}
+            'type': 'dialogue_round',
         }
+        
+        # 添加情绪相关字段到metadata（用于精确过滤）
+        if states:
+            dialogue_metadata.update({
+                'emotion': str(states.emotion),
+                'favorability': str(states.favorability),
+                'trust': str(states.trust),
+                'hostility': str(states.hostility),
+                'dependence': str(states.dependence),
+                'stress': str(states.stress),
+                'anxiety': str(states.anxiety),
+                'happiness': str(states.happiness),
+                'sadness': str(states.sadness),
+                'confidence': str(states.confidence),
+                'initiative': str(states.initiative),
+                'caution': str(states.caution),
+                'emotion_level': 'high' if states.emotion >= 70 else 'medium' if states.emotion >= 40 else 'low',
+            })
+        
+        # 添加其他元数据
+        if metadata:
+            dialogue_metadata.update({k: str(v) for k, v in metadata.items()})
         
         # 添加到集合（捕获遥测错误，不影响功能）
         try:

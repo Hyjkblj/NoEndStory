@@ -14,7 +14,11 @@ DB_CONFIG = {
 }
 
 # 向量数据库配置
-VECTOR_DB_PATH = os.getenv('VECTOR_DB_PATH', './vector_db')
+# 统一使用“项目根目录/vector_db”作为默认库位置（历史数据也在这里），避免从不同工作目录启动时读到不同库。
+_backend_dir = os.path.dirname(os.path.abspath(__file__))  # .../backend
+_project_root_dir = os.path.dirname(_backend_dir)  # 项目根目录
+_default_vector_db_path = os.path.join(_project_root_dir, 'vector_db')
+VECTOR_DB_PATH = os.getenv('VECTOR_DB_PATH', _default_vector_db_path)
 
 # Embedding模型配置（用于向量数据库的长时记忆）
 # 可选值：
@@ -31,7 +35,7 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 # 国内AI模型配置（替代方案）
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')  # 通义千问（阿里云）
 # 通义千问模型选择：qwen-turbo（快速，成本低）、qwen-plus（平衡）、qwen-max（最强，成本高）
-DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-max')  # 默认使用qwen-max
+DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-turbo')  # 默认使用qwen-turbo
 ZHIPU_API_KEY = os.getenv('ZHIPU_API_KEY', '')  # 智谱AI
 BAIDU_API_KEY = os.getenv('BAIDU_API_KEY', '')  # 百度文心一言
 BAIDU_SECRET_KEY = os.getenv('BAIDU_SECRET_KEY', '')
@@ -50,8 +54,8 @@ OLLAMA_MODEL = os.getenv('OLLAMA_MODEL', 'qwen:7b')  # 或 chatglm3:6b
 
 # 游戏配置
 GAME_CONFIG = {
-    'max_events': 15,  # 中间事件数量
-    'total_events': 17,  # 总事件数（开头1 + 中间15 + 结尾1）
+    'max_events': 3,  # 中间事件数量
+    'total_events': 5,  # 总事件数（开头1 + 中间3 + 结尾1）
 }
 
 # 图片保存配置

@@ -1,8 +1,16 @@
 """剧情推进引擎"""
 import random
 import os
-from typing import Dict, List
-from data.scenes import SCENES, SCENE_DERIVATIONS
+import re
+from typing import Dict, List, Optional
+from data.scenes import (
+    SCENES, 
+    MAJOR_SCENES, 
+    SUB_SCENES,
+    get_sub_scenes_by_major_scene,
+    get_major_scene_by_sub_scene,
+    get_major_scene_keyword
+)
 from game.event_generator import EventGenerator
 from database.db_manager import DatabaseManager
 import config
@@ -17,46 +25,78 @@ class StoryEngine:
         self.current_event_count = 0
         self.current_event = None  # 当前事件信息
         self.dialogue_history = []  # 当前事件的完整对话历史（包含角色对话和玩家选择）
-        self.min_dialogue_rounds = 4  # 最少对话轮数
-        self.current_scene = 'school'  # 当前场景
+        self.min_dialogue_rounds = 2  # 最少对话轮数（AI会决定是否继续）
+        self.max_dialogue_rounds = 5  # 最多对话轮数（硬上限，避免事件对话过长）
+        self.current_scene = 'classroom'  # 当前场景（小场景ID，默认使用教室）
         self.previous_event_contexts = []  # 记录之前的事件上下文，避免重复
+
+    def _flatten_documents(self, documents) -> List[str]:
+        """将ChromaDB query返回的documents统一拍平成 List[str]
+        
+        ChromaDB在query_texts为list时，返回格式通常是 List[List[str]]。
+        这里统一做兼容：List[str] / List[List[str]] / 其他类型都尽量转成字符串列表。
+        """
+        if not documents:
+            return []
+        flattened: List[str] = []
+        for item in documents:
+            if item is None:
+                continue
+            if isinstance(item, list):
+                for sub in item:
+                    if sub is None:
+                        continue
+                    flattened.append(str(sub))
+            else:
+                flattened.append(str(item))
+        return flattened
     
     def get_opening_event(self, character_id: int, scene_id: str = 'school') -> Dict:
-        """获取开头事件（随机抽取）"""
-        scene = SCENES.get(scene_id)
-        if not scene:
-            raise ValueError(f"场景 {scene_id} 不存在")
+        """获取开头事件（随机抽取）
         
-        # 如果场景没有定义opening_events，使用默认的初遇事件
-        opening_events = scene.get('opening_events', [{
-            'id': f'{scene_id}_meet',
-            'title': f'在{scene.get("name", scene_id)}初遇',
-            'description': f'在{scene.get("name", scene_id)}中，你们第一次相遇'
-        }])
+        Args:
+            character_id: 角色ID
+            scene_id: 大场景ID（如'school'），用于获取该大场景下的初遇事件
+        """
+        # scene_id现在是大场景ID，从大场景获取初遇事件
+        major_scene = MAJOR_SCENES.get(scene_id)
+        if not major_scene:
+            raise ValueError(f"大场景 {scene_id} 不存在")
+        
+        # 从大场景获取初遇事件列表
+        opening_events = major_scene.get('opening_events', [])
         
         if not opening_events:
-            # 如果opening_events为空，创建一个默认事件
-            opening_events = [{
-                'id': f'{scene_id}_meet',
-                'title': f'在{scene.get("name", scene_id)}初遇',
-                'description': f'在{scene.get("name", scene_id)}中，你们第一次相遇'
-            }]
+            # 如果没有定义初遇事件，从该大场景的小场景中随机选择一个，创建默认事件
+            sub_scenes = major_scene.get('sub_scenes', [])
+            if sub_scenes:
+                random_sub_scene = random.choice(sub_scenes)
+                sub_scene_info = SUB_SCENES.get(random_sub_scene, {})
+                opening_events = [{
+                    'id': f'{random_sub_scene}_meet',
+                    'title': f'在{sub_scene_info.get("name", random_sub_scene)}初遇',
+                    'description': f'在{sub_scene_info.get("name", random_sub_scene)}中，你们第一次相遇',
+                    'sub_scene': random_sub_scene
+                }]
+            else:
+                raise ValueError(f"大场景 {scene_id} 没有小场景")
         
         selected_event = random.choice(opening_events)
         
-        # 检查事件ID是否对应一个场景（用于场景图片显示）
-        # 例如：school场景的opening_events中，cafeteria事件ID对应cafeteria场景
-        event_scene_id = scene_id  # 默认使用传入的场景ID
-        event_id = selected_event['id']
-        
-        # 如果事件ID在SCENES中存在，且该场景有图片，使用事件ID作为场景ID
-        # 这样可以解决school场景没有图片，但cafeteria事件可以使用cafeteria场景图片的问题
-        if event_id in SCENES:
-            # 检查该场景是否有图片文件（通过检查是否在SCENE_DERIVATIONS中，或直接使用）
-            # 为了简化，如果事件ID是场景ID，且不是school，则使用事件ID作为场景ID
-            if event_id != 'school' and event_id in SCENES:
-                event_scene_id = event_id
-                print(f"[初遇事件] 事件ID {event_id} 对应场景 {event_id}，使用该场景的图片")
+        # 获取事件对应的小场景ID（用于游戏）
+        event_sub_scene_id = selected_event.get('sub_scene')
+        if not event_sub_scene_id:
+            # 如果事件没有指定sub_scene，尝试从事件ID推断
+            event_id = selected_event['id']
+            if event_id in SUB_SCENES:
+                event_sub_scene_id = event_id
+            else:
+                # 从大场景的小场景中随机选择一个
+                sub_scenes = major_scene.get('sub_scenes', [])
+                if sub_scenes:
+                    event_sub_scene_id = random.choice(sub_scenes)
+                else:
+                    raise ValueError(f"无法确定事件对应的小场景")
         
         # 生成事件（包含故事背景）
         event = self.event_generator.generate_event(
@@ -68,55 +108,55 @@ class StoryEngine:
         
         event['title'] = selected_event['title']
         event['event_context'] = selected_event['description']
-        event['scene'] = event_scene_id  # 使用事件对应的场景ID（如果有），否则使用传入的场景ID
-        event['original_scene'] = scene_id  # 保存原始选择的场景ID
+        event['scene'] = event_sub_scene_id  # 使用小场景ID
+        event['major_scene'] = scene_id  # 保存大场景ID
         self.current_event_count = 1
         self.current_event = event
         self.dialogue_history = []  # 重置对话历史
         
-        # 更新当前场景为事件对应的场景（如果有）
-        if event_scene_id != scene_id:
-            print(f"[初遇事件] 场景从 {scene_id} 切换到 {event_scene_id}（基于事件ID）")
-            self.current_scene = event_scene_id
+        # 更新当前场景为事件对应的小场景
+        self.current_scene = event_sub_scene_id
+        print(f"[初遇事件] 大场景: {MAJOR_SCENES.get(scene_id, {}).get('name', scene_id)}, 小场景: {SUB_SCENES.get(event_sub_scene_id, {}).get('name', event_sub_scene_id)}")
         
         return event
     
     def get_middle_event(self, character_id: int, event_number: int) -> Dict:
-        """获取中间事件（基于历史事件推演，避免重复，支持场景切换）"""
-        # 从向量数据库获取历史事件，用于生成新事件上下文
-        # 使用更广泛的查询，获取更多历史事件
+        """获取中间事件（重构版：通过检索向量数据库历史事件来推演故事背景）
+        
+        历史事件包括：故事背景文本、角色文本、玩家选项文本
+        """
+        # 从向量数据库检索历史事件（包括故事背景文本、角色文本、玩家选项文本）
+        # 用于推演后续事件的故事背景
+        # 统一使用 search_similar_events 检索，确保能获取到完整的历史事件内容
         previous_events = self.event_generator.vector_db.search_similar_events(
             character_id=character_id,
-            query="剧情发展 事件 场景",
-            n_results=5
+            query="故事背景 角色文本 玩家选项 剧情发展 事件 对话",  # 检索完整的历史事件
+            n_results=15  # 增加检索数量，获取更多历史信息
         )
+        previous_docs = self._flatten_documents(previous_events.get('documents', []))
         
-        # 获取当前场景和可能的衍生场景
-        possible_scenes = SCENE_DERIVATIONS.get(self.current_scene, [self.current_scene])
+        # 如果检索结果为空，尝试使用更宽泛的查询
+        if not previous_docs and event_number == 1:
+            # 第1个中间事件：如果语义搜索失败，尝试检索最近的对话
+            previous_dialogues = self.event_generator.vector_db.search_recent_dialogues(
+                character_id=character_id,
+                event_id=self.current_event['event_id'] if self.current_event else None,
+                n_results=10
+            )
+            previous_docs = self._flatten_documents(previous_dialogues.get('documents', []))
         
-        # 智能选择下一个场景：
-        # 1. 如果当前场景有衍生场景，优先选择未使用过的衍生场景
-        # 2. 如果所有衍生场景都用过，可以回到原场景或选择其他场景
-        # 3. 基于剧情逻辑，可以随机选择，但要有一定概率切换场景
-        if len(possible_scenes) > 1:
-            # 70%概率切换场景，30%概率保持当前场景
-            if random.random() < 0.7:
-                # 排除当前场景，从衍生场景中选择
-                available_scenes = [s for s in possible_scenes if s != self.current_scene]
-                if available_scenes:
-                    next_scene = random.choice(available_scenes)
-                else:
-                    next_scene = self.current_scene
-            else:
-                next_scene = self.current_scene
-        else:
-            next_scene = self.current_scene
+        # 2. 从历史事件中提取场景关键词，推演下一个场景
+        next_scene = self._infer_next_scene_from_history(
+            character_id=character_id,
+            previous_events=previous_docs,
+            current_scene=self.current_scene
+        )
         
         # 生成事件上下文（由AI基于历史事件生成，确保不重复且有连续性）
         event_context = self._generate_event_context(
             character_id=character_id,
             event_number=event_number,
-            previous_events=previous_events.get('documents', []),
+            previous_events=previous_docs,
             current_scene=next_scene
         )
         
@@ -218,49 +258,105 @@ class StoryEngine:
     
     def _generate_event_context(self, character_id: int, event_number: int, 
                                 previous_events: List[str], current_scene: str) -> str:
-        """生成事件上下文（使用AI，基于历史事件推演，避免重复，支持场景切换）"""
-        # 构建历史事件摘要
+        """生成事件上下文（使用AI，必须基于向量数据库检索的历史事件推演）
+        
+        Args:
+            character_id: 角色ID
+            event_number: 事件序号
+            previous_events: 从向量数据库检索的历史事件列表（必须提供）
+            current_scene: 当前场景
+        """
+        # 兜底：防御性拍平（避免调用方传入嵌套结构导致崩溃）
+        previous_events = self._flatten_documents(previous_events)
+
+        # 【重要】如果没有历史事件，必须从向量数据库检索
+        if not previous_events:
+            print("[警告] _generate_event_context未提供历史事件，从向量数据库检索...")
+            # 从向量数据库检索历史事件
+            search_results = self.event_generator.vector_db.search_similar_events(
+                character_id=character_id,
+                query="剧情 事件 场景 对话",
+                n_results=10
+            )
+            if search_results.get('documents'):
+                previous_events = self._flatten_documents(search_results['documents'])
+            else:
+                previous_events = []
+        
+        # 构建历史事件摘要（必须基于向量数据库检索）
         history_summary = ""
         if previous_events:
             history_summary = "\n".join([f"- {event[:200]}" for event in previous_events[:5]])  # 增加历史事件数量
         else:
-            history_summary = "这是第一个中间事件。"
+            history_summary = "这是第一个中间事件，没有历史事件可参考。"
         
-        # 获取场景描述
-        scene_info = SCENES.get(current_scene, {})
+        # 获取场景描述（使用小场景）
+        scene_info = SUB_SCENES.get(current_scene, {})
         scene_name = scene_info.get('name', current_scene)
         scene_desc = scene_info.get('description', f'在{scene_name}的场景中')
+        
+        # 获取大场景信息（用于生成关键词）
+        major_scene_id = get_major_scene_by_sub_scene(current_scene)
+        major_scene_info = MAJOR_SCENES.get(major_scene_id, {})
+        major_scene_keyword = major_scene_info.get('keyword', '')
         
         # 构建已发生的事件摘要（避免重复）
         previous_summary = ""
         if self.previous_event_contexts:
             previous_summary = "\n已发生的事件摘要（不要重复）：\n" + "\n".join([f"- {ctx[:100]}" for ctx in self.previous_event_contexts[-5:]])
         
-        # 获取场景信息
-        scene_name = SCENES.get(current_scene, {}).get('name', current_scene)
+        # 判断剧情发展阶段（基于事件序号）
+        if event_number <= 2:
+            stage = "初期"
+            stage_guidance = "这是剧情初期，事件应该比较自然、日常，可以是简单的互动、偶遇、或者因为学习、生活而产生的接触。不要过于戏剧化，保持真实感。"
+        elif event_number <= 5:
+            stage = "发展期"
+            stage_guidance = "这是剧情发展期，可以开始有一些更深入的互动，比如一起学习、一起吃饭、一起参加活动等。关系在慢慢熟悉，但还不要过于亲密。"
+        else:
+            stage = "深入期"
+            stage_guidance = "这是剧情深入期，可以有一些更私人的互动，比如分享心事、一起散步、互相帮助等。关系在逐渐加深，但要根据历史事件自然发展。"
         
-        # 使用AI生成事件上下文
-        prompt = f"""你是一个剧情游戏的事件上下文生成器。请根据以下信息生成一个事件描述（30-50字）：
+        # 获取角色名称
+        character = self.db_manager.get_character(character_id)
+        character_name = character.name if character else "角色"
+        
+        # 使用AI生成事件上下文（必须基于向量数据库检索的历史事件）
+        prompt = f"""你是一个剧情游戏的事件上下文生成器。请根据以下信息生成一个事件描述（40-60字）：
 
-【历史事件】（必须参考，确保连续性）：
+【重要】必须基于历史事件生成，不能脱离历史事件凭空创造！
+【时间设定】故事发生在当下（现代），禁止出现“20世纪初/古代/民国/未来”等年代背景。
+
+【历史事件】（从向量数据库检索，必须参考，确保连续性）：
 {history_summary}
 {previous_summary}
+
+【角色信息】：
+- 玩家：player
+- 角色：{character_name}
 
 【当前场景】：
 {scene_name}（{current_scene}）
 场景描述：{scene_desc}
+大场景关键词：{major_scene_keyword}
 
-事件序号：第{event_number}个中间事件
+【剧情阶段】：
+当前是第{event_number}个中间事件，属于{stage}阶段。
+{stage_guidance}
 
-要求：
-1. 【连续性】基于历史事件合理推演新的事件，必须与历史事件有连续性，不能突兀
-2. 【不重复】不要重复之前已经发生过的场景和事件，要推进剧情发展，创造新的情节
-3. 【场景切换】可以自然地切换场景（如从学校到咖啡厅、从教室到操场、从图书馆到书店等），但要符合逻辑，有合理的过渡
-4. 【具体情境】描述一个具体的事件情境（如：在咖啡厅偶遇、在操场上一起跑步、在图书馆一起学习、在书店选书等）
-5. 【剧情推进】事件要有新的进展，推进剧情发展，不能原地踏步
-6. 【场景描述】明确描述当前场景，让玩家知道在哪里
-7. 只描述事件情境，不要包含对话
-8. 【避免重复】检查历史事件和已发生事件，确保新事件与之前的事件不重复，有新的内容
+要求（按重要性排序）：
+1. 【必须基于历史】必须基于历史事件自然推演，不能脱离历史事件。如果历史事件中没有相关内容，不能凭空创造。
+2. 【循序渐进】关系发展要符合逻辑，一步步来。如果之前只是点头之交，现在不能突然变成亲密关系。
+3. 【连续性】新事件必须与历史事件有明确的因果关系或时间顺序。如果历史事件中提到"明天一起去图书馆"，那么这次事件就可以在图书馆发生。
+4. 【明确标识】在描述中明确使用"player"和"{character_name}"来标识玩家和角色，例如："player和{character_name}在图书馆相遇..."
+5. 【合理性】事件要符合学生日常生活的逻辑。不要出现过于戏剧化、不切实际的情节。
+6. 【具体情境】描述一个具体、真实的事件情境，包含具体的动作和场景细节。例如："在图书馆，player和{character_name}坐在同一张桌子学习，{character_name}主动问player一道数学题"。
+7. 【自然过渡】如果场景切换了，要有合理的理由。例如：历史事件中提到"一起去咖啡厅"，那么这次就可以在咖啡厅。
+8. 【适度推进】事件要有进展，但不能太快。初期保持日常互动，中期可以加深了解，后期才能有更深入的交流。
+9. 【场景明确】明确描述当前场景，让玩家知道在哪里，发生了什么。
+10. 【避免重复】不要重复之前已经发生过的具体事件，但可以在同一场景发生不同的事件。
+11. 【第三人称】使用第三人称描述，明确区分player和{character_name}。
+12. 只描述事件情境和具体动作，不要包含对话内容。
+13. 【当下语境】用当代校园语境与生活细节（如作业、社团、手机消息、课程安排），不要出现年代错位的道具与社会背景。
 
 事件描述："""
         
@@ -272,8 +368,8 @@ class StoryEngine:
                 response = Generation.call(
                     model='qwen-turbo',
                     prompt=prompt,
-                    max_tokens=150,
-                    temperature=0.9
+                    max_tokens=200,
+                    temperature=0.7  # 降低温度，让生成更稳定、更符合逻辑
                 )
                 
                 if response.status_code == 200:
@@ -286,6 +382,175 @@ class StoryEngine:
         
         # 回退到规则生成
         return f"在{scene_name}，剧情继续发展..."
+    
+    def _infer_next_scene_from_history(
+        self, 
+        character_id: int, 
+        previous_events: List[str], 
+        current_scene: str
+    ) -> str:
+        """从历史事件中推演下一个场景
+        
+        逻辑：
+        1. 从向量数据库的历史事件中提取场景相关的关键词（如"咖啡厅"、"教室"等）
+        2. 使用AI分析历史事件，提取提到的场景
+        3. 根据提取的场景关键词匹配对应的小场景
+        4. 如果匹配不到，从当前大场景的小场景列表中随机选择
+        """
+        # 获取当前场景所属的大场景
+        current_major_scene = get_major_scene_by_sub_scene(current_scene)
+        
+        # 兜底：防御性拍平（避免调用方传入嵌套结构导致崩溃）
+        previous_events = self._flatten_documents(previous_events)
+
+        # 如果没有历史内容，从当前大场景的小场景中随机选择
+        if not previous_events:
+            sub_scenes = get_sub_scenes_by_major_scene(current_major_scene)
+            if sub_scenes:
+                # 优先选择与当前场景不同的小场景
+                available_scenes = [s for s in sub_scenes if s != current_scene]
+                if available_scenes:
+                    return random.choice(available_scenes)
+                else:
+                    return current_scene
+            return current_scene
+        
+        # 组合历史事件文本，用于AI分析
+        history_text = "\n".join([str(event)[:300] for event in previous_events[:5]])  # 取最近5条，每条最多300字
+        
+        # 使用AI从历史事件中提取场景关键词
+        try:
+            from game.ai_generator import AIGenerator
+            ai_gen = AIGenerator()
+            if ai_gen.enabled:
+                from dashscope import Generation
+                
+                # 获取当前大场景的关键词
+                major_scene_keyword = get_major_scene_keyword(current_major_scene)
+                
+                # 获取所有小场景的关键词列表
+                all_sub_scenes_info = []
+                for scene_id, scene_info in SUB_SCENES.items():
+                    if scene_info.get('major_scene') == current_major_scene:
+                        all_sub_scenes_info.append({
+                            'id': scene_id,
+                            'name': scene_info.get('name', ''),
+                            'keywords': scene_info.get('keywords', '')
+                        })
+                
+                sub_scenes_list = "\n".join([
+                    f"- {info['name']} ({info['id']}): {info['keywords']}" 
+                    for info in all_sub_scenes_info
+                ])
+                
+                prompt = f"""你是一个场景推演助手。请根据历史事件和对话，分析下一个事件应该发生在哪个场景。
+
+【历史事件和对话】：
+{history_text}
+
+【当前场景】：
+{SUB_SCENES.get(current_scene, {}).get('name', current_scene)}
+
+【可用的小场景列表】（属于"{MAJOR_SCENES.get(current_major_scene, {}).get('name', '学校')}"大场景）：
+{sub_scenes_list}
+
+【大场景关键词】：
+{major_scene_keyword}
+
+要求（按优先级）：
+1. 【明确提及】如果历史事件中明确提到要去某个地方（如"去咖啡厅"、"到教室"、"在图书馆"、"明天一起去操场"等），必须选择该场景
+2. 【暗示场景】如果历史事件中暗示了某个场景（如"聊到过几天要去咖啡厅喝咖啡"、"说好一起学习"暗示图书馆或自习室），选择该场景
+3. 【自然过渡】如果没有明确提到，选择与当前场景有自然关联的场景。例如：从教室到图书馆（学习相关）、从教室到食堂（时间顺序）、从操场到体育馆（运动相关）
+4. 【避免跳跃】不要选择与当前场景和剧情完全无关的场景，除非历史事件明确提到了
+5. 【适度切换】如果当前场景刚使用过，且没有明确理由切换，可以保持当前场景（20%概率）
+6. 【合理性】场景选择要符合学生日常生活的逻辑，不要出现不合理的场景切换
+
+请只返回场景ID（如：library、classroom、cafeteria等），不要返回其他内容。如果无法确定，返回"random"让我随机选择。"""
+                
+                response = Generation.call(
+                    model='qwen-turbo',
+                    prompt=prompt,
+                    max_tokens=50,
+                    temperature=0.5  # 降低温度，让场景选择更准确、更符合逻辑
+                )
+                
+                if response.status_code == 200:
+                    inferred_scene = response.output.text.strip()
+                    # 清理可能的引号和其他字符
+                    inferred_scene = inferred_scene.strip('"').strip("'").strip().strip('。').strip('，')
+                    
+                    # 检查是否是有效的场景ID
+                    if inferred_scene in SUB_SCENES:
+                        # 验证该场景属于当前大场景
+                        if SUB_SCENES[inferred_scene].get('major_scene') == current_major_scene:
+                            print(f"[场景推演] 从历史事件推演出场景: {SUB_SCENES[inferred_scene].get('name', inferred_scene)}")
+                            return inferred_scene
+                        else:
+                            print(f"[场景推演] 推演的场景 {inferred_scene} 不属于当前大场景，使用备选方案")
+                    elif inferred_scene.lower() == 'random':
+                        print(f"[场景推演] AI返回random，使用随机选择")
+                    else:
+                        print(f"[场景推演] AI返回的场景ID无效: {inferred_scene}，使用备选方案")
+        except Exception as e:
+            print(f"[警告] AI推演场景失败: {e}")
+            import traceback
+            print(traceback.format_exc())
+        
+        # 备选方案1：从历史事件文本中直接匹配场景关键词
+        matched_scene = self._match_scene_from_text(history_text, current_major_scene)
+        if matched_scene:
+            print(f"[场景推演] 通过关键词匹配到场景: {SUB_SCENES.get(matched_scene, {}).get('name', matched_scene)}")
+            return matched_scene
+        
+        # 备选方案2：从当前大场景的小场景列表中随机选择
+        sub_scenes = get_sub_scenes_by_major_scene(current_major_scene)
+        if sub_scenes:
+            # 70%概率切换场景，30%概率保持当前场景
+            if random.random() < 0.7:
+                available_scenes = [s for s in sub_scenes if s != current_scene]
+                if available_scenes:
+                    next_scene = random.choice(available_scenes)
+                    print(f"[场景推演] 随机选择场景: {SUB_SCENES.get(next_scene, {}).get('name', next_scene)}")
+                    return next_scene
+        
+        # 保持当前场景
+        print(f"[场景推演] 保持当前场景: {SUB_SCENES.get(current_scene, {}).get('name', current_scene)}")
+        return current_scene
+    
+    def _match_scene_from_text(self, text: str, major_scene: str) -> Optional[str]:
+        """从文本中匹配场景关键词，返回匹配的场景ID"""
+        if not text:
+            return None
+        
+        # 获取该大场景下的所有小场景
+        sub_scenes = get_sub_scenes_by_major_scene(major_scene)
+        
+        # 为每个小场景计算匹配分数
+        scene_scores = {}
+        for scene_id in sub_scenes:
+            scene_info = SUB_SCENES.get(scene_id, {})
+            keywords = scene_info.get('keywords', '').split()
+            scene_name = scene_info.get('name', '')
+            
+            score = 0
+            # 检查场景名称是否在文本中
+            if scene_name in text:
+                score += 10
+            # 检查关键词是否在文本中
+            for keyword in keywords:
+                if keyword in text:
+                    score += 2
+            
+            if score > 0:
+                scene_scores[scene_id] = score
+        
+        # 返回得分最高的场景
+        if scene_scores:
+            best_scene = max(scene_scores, key=scene_scores.get)
+            if scene_scores[best_scene] >= 5:  # 至少要有一定匹配度
+                return best_scene
+        
+        return None
     
     def get_ending_event(self, character_id: int) -> Dict:
         """获取结尾事件（根据状态值判定）"""
@@ -350,56 +615,174 @@ class StoryEngine:
             )
     
     def get_next_dialogue_round(self, character_id: int) -> Dict:
-        """获取下一轮对话（角色对话 + 玩家选项）"""
+        """获取下一轮对话（角色对话 + 玩家选项）
+        
+        必须基于向量数据库检索的历史事件和对话来生成
+        """
         if not self.current_event:
             raise ValueError("当前没有活动的事件")
+        
+        # 获取角色信息（用于名字标识）
+        character = self.db_manager.get_character(character_id)
+        character_name = character.name if character else "角色"
         
         # 计算当前对话轮次（每轮包含角色对话+玩家选择）
         dialogue_round = (len(self.dialogue_history) // 2) + 1
         
-        # 从向量数据库检索最近的对话内容（用于推演）
+        # 【重要】从向量数据库检索历史事件和对话（用于推演）
+        # 检索1：当前事件的最近对话
         recent_dialogues = self.event_generator.vector_db.search_recent_dialogues(
             character_id=character_id,
             event_id=self.current_event['event_id'],
             n_results=5
         )
         
-        # 提取之前的对话内容（用于连贯性）
+        # 检索2：所有历史事件（用于连贯性）
+        all_history_events = self.event_generator.vector_db.search_similar_events(
+            character_id=character_id,
+            query="对话 交流 谈话 剧情",
+            n_results=10  # 检索更多历史事件
+        )
+        
+        # 提取当前事件的对话内容（用于连贯性）
         previous_dialogues = []
         for item in self.dialogue_history:
             if item['type'] == 'character':
-                previous_dialogues.append(f"角色: {item['content']}")
+                # 确保格式包含角色名
+                content = item['content']
+                if not content.startswith(f"{character_name}:") and not content.startswith(f"{character_name}："):
+                    previous_dialogues.append(f"{character_name}: {content}")
+                else:
+                    previous_dialogues.append(content)
             elif item['type'] == 'player':
-                previous_dialogues.append(f"玩家: {item['content']}")
+                # 确保格式包含player
+                content = item['content']
+                if not content.startswith("player:") and not content.startswith("player："):
+                    previous_dialogues.append(f"player: {content}")
+                else:
+                    previous_dialogues.append(content)
         
-        # 如果向量数据库中有最近的对话，也加入上下文
+        # 从向量数据库添加历史对话（必须基于这些生成）
         if recent_dialogues.get('documents') and len(recent_dialogues['documents']) > 0:
             # 将向量数据库中的对话内容也加入上下文
-            vector_dialogues = recent_dialogues['documents'][:3]  # 只取最近3条
-            previous_dialogues.extend([f"[历史] {d[:100]}" for d in vector_dialogues])
+            vector_dialogues = recent_dialogues['documents'][:5]  # 增加数量
+            previous_dialogues.extend([f"[历史对话] {d[:150]}" for d in vector_dialogues])
         
-        # 生成对话轮次
+        # 从历史事件中添加对话内容
+        if all_history_events.get('documents') and len(all_history_events['documents']) > 0:
+            # 提取历史事件中的对话内容
+            history_events = all_history_events['documents'][:5]
+            previous_dialogues.extend([f"[历史事件] {d[:150]}" for d in history_events])
+        
+        # 生成对话轮次（必须基于向量数据库检索的历史对话）
         dialogue_data = self.event_generator.generate_dialogue_round(
             character_id=character_id,
             story_background=self.current_event['story_background'],
             dialogue_round=dialogue_round,
-            previous_dialogues=previous_dialogues
+            previous_dialogues=previous_dialogues  # 包含从向量数据库检索的所有历史对话
         )
         
         return dialogue_data
     
-    def should_continue_dialogue(self) -> bool:
-        """判断是否应该继续对话（至少4轮）"""
-        # 如果对话轮次少于最少轮数，继续对话
+    def should_continue_dialogue(self, character_id: int) -> bool:
+        """判断是否应该继续对话（由AI决定，确保对话有头有尾）"""
+        current_rounds = len(self.dialogue_history) // 2
+
+        # 硬上限：最多5轮对话，直接结束
+        if current_rounds >= self.max_dialogue_rounds:
+            print(f"[对话判断] 达到最大轮次上限({self.max_dialogue_rounds})，强制结束对话")
+            return False
+
+        # 如果对话轮次少于最少轮数，必须继续对话
         if len(self.dialogue_history) < self.min_dialogue_rounds:
             return True
         
-        # 可以添加其他条件，比如根据状态值判断是否自然结束对话
-        # 目前至少4轮后可以结束
-        return False
+        # 使用AI判断是否应该继续对话
+        # 基于当前对话历史、故事背景、事件上下文来判断
+        try:
+            from game.ai_generator import AIGenerator
+            ai_gen = AIGenerator()
+            if ai_gen.enabled:
+                # 获取角色信息
+                character = self.db_manager.get_character(character_id)
+                character_name = character.name if character else "角色"
+                
+                # 构建当前对话摘要
+                dialogue_summary = []
+                for item in self.dialogue_history[-6:]:  # 取最近3轮对话
+                    if item['type'] == 'character':
+                        dialogue_summary.append(f"{character_name}: {item['content']}")
+                    elif item['type'] == 'player':
+                        dialogue_summary.append(f"player: {item['content']}")
+                
+                dialogue_text = "\n".join(dialogue_summary)
+                
+                # 从向量数据库检索历史对话，用于判断
+                recent_events = self.event_generator.vector_db.search_similar_events(
+                    character_id=character_id,
+                    query="对话 交流 谈话",
+                    n_results=3
+                )
+                
+                history_context = ""
+                if recent_events.get('documents'):
+                    history_context = "\n历史事件对话参考：\n" + "\n".join([f"- {d[:150]}" for d in recent_events['documents'][:2]])
+                
+                from dashscope import Generation
+                prompt = f"""你是一个剧情游戏的对话判断助手。请判断当前事件的对话是否应该继续。
+
+【时间设定】故事发生在当下（现代），不要出现年代错位背景。
+
+【当前事件背景】：
+{self.current_event.get('story_background', '')[:200] if self.current_event else ''}
+
+【当前对话历史】：
+{dialogue_text}
+
+{history_context}
+
+【判断标准】：
+1. 如果对话刚刚开始（少于2轮），必须继续
+2. 如果对话已经完整地概述了当前事件，可以结束
+3. 如果对话已经为下一轮事件做好了铺垫（承上启下），可以结束
+4. 如果对话还在发展中，需要继续
+5. 对话必须有头有尾，不能突然中断
+6. 如果已经接近最大轮次（最多{self.max_dialogue_rounds}轮），优先收束对话
+
+请只返回"继续"或"结束"，不要返回其他内容。"""
+                
+                response = Generation.call(
+                    model='qwen-turbo',
+                    prompt=prompt,
+                    max_tokens=20,
+                    temperature=0.3
+                )
+                
+                if response.status_code == 200:
+                    result = response.output.text.strip().lower()
+                    if "结束" in result or "stop" in result or "finish" in result:
+                        print(f"[对话判断] AI判断：对话应该结束（已完成{len(self.dialogue_history)//2}轮）")
+                        return False
+                    else:
+                        print(f"[对话判断] AI判断：对话应该继续（当前{len(self.dialogue_history)//2}轮）")
+                        return True
+        except Exception as e:
+            print(f"[警告] AI判断对话是否继续失败: {e}")
+            # 回退：如果对话轮次>=4，可以结束；否则继续
+            if len(self.dialogue_history) >= 8:  # 4轮对话
+                return False
+        
+        # 默认继续（保守策略）
+        return True
     
-    def save_dialogue_round_to_vector_db(self, character_id: int, dialogue_round: int):
-        """将当前轮次的对话保存到向量数据库"""
+    def save_dialogue_round_to_vector_db(self, character_id: int, dialogue_round: int, state_changes: dict = None):
+        """将当前轮次的对话保存到向量数据库（重构版：支持四类文本存储）
+        
+        Args:
+            character_id: 角色ID
+            dialogue_round: 对话轮次
+            state_changes: 玩家选项带来的状态值变化字典
+        """
         if not self.current_event:
             return
         
@@ -417,7 +800,10 @@ class StoryEngine:
                 elif item['type'] == 'player' and not player_choice:
                     player_choice = item['content']
         
-        # 如果找到了对话内容，保存到向量数据库
+        # 获取角色当前状态值（用于存储）
+        states = self.db_manager.get_character_states(character_id)
+        
+        # 如果找到了对话内容，保存到向量数据库（包含四类文本）
         if character_dialogue and player_choice:
             self.event_generator.vector_db.add_dialogue_round(
                 character_id=character_id,
@@ -430,7 +816,9 @@ class StoryEngine:
                     'event_context': self.current_event.get('event_context', ''),
                     'title': self.current_event.get('title', ''),
                     'scene': self.current_event.get('scene', '')
-                }
+                },
+                states=states,  # 传递角色状态值
+                state_changes=state_changes  # 传递状态值变化
             )
     
     def save_event_to_vector_db(self, character_id: int):

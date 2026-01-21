@@ -3,7 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import characters, game
+from api.routers import characters, game, vector_db_admin
 from database.db_manager import DatabaseManager
 import uvicorn
 import logging
@@ -46,6 +46,7 @@ app.add_middleware(
 # 注册路由
 app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
+app.include_router(vector_db_admin.router, prefix="/api")
 
 # 配置静态文件服务（用于提供本地保存的图片）
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,6 +102,17 @@ try:
 except Exception as e:
     logger.warning(f"配置合成图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
+# 配置管理页面静态文件服务
+try:
+    admin_dir = os.path.join(backend_dir, "static", "admin")
+    os.makedirs(admin_dir, exist_ok=True)
+    
+    # 挂载管理页面静态文件服务
+    app.mount("/admin", StaticFiles(directory=admin_dir, html=True), name="admin")
+    logger.info(f"管理页面静态文件服务已配置: {admin_dir} -> /admin")
+except Exception as e:
+    logger.warning(f"配置管理页面静态文件服务失败: {e}")
+
 
 @app.get("/health")
 async def check_server_health():
@@ -122,6 +134,14 @@ async def root():
 
 
 if __name__ == "__main__":
+    # 确保工作目录是backend目录，这样相对路径才能正确解析
+    import os
+    # __file__ 是 api/app.py，需要回到backend目录
+    api_dir = os.path.dirname(os.path.abspath(__file__))  # backend/api
+    backend_dir = os.path.dirname(api_dir)  # backend
+    os.chdir(backend_dir)
+    logger.info(f"API服务工作目录: {os.getcwd()}")
+    
     uvicorn.run(
         "api.app:app",
         host="0.0.0.0",
