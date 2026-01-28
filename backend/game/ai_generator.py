@@ -1,35 +1,53 @@
-"""AI文本生成模块 - 使用阿里云通义千问"""
-import config
+"""AI文本生成模块 - 使用通用LLM框架"""
+import re
 from typing import Optional, List, Dict
 
-# 尝试导入dashscope，如果未安装则使用回退模式
-try:
-    import dashscope
-    from dashscope import Generation
-    DASHSCOPE_AVAILABLE = True
-except ImportError:
-    DASHSCOPE_AVAILABLE = False
-    print("[警告] dashscope未安装，将使用规则生成。请运行: pip install dashscope")
+from llm import LLMService, LLMException
 
 
 class AIGenerator:
-    """AI文本生成器"""
+    """AI文本生成器（业务层，使用通用LLM框架）"""
     
-    def __init__(self):
-        """初始化AI生成器"""
-        if not DASHSCOPE_AVAILABLE:
-            self.enabled = False
-            print("[警告] dashscope未安装，将使用规则生成")
-            return
+    def __init__(self, provider: Optional[str] = None):
+        """初始化AI生成器
         
-        if config.DASHSCOPE_API_KEY:
-            dashscope.api_key = config.DASHSCOPE_API_KEY
+        Args:
+            provider: 提供商名称（'openai', 'volcengine', 'dashscope', 'auto'），如果为None则自动检测
+        """
+        try:
+            self.llm_service = LLMService(provider=provider or 'auto')
             self.enabled = True
-            print(f"[信息] AI模型服务已启用 - 使用模型: {config.DASHSCOPE_MODEL}")
-        else:
+            print(f"[AI生成器] 已启用 - 提供商: {self.llm_service.get_provider()}, 模型: {self.llm_service.get_model()}")
+        except LLMException as e:
+            self.llm_service = None
             self.enabled = False
-            print("[警告] 未配置DASHSCOPE_API_KEY，将使用规则生成")
+            print(f"[警告] AI生成器初始化失败: {e}")
+            print("[警告] 将使用规则生成")
     
+    def _call_text_generation(self, prompt: str, max_tokens: int = 200, temperature: float = 0.7) -> Optional[str]:
+        """统一的文本生成调用接口（兼容旧代码）
+        
+        Args:
+            prompt: 提示词
+            max_tokens: 最大token数
+            temperature: 温度参数
+            
+        Returns:
+            生成的文本，如果失败返回None
+        """
+        if not self.enabled or not self.llm_service:
+            return None
+        
+        try:
+            return self.llm_service.chat_completion(
+                prompt=prompt,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                use_retry=True
+            )
+        except LLMException as e:
+            print(f"[警告] 文本生成失败: {e}")
+            return None
     
     def generate_story_background(self, character_id: int, previous_events: List[str], 
                                   current_context: str, character_name: str = None) -> str:
@@ -46,7 +64,6 @@ class AIGenerator:
         """
         # 如果没有历史事件，从向量数据库检索
         if not previous_events or len(previous_events) == 0:
-            # 这里应该由调用者从向量数据库检索，但为了安全，我们也可以在这里检索
             print("[警告] generate_story_background未提供历史事件，应该从向量数据库检索")
         
         if not self.enabled:
@@ -72,7 +89,7 @@ class AIGenerator:
         prompt = f"""你是一个剧情游戏的故事背景生成器。请根据以下信息生成一段故事背景描述（100-150字）：
 
 【重要】必须基于历史事件生成，不能脱离历史事件凭空创造！
-【时间设定】故事发生在当下（现代），禁止出现“20世纪初/古代/民国/未来”等年代背景。
+【时间设定】故事发生在当下（现代），禁止出现"20世纪初/古代/民国/未来"等年代背景。
 
 【历史事件】（必须参考，确保连续性）：
 {previous_context}
@@ -101,17 +118,10 @@ class AIGenerator:
 故事背景（必须包含player和{character_name}的名字）："""
         
         try:
-            response = Generation.call(
-                model=config.DASHSCOPE_MODEL,
-                prompt=prompt,
-                max_tokens=300,
-                temperature=0.8
-            )
-            
-            if response.status_code == 200:
-                return response.output.text.strip()
+            result = self._call_text_generation(prompt, max_tokens=300, temperature=0.8)
+            if result:
+                return result
             else:
-                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
                 return self._fallback_story(previous_events, current_context)
         except Exception as e:
             print(f"[错误] AI生成异常: {e}")
@@ -130,6 +140,8 @@ class AIGenerator:
             state_values: 状态值
             dialogue_round: 对话轮次（1-4+）
             previous_dialogues: 之前的完整对话历史
+            character_name: 角色名称
+            historical_impacts: 玩家历史选项的影响
             
         Returns:
             生成的角色对话文本
@@ -349,15 +361,9 @@ class AIGenerator:
 角色对话（必须以"{character_name}:"开头）："""
         
         try:
-            response = Generation.call(
-                model=config.DASHSCOPE_MODEL,
-                prompt=prompt,
-                max_tokens=100,
-                temperature=0.9
-            )
-            
-            if response.status_code == 200:
-                dialogue = response.output.text.strip()
+            result = self._call_text_generation(prompt, max_tokens=100, temperature=0.9)
+            if result:
+                dialogue = result.strip()
                 # 清理可能的引号和其他标记
                 dialogue = dialogue.strip('"').strip("'").strip()
                 
@@ -376,7 +382,6 @@ class AIGenerator:
                 
                 return dialogue
             else:
-                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
                 return self._fallback_dialogue(character_info, state_values)
         except Exception as e:
             print(f"[错误] AI生成异常: {e}")
@@ -392,6 +397,8 @@ class AIGenerator:
             character_dialogue: 角色刚才说的话
             dialogue_round: 对话轮次
             previous_dialogues: 之前的完整对话历史（用于保持对话连贯）
+            personality_dict: 角色性格字典
+            current_states: 当前状态对象
             
         Returns:
             3个选项，每个选项包含对话文本和状态值变化
@@ -469,7 +476,6 @@ class AIGenerator:
 "{character_dialogue}"
 
 【玩家名称】：player
-【格式要求】：每个选项必须以"player:"开头
 
 对话轮次：第{dialogue_round}轮（最多5轮）
 本轮对话作用：{dialogue_role}
@@ -477,7 +483,7 @@ class AIGenerator:
 【核心要求】（按优先级排序）：
 1. 【必须基于历史】必须基于历史对话内容生成，不能脱离历史对话
 2. 【最高优先级】生成3个不同的玩家回复选项，每个10-25字
-3. 【格式要求】每个选项必须以"player:"开头，例如："player: 你好，很高兴认识你"
+3. 【格式要求】每个选项直接输出文本，不要添加"player:"前缀
 4. 【最高优先级】选项1：积极回应（会提升好感度和信任度）- 友好、支持、鼓励
 5. 【最高优先级】选项2：中性回应（保持现状）- 中立、观察、不表态
 6. 【最高优先级】选项3：消极回应（会降低好感度和信任度）- 冷淡、拒绝、质疑
@@ -491,27 +497,20 @@ class AIGenerator:
 14. 【禁止】不要混淆player和角色，玩家选项必须是player说的话
 15. 回复要像真实对话，自然流畅，但必须是玩家的表达方式
 16. 对话要有头有尾，能够完整概述事件或承上启下
-17. 格式：每行一个选项，每个选项以"player:"开头
+17. 格式：每行一个选项，直接输出文本内容，不要添加任何前缀
 
 【隔离要求】（非常重要）：
 - 玩家选项必须与角色对话完全隔离
 - 不能使用角色说过的话
 - 不能使用角色的表达方式
 - 必须是玩家自己的说话风格
-- 明确标识：使用"player:"开头
 
-玩家选项（每个选项必须以"player:"开头）："""
+玩家选项（直接输出文本，每行一个选项）："""
         
         try:
-            response = Generation.call(
-                model=config.DASHSCOPE_MODEL,
-                prompt=prompt,
-                max_tokens=150,
-                temperature=0.9
-            )
-            
-            if response.status_code == 200:
-                options_text = response.output.text.strip()
+            result = self._call_text_generation(prompt, max_tokens=150, temperature=0.9)
+            if result:
+                options_text = result.strip()
                 # 解析选项
                 options = self._parse_options(options_text)
                 
@@ -556,14 +555,13 @@ class AIGenerator:
                 else:
                     return self._fallback_options()
             else:
-                print(f"[警告] AI生成失败，使用规则生成: {response.message}")
                 return self._fallback_options()
         except Exception as e:
             print(f"[错误] AI生成异常: {e}")
             return self._fallback_options()
     
     def _parse_options(self, text: str) -> List[str]:
-        """解析AI生成的选项文本，确保包含player:前缀"""
+        """解析AI生成的选项文本，去除player:前缀"""
         lines = [line.strip() for line in text.split('\n') if line.strip()]
         options = []
         
@@ -571,21 +569,19 @@ class AIGenerator:
             # 移除可能的编号（1. 2. 3. 或 A. B. C.）
             line = line.lstrip('1234567890.）)ABCabc、')
             line = line.strip()
+            
+            # 去除player:前缀（如果存在）
+            if line.startswith("player:") or line.startswith("player："):
+                line = re.sub(r'^player[：:]\s*', '', line)
+            
             if line and len(line) > 5:  # 至少5个字符
-                # 确保包含player:前缀
-                if not line.startswith("player:") and not line.startswith("player："):
-                    line = f"player: {line}"
-                else:
-                    # 统一使用英文冒号
-                    if line.startswith("player："):
-                        line = line.replace("player：", "player:", 1)
                 options.append(line)
                 if len(options) >= 3:
                     break
         
         # 如果解析不到3个，补充默认选项
         while len(options) < 3:
-            options.append(f"player: 选项{len(options)+1}")
+            options.append(f"选项{len(options)+1}")
         
         return options[:3]
     
@@ -733,15 +729,9 @@ class AIGenerator:
         
         try:
             if self.enabled:
-                response = Generation.call(
-                    model=config.DASHSCOPE_MODEL,
-                    prompt=supplement_prompt,
-                    max_tokens=100,
-                    temperature=0.9
-                )
-                
-                if response.status_code == 200:
-                    supplement_text = response.output.text.strip()
+                result = self._call_text_generation(supplement_prompt, max_tokens=100, temperature=0.9)
+                if result:
+                    supplement_text = result.strip()
                     supplement_options = self._parse_options(supplement_text)
                     # 过滤重复
                     supplement_options = self._filter_duplicate_options(supplement_options, character_dialogue)
@@ -900,4 +890,3 @@ class AIGenerator:
                 }
             }
         ]
-

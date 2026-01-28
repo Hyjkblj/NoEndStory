@@ -87,7 +87,8 @@ class InitializeStoryRequest(BaseModel):
     """初始化故事请求"""
     thread_id: str = Field(..., description="线程ID")
     character_id: str = Field(..., description="角色ID")
-    scene_id: Optional[str] = Field('school', description="初遇场景ID（可选，默认：school）")
+    scene_id: Optional[str] = Field('school', description="初遇大场景ID（可选，默认：school）")
+    opening_event_id: Optional[str] = Field(None, description="初遇事件ID（可选，如果不提供则随机选择）")
     character_image_url: Optional[str] = Field(None, description="用户选择的角色图片URL（可选，如果不提供则使用最新图片）")
 
 

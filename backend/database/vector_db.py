@@ -209,6 +209,16 @@ class VectorDatabase:
         # 创建唯一ID
         doc_id = f"{character_id}_{event_id}"
         
+        # 检查是否已存在（避免重复添加）
+        try:
+            existing = self.collection.get(ids=[doc_id])
+            if existing['ids'] and len(existing['ids']) > 0:
+                print(f"[向量数据库] 事件已存在，跳过保存: {doc_id}")
+                return  # 已存在，跳过保存
+        except Exception as e:
+            # 查询失败不影响保存流程
+            print(f"[向量数据库] 检查已存在记录时出错（继续保存）: {e}")
+        
         # 准备元数据
         event_metadata = {
             'character_id': str(character_id),
@@ -223,13 +233,18 @@ class VectorDatabase:
                 ids=[doc_id],
                 metadatas=[event_metadata]
             )
+            print(f"[向量数据库] 事件保存成功: {doc_id}")
         except Exception as e:
             # 如果是遥测相关错误，忽略它
             if 'telemetry' in str(e).lower() or 'capture' in str(e).lower():
                 # 遥测错误不影响功能，可以忽略
-                pass
+                print(f"[向量数据库] 遥测错误（可忽略）: {e}")
+            elif 'existing embedding ID' in str(e).lower() or 'already exists' in str(e).lower():
+                # 重复添加警告，可以忽略（已在上面检查，但可能并发导致）
+                print(f"[向量数据库] 事件已存在（并发情况）: {doc_id}")
             else:
                 # 其他错误需要抛出
+                print(f"[向量数据库] 保存事件失败: {e}")
                 raise
     
     def search_similar_events(self, character_id: int, query: str, n_results: int = 3):
@@ -313,6 +328,16 @@ class VectorDatabase:
         # 创建唯一ID（包含轮次）
         doc_id = f"{character_id}_{event_id}_round_{dialogue_round}"
         
+        # 检查是否已存在（避免重复添加）
+        try:
+            existing = self.collection.get(ids=[doc_id])
+            if existing['ids'] and len(existing['ids']) > 0:
+                print(f"[向量数据库] 对话轮次已存在，跳过保存: {doc_id}")
+                return  # 已存在，跳过保存
+        except Exception as e:
+            # 查询失败不影响保存流程
+            print(f"[向量数据库] 检查已存在记录时出错（继续保存）: {e}")
+        
         # 准备元数据（混合方案：metadata存储精确值用于过滤）
         dialogue_metadata = {
             'character_id': str(character_id),
@@ -350,13 +375,18 @@ class VectorDatabase:
                 ids=[doc_id],
                 metadatas=[dialogue_metadata]
             )
+            print(f"[向量数据库] 对话轮次保存成功: {doc_id}")
         except Exception as e:
             # 如果是遥测相关错误，忽略它
             if 'telemetry' in str(e).lower() or 'capture' in str(e).lower():
                 # 遥测错误不影响功能，可以忽略
-                pass
+                print(f"[向量数据库] 遥测错误（可忽略）: {e}")
+            elif 'existing embedding ID' in str(e).lower() or 'already exists' in str(e).lower():
+                # 重复添加警告，可以忽略（已在上面检查，但可能并发导致）
+                print(f"[向量数据库] 对话轮次已存在（并发情况）: {doc_id}")
             else:
                 # 其他错误需要抛出
+                print(f"[向量数据库] 保存对话轮次失败: {e}")
                 raise
     
     def search_recent_dialogues(self, character_id: int, event_id: str = None, n_results: int = 5):

@@ -2,7 +2,8 @@
 import random
 import os
 import re
-from typing import Dict, List, Optional
+import time
+from typing import Dict, List, Optional, Any
 from data.scenes import (
     SCENES, 
     MAJOR_SCENES, 
@@ -29,6 +30,78 @@ class StoryEngine:
         self.max_dialogue_rounds = 5  # 最多对话轮数（硬上限，避免事件对话过长）
         self.current_scene = 'classroom'  # 当前场景（小场景ID，默认使用教室）
         self.previous_event_contexts = []  # 记录之前的事件上下文，避免重复
+    
+    def _call_generation_with_retry(
+        self, 
+        model: str, 
+        prompt: str, 
+        max_tokens: int = 200, 
+        temperature: float = 0.7,
+        max_retries: int = 3,
+        retry_delay: float = 1.0
+    ) -> Optional[Any]:
+        """带重试机制的文本生成调用（支持火山引擎和通义千问）
+        
+        Args:
+            model: 模型名称（保留参数以兼容旧代码，实际使用AIGenerator的统一接口）
+            prompt: 提示词
+            max_tokens: 最大token数
+            temperature: 温度参数
+            max_retries: 最大重试次数
+            retry_delay: 重试延迟（秒）
+            
+        Returns:
+            响应对象（包含output.text属性），如果失败返回None
+        """
+        from game.ai_generator import AIGenerator
+        
+        ai_gen = AIGenerator()
+        if not ai_gen.enabled:
+            return None
+        
+        # 创建一个简单的响应对象包装类，兼容旧代码
+        class ResponseWrapper:
+            def __init__(self, text: str):
+                class Output:
+                    def __init__(self, text: str):
+                        self.text = text
+                self.output = Output(text)
+                self.status_code = 200
+        
+        for attempt in range(max_retries):
+            try:
+                result = ai_gen._call_text_generation(prompt, max_tokens, temperature)
+                if result:
+                    return ResponseWrapper(result)
+                else:
+                    # 如果是账户错误，不重试
+                    if attempt == 0:
+                        print(f"[警告] 文本生成失败，将使用规则生成")
+                    if attempt < max_retries - 1:
+                        time.sleep(retry_delay * (attempt + 1))  # 指数退避
+                        continue
+                    return None
+                    
+            except Exception as e:
+                error_msg = str(e)
+                # 检查是否是SSL错误或网络错误
+                is_retryable = any(keyword in error_msg.lower() for keyword in [
+                    'ssl', 'eof', 'connection', 'timeout', 'retry', 'network'
+                ])
+                
+                if is_retryable and attempt < max_retries - 1:
+                    wait_time = retry_delay * (attempt + 1)
+                    print(f"[警告] 文本生成失败 (尝试 {attempt + 1}/{max_retries}): {error_msg}")
+                    print(f"[重试] {wait_time:.1f}秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    print(f"[错误] 文本生成失败: {error_msg}")
+                    import traceback
+                    print(traceback.format_exc())
+                    return None
+        
+        return None
 
     def _flatten_documents(self, documents) -> List[str]:
         """将ChromaDB query返回的documents统一拍平成 List[str]
@@ -51,12 +124,13 @@ class StoryEngine:
                 flattened.append(str(item))
         return flattened
     
-    def get_opening_event(self, character_id: int, scene_id: str = 'school') -> Dict:
-        """获取开头事件（随机抽取）
+    def get_opening_event(self, character_id: int, scene_id: str = 'school', opening_event_id: Optional[str] = None) -> Dict:
+        """获取开头事件（可指定事件ID，否则随机抽取）
         
         Args:
             character_id: 角色ID
             scene_id: 大场景ID（如'school'），用于获取该大场景下的初遇事件
+            opening_event_id: 初遇事件ID（可选，如果不提供则随机选择）
         """
         # scene_id现在是大场景ID，从大场景获取初遇事件
         major_scene = MAJOR_SCENES.get(scene_id)
@@ -81,7 +155,19 @@ class StoryEngine:
             else:
                 raise ValueError(f"大场景 {scene_id} 没有小场景")
         
-        selected_event = random.choice(opening_events)
+        # 如果指定了事件ID，查找对应的事件；否则随机选择
+        if opening_event_id:
+            selected_event = None
+            for event in opening_events:
+                if event.get('id') == opening_event_id:
+                    selected_event = event
+                    break
+            if not selected_event:
+                raise ValueError(f"初遇事件 {opening_event_id} 在大场景 {scene_id} 中不存在")
+            print(f"[故事引擎] 使用指定的初遇事件: {opening_event_id}")
+        else:
+            selected_event = random.choice(opening_events)
+            print(f"[故事引擎] 随机选择初遇事件: {selected_event.get('id')}")
         
         # 获取事件对应的小场景ID（用于游戏）
         event_sub_scene_id = selected_event.get('sub_scene')
@@ -205,11 +291,13 @@ class StoryEngine:
                                     user_id=None  # 可以从session中获取user_id
                                 )
                                 
-                                if composite_path:
-                                    # 构建静态文件URL
+                                if composite_path and os.path.exists(composite_path):
+                                    # 构建静态文件URL（URL编码文件名）
+                                    from urllib.parse import quote
                                     filename = os.path.basename(composite_path)
-                                    composite_url = f"/static/images/composite/{filename}"
-                                    print(f"[场景切换] 合成图片成功: {composite_url}")
+                                    encoded_filename = quote(filename, safe='')
+                                    composite_url = f"/static/images/composite/{encoded_filename}"
+                                    print(f"[场景切换] 合成图片成功: {composite_path} -> {composite_url}")
                                 else:
                                     print(f"[场景切换] 合成图片失败")
                             else:
@@ -364,15 +452,16 @@ class StoryEngine:
             from game.ai_generator import AIGenerator
             ai_gen = AIGenerator()
             if ai_gen.enabled:
-                from dashscope import Generation
-                response = Generation.call(
-                    model='qwen-turbo',
+                response = self._call_generation_with_retry(
+                    model=None,  # 不再需要，使用AIGenerator的统一接口
                     prompt=prompt,
-                    max_tokens=200,
-                    temperature=0.7  # 降低温度，让生成更稳定、更符合逻辑
+                    max_tokens=100,  # 优化：从200降到100，减少生成时间
+                    temperature=0.7,  # 降低温度，让生成更稳定、更符合逻辑
+                    max_retries=3,
+                    retry_delay=1.0
                 )
                 
-                if response.status_code == 200:
+                if response:
                     context = response.output.text.strip()
                     # 清理可能的引号
                     context = context.strip('"').strip("'").strip()
@@ -423,8 +512,6 @@ class StoryEngine:
             from game.ai_generator import AIGenerator
             ai_gen = AIGenerator()
             if ai_gen.enabled:
-                from dashscope import Generation
-                
                 # 获取当前大场景的关键词
                 major_scene_keyword = get_major_scene_keyword(current_major_scene)
                 
@@ -467,14 +554,16 @@ class StoryEngine:
 
 请只返回场景ID（如：library、classroom、cafeteria等），不要返回其他内容。如果无法确定，返回"random"让我随机选择。"""
                 
-                response = Generation.call(
-                    model='qwen-turbo',
+                response = self._call_generation_with_retry(
+                    model=None,  # 不再需要，使用AIGenerator的统一接口
                     prompt=prompt,
                     max_tokens=50,
-                    temperature=0.5  # 降低温度，让场景选择更准确、更符合逻辑
+                    temperature=0.5,  # 降低温度，让场景选择更准确、更符合逻辑
+                    max_retries=3,
+                    retry_delay=1.0
                 )
                 
-                if response.status_code == 200:
+                if response:
                     inferred_scene = response.output.text.strip()
                     # 清理可能的引号和其他字符
                     inferred_scene = inferred_scene.strip('"').strip("'").strip().strip('。').strip('，')
@@ -655,12 +744,12 @@ class StoryEngine:
                 else:
                     previous_dialogues.append(content)
             elif item['type'] == 'player':
-                # 确保格式包含player
+                # 直接使用内容，不添加player:前缀
                 content = item['content']
-                if not content.startswith("player:") and not content.startswith("player："):
-                    previous_dialogues.append(f"player: {content}")
-                else:
-                    previous_dialogues.append(content)
+                # 如果包含player:前缀，去除它
+                if content.startswith("player:") or content.startswith("player："):
+                    content = re.sub(r'^player[：:]\s*', '', content)
+                previous_dialogues.append(content)
         
         # 从向量数据库添加历史对话（必须基于这些生成）
         if recent_dialogues.get('documents') and len(recent_dialogues['documents']) > 0:
@@ -713,7 +802,12 @@ class StoryEngine:
                     if item['type'] == 'character':
                         dialogue_summary.append(f"{character_name}: {item['content']}")
                     elif item['type'] == 'player':
-                        dialogue_summary.append(f"player: {item['content']}")
+                        # 直接使用内容，不添加player:前缀
+                        content = item['content']
+                        # 如果包含player:前缀，去除它
+                        if content.startswith("player:") or content.startswith("player："):
+                            content = re.sub(r'^player[：:]\s*', '', content)
+                        dialogue_summary.append(content)
                 
                 dialogue_text = "\n".join(dialogue_summary)
                 
@@ -728,7 +822,6 @@ class StoryEngine:
                 if recent_events.get('documents'):
                     history_context = "\n历史事件对话参考：\n" + "\n".join([f"- {d[:150]}" for d in recent_events['documents'][:2]])
                 
-                from dashscope import Generation
                 prompt = f"""你是一个剧情游戏的对话判断助手。请判断当前事件的对话是否应该继续。
 
 【时间设定】故事发生在当下（现代），不要出现年代错位背景。
@@ -751,14 +844,16 @@ class StoryEngine:
 
 请只返回"继续"或"结束"，不要返回其他内容。"""
                 
-                response = Generation.call(
-                    model='qwen-turbo',
+                response = self._call_generation_with_retry(
+                    model=None,  # 不再需要，使用AIGenerator的统一接口
                     prompt=prompt,
                     max_tokens=20,
-                    temperature=0.3
+                    temperature=0.3,
+                    max_retries=3,
+                    retry_delay=1.0
                 )
                 
-                if response.status_code == 200:
+                if response:
                     result = response.output.text.strip().lower()
                     if "结束" in result or "stop" in result or "finish" in result:
                         print(f"[对话判断] AI判断：对话应该结束（已完成{len(self.dialogue_history)//2}轮）")

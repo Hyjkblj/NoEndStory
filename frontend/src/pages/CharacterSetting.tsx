@@ -225,7 +225,7 @@ function CharacterSetting() {
       };
 
       // 更新加载消息，提示用户图片生成需要时间
-      setLoadingMessage('正在生成角色图片（3张组图），这可能需要1-3分钟，请耐心等待...');
+      setLoadingMessage('等待你的专属陪伴角色');
       
       // 发送JSON数据到后端服务器（包含AI图片生成，超时时间已设置为180秒）
       const response = await createCharacter({
@@ -238,9 +238,39 @@ function CharacterSetting() {
       });
 
       // 保存角色信息到 sessionStorage
+      // 注意：响应拦截器返回的是 response.data，即 {code, message, data}
+      // 所以需要访问 response.data 来获取实际数据
+      console.log('[角色设置] 后端响应数据（拦截器处理后）:', response);
+      
+      // 处理响应数据：拦截器返回的是 {code, message, data}，需要提取 data 字段
+      const responseData = response?.data || response;
+      console.log('[角色设置] 提取的responseData:', responseData);
+      console.log('[角色设置] responseData.character_id:', responseData.character_id);
+      console.log('[角色设置] responseData.image_urls:', responseData.image_urls);
+      
+      // 验证character_id是否有效
+      const characterId = responseData.character_id;
+      if (!characterId || characterId === 'undefined' || characterId === 'null' || String(characterId).trim() === '') {
+        console.error('[角色设置] 无效的character_id:', characterId);
+        console.error('[角色设置] 完整响应:', JSON.stringify(response, null, 2));
+        console.error('[角色设置] responseData:', JSON.stringify(responseData, null, 2));
+        message.error('创建角色失败：未获取到有效的角色ID，请检查后端服务');
+        setLoading(false);
+        return;
+      }
+      
+      // 验证image_urls是否存在且不为空
+      const imageUrls = responseData.image_urls || [];
+      console.log('[角色设置] 图片URL列表:', imageUrls);
+      console.log('[角色设置] 图片URL数量:', imageUrls.length);
+      
+      if (imageUrls.length === 0) {
+        console.warn('[角色设置] 警告：未获取到图片URL列表，但继续流程');
+      }
+      
       const characterData = {
-        characterId: response.data.character_id,
-        name: response.data.name,
+        characterId: String(characterId), // 确保是字符串
+        name: responseData.name || '未命名角色',
         height,
         weight,
         age,
@@ -248,10 +278,15 @@ function CharacterSetting() {
         appearance: selectedAppearance.length > 0 ? selectedAppearance.map(idx => appearanceOptions[idx]) : [],
         personality: selectedPersonality.length > 0 ? selectedPersonality.map(idx => personalityOptions[idx]) : [],
         style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
-        imageUrl: response.data.image_url, // 从后端响应中获取图片URL（单张，兼容旧逻辑）
-        image_urls: response.data.image_urls || [], // 组图URL列表（3张图片，供三选一）
+        imageUrl: responseData.image_url, // 从后端响应中获取图片URL（单张，兼容旧逻辑）
+        image_urls: imageUrls, // 组图URL列表（3张图片，供三选一）
         timestamp: Date.now(),
       };
+      
+      console.log('[角色设置] 保存到sessionStorage的角色数据:', characterData);
+      console.log('[角色设置] characterId类型:', typeof characterData.characterId);
+      console.log('[角色设置] characterId值:', characterData.characterId);
+      
       sessionStorage.setItem('characterData', JSON.stringify(characterData));
       
       // 清除之前的存档信息
@@ -259,7 +294,18 @@ function CharacterSetting() {
       sessionStorage.removeItem('restoreCharacterId');
       
       // 保存角色ID用于后续获取图片
-      sessionStorage.setItem('createdCharacterId', response.data.character_id);
+      sessionStorage.setItem('createdCharacterId', String(characterId));
+      console.log('[角色设置] 已保存createdCharacterId:', characterId);
+      
+      // 验证保存是否成功
+      const savedData = sessionStorage.getItem('characterData');
+      const savedId = sessionStorage.getItem('createdCharacterId');
+      console.log('[角色设置] 验证保存结果 - characterData存在:', !!savedData);
+      console.log('[角色设置] 验证保存结果 - createdCharacterId存在:', !!savedId);
+      if (savedData) {
+        const parsed = JSON.parse(savedData);
+        console.log('[角色设置] 验证保存结果 - characterId字段:', parsed.characterId);
+      }
       
       setLoadingMessage('正在加载角色图片...');
       // 短暂延迟以显示加载消息

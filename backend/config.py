@@ -34,18 +34,23 @@ OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
 # 国内AI模型配置（替代方案）
 DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')  # 通义千问（阿里云）
-# 通义千问模型选择：qwen-turbo（快速，成本低）、qwen-plus（平衡）、qwen-max（最强，成本高）
-DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-turbo')  # 默认使用qwen-turbo
+# 通义千问模型选择：qwen-turbo（快速，成本低）、qwen-plus（平衡）、qwen-max（最强，成本高）、qwen-flash（极速，成本最低）
+DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-flash')  # 默认使用qwen-flash（极速模型）
 ZHIPU_API_KEY = os.getenv('ZHIPU_API_KEY', '')  # 智谱AI
 BAIDU_API_KEY = os.getenv('BAIDU_API_KEY', '')  # 百度文心一言
 BAIDU_SECRET_KEY = os.getenv('BAIDU_SECRET_KEY', '')
 
-# 火山引擎配置（仅用于图片生成 - Seedream 4.0-4.5 API）
+# 火山引擎配置
 # 注意：从.env读取时去除首尾空格，避免配置格式错误
 VOLCENGINE_ARK_API_KEY = os.getenv('VOLCENGINE_ARK_API_KEY', '').strip()  # Bearer Token (ARK API Key)
 VOLCENGINE_REGION = os.getenv('VOLCENGINE_REGION', 'cn-beijing')  # 区域，默认：cn-beijing
-# 图片生成配置
-VOLCENGINE_IMAGE_MODEL = os.getenv('VOLCENGINE_IMAGE_MODEL', 'doubao-seedream-4-5-251128')  # 图片生成模型：doubao-seedream-4-5-251128 或 doubao-seedream-4-0-250828
+
+# 文本生成配置（火山引擎）
+VOLCENGINE_TEXT_MODEL = os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-2-251201')  # 文本生成模型：deepseek-v3-2-251201
+VOLCENGINE_TEXT_API_URL = os.getenv('VOLCENGINE_TEXT_API_URL', '')  # 文本生成API端点（可选，默认根据region自动构建）
+
+# 图片生成配置（火山引擎 Seedream）
+VOLCENGINE_IMAGE_MODEL = os.getenv('VOLCENGINE_IMAGE_MODEL', 'doubao-seedream-4-0-250828')  # 图片生成模型：doubao-seedream-4-0-250828（默认）或 doubao-seedream-4-5-251128
 VOLCENGINE_IMAGE_SIZE = os.getenv('VOLCENGINE_IMAGE_SIZE', '2K')  # 图片尺寸：2K, 4K, 1024x1024等
 
 # 本地模型配置（Ollama）
@@ -60,7 +65,8 @@ GAME_CONFIG = {
 
 # 图片保存配置
 IMAGE_SAVE_DIR = os.getenv('IMAGE_SAVE_DIR', './images/characters')  # 角色图片保存目录
-SCENE_IMAGE_SAVE_DIR = os.getenv('SCENE_IMAGE_SAVE_DIR', './images/scenes')  # 场景图片保存目录
+SCENE_IMAGE_SAVE_DIR = os.getenv('SCENE_IMAGE_SAVE_DIR', './images/scenes')  # 场景图片保存目录（大场景）
+SMALL_SCENE_IMAGE_SAVE_DIR = os.getenv('SMALL_SCENE_IMAGE_SAVE_DIR', './images/smallscenes')  # 小场景图片保存目录
 COMPOSITE_IMAGE_SAVE_DIR = os.getenv('COMPOSITE_IMAGE_SAVE_DIR', './images/composite')  # 合成图片保存目录（场景+人物）
 IMAGE_SAVE_ENABLED = os.getenv('IMAGE_SAVE_ENABLED', 'true').lower() == 'true'  # 是否启用本地保存
 

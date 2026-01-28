@@ -50,7 +50,7 @@ MAJOR_SCENES = {
             'office_balcony'     # 办公室阳台
         ]
     },
-    'daily_life': {
+    'dailylife': {
         'name': '日常生活',
         'description': '日常生活中的各种场景，贴近生活，自然真实',
         'keyword': '日常生活 日常 生活 生活场景 日常活动 生活化',
@@ -328,73 +328,73 @@ SUB_SCENES = {
     'convenience_store': {
         'name': '便利店',
         'description': '24小时营业的便利店，商品琳琅满目。晚上或清晨，这里总是有顾客进进出出，是日常生活中最常去的地方之一',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '便利店 24小时 商品 购物 日常 生活'
     },
     'residential_area': {
         'name': '小区',
         'description': '安静的居民小区，绿树成荫。傍晚时分，居民们会在小区里散步、遛狗、聊天，充满了生活气息',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '小区 居民 散步 遛狗 生活 安静'
     },
     'community_park': {
         'name': '社区公园',
         'description': '小区附近的社区公园，有健身器材和休闲设施。早晨和傍晚，附近的居民会来这里锻炼、散步、下棋，是社区生活的中心',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '社区公园 公园 锻炼 散步 下棋 健身器材'
     },
     'delivery_station': {
         'name': '快递站',
         'description': '小区里的快递收发站，每天都有很多包裹。取快递时经常会遇到邻居，简单聊几句，是邻里交流的常见场所',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '快递站 快递 包裹 取件 邻居 邻里交流'
     },
     'residential_gate': {
         'name': '小区门口',
         'description': '小区的出入口，保安亭、门禁系统一应俱全。每天进出都会经过这里，是日常生活中最熟悉的地方',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '小区门口 出入口 门禁 保安 进出 熟悉'
     },
     'community_center': {
         'name': '社区活动中心',
         'description': '社区的活动中心，有各种活动室和设施。周末会有各种社区活动，居民们会来这里参加，是社区社交的场所',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '社区活动中心 活动 社区 社交 周末 设施'
     },
     'pet_shop': {
         'name': '宠物店',
         'description': '温馨的宠物店，各种可爱的宠物和宠物用品。爱宠人士会经常来这里，给宠物买食物、玩具，或者只是看看可爱的小动物',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '宠物店 宠物 可爱 宠物用品 爱宠 小动物'
     },
     'supermarket': {
         'name': '超市',
         'description': '大型超市，商品种类丰富。周末或下班后，人们会来这里采购生活用品，推着购物车在货架间穿梭，是日常购物的地方',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '超市 购物 生活用品 货架 采购 商品'
     },
     'pharmacy': {
         'name': '药店',
         'description': '整洁的药店，各种药品和保健品整齐摆放。身体不适时会来这里买药，药师会耐心地询问症状，给出建议',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '药店 药品 保健品 买药 药师 健康'
     },
     'laundry': {
         'name': '洗衣店',
         'description': '专业的洗衣店，有干洗和普通清洗服务。需要清洗特殊衣物时会来这里，等待时可以看看杂志，和老板聊聊天',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '洗衣店 干洗 清洗 衣物 等待 聊天'
     },
     'bakery': {
         'name': '面包店',
         'description': '香气四溢的面包店，各种新鲜出炉的面包和糕点。早晨或下午，人们会来这里买早餐或下午茶，是日常生活中的小确幸',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '面包店 面包 糕点 早餐 下午茶 香气'
     },
     'fruit_stand': {
         'name': '水果摊',
         'description': '路边的小水果摊，各种新鲜水果整齐摆放。下班路上会顺便买些水果，摊主热情地推荐当季水果，是日常生活中的小场景',
-        'major_scene': 'daily_life',
+        'major_scene': 'dailylife',
         'keywords': '水果摊 水果 新鲜 当季 路边 小摊'
     },
     # 休闲娱乐场景
@@ -752,8 +752,8 @@ MAJOR_SCENES['company']['opening_events'] = [
     }
 ]
 
-# daily_life大场景开头事件
-MAJOR_SCENES['daily_life']['opening_events'] = [
+# dailylife大场景开头事件
+MAJOR_SCENES['dailylife']['opening_events'] = [
     {
         'id': 'convenience_store_queue',
         'title': '便利店排队',

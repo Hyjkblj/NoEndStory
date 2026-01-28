@@ -78,9 +78,12 @@ export const SCENE_CONFIGS: SceneConfig[] = [
 /**
  * 构建场景图片URL
  * 格式：/static/images/scenes/{scene_id}_{场景名称}.{ext}
+ * 注意：需要对中文进行URL编码
  */
 export function buildSceneImageUrl(sceneId: string, sceneName: string, extension: string = '.jpeg'): string {
-  return `/static/images/scenes/${sceneId}_${sceneName}${extension}`;
+  // 对场景名称进行URL编码，确保中文文件名能正确访问
+  const encodedSceneName = encodeURIComponent(sceneName);
+  return `/static/images/scenes/${sceneId}_${encodedSceneName}${extension}`;
 }
 
 /**

@@ -68,7 +68,7 @@ try:
 except Exception as e:
     logger.warning(f"配置角色图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
-# 配置场景图片静态文件服务
+# 配置场景图片静态文件服务（大场景）
 try:
     if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
         scene_images_dir = config.SCENE_IMAGE_SAVE_DIR
@@ -84,6 +84,23 @@ try:
     logger.info(f"场景图片静态文件服务已配置: {scene_images_dir} -> /static/images/scenes")
 except Exception as e:
     logger.warning(f"配置场景图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+
+# 配置小场景图片静态文件服务
+try:
+    if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+        small_scene_images_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+    else:
+        small_scene_images_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
+    
+    # 确保目录存在
+    os.makedirs(small_scene_images_dir, exist_ok=True)
+    
+    # 挂载静态文件服务
+    # 访问路径：/static/images/smallscenes/{filename}
+    app.mount("/static/images/smallscenes", StaticFiles(directory=small_scene_images_dir), name="small_scene_images")
+    logger.info(f"小场景图片静态文件服务已配置: {small_scene_images_dir} -> /static/images/smallscenes")
+except Exception as e:
+    logger.warning(f"配置小场景图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
 # 配置合成图片静态文件服务
 try:

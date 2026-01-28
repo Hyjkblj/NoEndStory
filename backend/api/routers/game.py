@@ -105,9 +105,16 @@ async def process_input(request: GameInputRequest):
         
         return success_response(data=result)
     except ValueError as e:
+        print(f"[API错误] 参数错误: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
-        return error_response(code=500, message=f"处理输入失败: {str(e)}")
+        print(f"[API错误] 处理输入失败: {str(e)}")
+        import traceback
+        error_trace = traceback.format_exc()
+        print(error_trace)
+        return error_response(code=500, message=f"处理输入失败: {str(e)}", error={"traceback": error_trace})
 
 
 @router.get("/check-ending/{thread_id}", response_model=dict)

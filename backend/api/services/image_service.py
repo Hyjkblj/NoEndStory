@@ -145,6 +145,52 @@ class ImageService:
                 else:
                     print(f"[警告] 下载图片失败: HTTP {response.status_code}")
                     return None
+            elif image_path.startswith('/static/'):
+                # 静态文件URL路径，转换为实际文件系统路径
+                # 例如：/static/images/characters/filename.png -> backend/images/characters/filename.png
+                from urllib.parse import unquote
+                
+                # 提取文件名（URL解码）
+                filename = os.path.basename(image_path)
+                decoded_filename = unquote(filename)  # URL解码文件名
+                
+                print(f"[背景去除] 静态文件URL: {image_path}")
+                print(f"[背景去除] 解码后的文件名: {decoded_filename}")
+                
+                # 根据路径判断文件所在目录
+                if '/images/characters/' in image_path:
+                    # 角色图片
+                    if os.path.isabs(config.IMAGE_SAVE_DIR):
+                        actual_path = os.path.join(config.IMAGE_SAVE_DIR, decoded_filename)
+                    else:
+                        actual_path = os.path.join(backend_dir, config.IMAGE_SAVE_DIR, decoded_filename)
+                elif '/images/scenes/' in image_path:
+                    # 大场景图片
+                    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                        actual_path = os.path.join(config.SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                    else:
+                        actual_path = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                elif '/images/smallscenes/' in image_path:
+                    # 小场景图片
+                    if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                        if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                            actual_path = os.path.join(config.SMALL_SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                        else:
+                            actual_path = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                    else:
+                        actual_path = None
+                else:
+                    actual_path = None
+                
+                print(f"[背景去除] 转换后的实际路径: {actual_path}")
+                
+                if actual_path and os.path.exists(actual_path):
+                    with open(actual_path, 'rb') as f:
+                        input_bytes = f.read()
+                    print(f"[背景去除] 成功读取文件: {actual_path}")
+                else:
+                    print(f"[警告] 图片文件不存在: {image_path} (实际路径: {actual_path})")
+                    return None
             else:
                 # 本地文件路径
                 if os.path.exists(image_path):
@@ -192,14 +238,36 @@ class ImageService:
                         output_path = os.path.join(base_dir, filename)
                         print(f"[背景去除] 将重命名为标准格式: {filename}")
                     else:
-                        # 使用原始文件名加_transparent后缀
-                        base_name = os.path.splitext(os.path.basename(image_path))[0]
+                        # 使用基于原文件名的命名逻辑（去掉_img1/img2/img3后缀，保留其他部分）
+                        from urllib.parse import unquote
+                        
+                        # 从image_path中提取原始文件名
+                        if image_path.startswith('/static/'):
+                            # 静态文件URL，提取文件名并解码
+                            raw_filename = os.path.basename(image_path)
+                            decoded_filename = unquote(raw_filename)
+                            base_name = os.path.splitext(decoded_filename)[0]
+                        else:
+                            # 本地文件路径
+                            base_name = os.path.splitext(os.path.basename(image_path))[0]
+                        
                         # 移除URL参数（如果有）
                         base_name = base_name.split('?')[0]
-                        # 添加_transparent后缀
-                        base_name = f"{base_name}_transparent"
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        output_path = os.path.join(base_dir, f"{base_name}_{timestamp}.png")
+                        
+                        # 去掉_img1/img2/img3后缀（如果存在），保留其他部分
+                        # 例如：UNKNOWN_0038_于兰猗_portrait_img1_v1_20260124_031639 -> UNKNOWN_0038_于兰猗_portrait_v1_20260124_031639
+                        base_name = re.sub(r'_img\d+', '', base_name)
+                        
+                        # 确保文件名以.png结尾
+                        output_path = os.path.join(base_dir, f"{base_name}.png")
+                        
+                        # 如果文件已存在，添加时间戳后缀
+                        if os.path.exists(output_path):
+                            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                            base_name_with_timestamp = f"{base_name}_{timestamp}"
+                            output_path = os.path.join(base_dir, f"{base_name_with_timestamp}.png")
+                        
+                        print(f"[背景去除] 使用基于原文件名的命名逻辑: {os.path.basename(output_path)}")
                 else:
                     # 使用时间戳
                     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -526,17 +594,35 @@ class ImageService:
                         image_data = resp_data['data'][0]  # 每次调用只生成一张图片
                         image_url = image_data.get('url')
                         if image_url:
-                            image_urls.append(image_url)
                             print(f"[AI生图] 第 {i + 1} 张图片生成成功: {image_url}")
                             
                             # 保存图片到本地（如果启用）
-                            if config.IMAGE_SAVE_ENABLED and character_id:
-                                local_path = self._save_image_to_local(
-                                    image_url, character_id, user_id, image_type,
-                                    image_index=i + 1  # 图片索引（1, 2, 3）
-                                )
-                                if local_path:
-                                    print(f"[AI生图] 第 {i + 1} 张图片已保存到本地: {local_path}")
+                            print(f"[图片保存] 检查保存条件: IMAGE_SAVE_ENABLED={config.IMAGE_SAVE_ENABLED}, character_id={character_id}")
+                            final_url = image_url  # 默认使用临时URL
+                            
+                            if config.IMAGE_SAVE_ENABLED:
+                                if character_id:
+                                    print(f"[图片保存] 开始保存第 {i + 1} 张图片到本地...")
+                                    local_path = self._save_image_to_local(
+                                        image_url, character_id, user_id, image_type,
+                                        image_index=i + 1  # 图片索引（1, 2, 3）
+                                    )
+                                    if local_path:
+                                        print(f"[AI生图] 第 {i + 1} 张图片已保存到本地: {local_path}")
+                                        # 构建静态文件URL（使用本地保存的文件）
+                                        from urllib.parse import quote
+                                        filename = os.path.basename(local_path)
+                                        encoded_filename = quote(filename, safe='')
+                                        final_url = f"/static/images/characters/{encoded_filename}"
+                                        print(f"[AI生图] 使用本地静态文件URL: {final_url}")
+                                    else:
+                                        print(f"[警告] 第 {i + 1} 张图片保存失败: 返回路径为None，使用临时URL")
+                                else:
+                                    print(f"[警告] 第 {i + 1} 张图片未保存: character_id为None，使用临时URL")
+                            else:
+                                print(f"[信息] 图片保存功能已禁用，使用临时URL")
+                            
+                            image_urls.append(final_url)
                         else:
                             print(f"[警告] 第 {i + 1} 张图片响应中未找到URL")
                     else:
@@ -592,14 +678,21 @@ class ImageService:
                         print(f"[AI生图] 图片生成成功: {image_url}")
                         
                         # 保存图片到本地（如果启用）
+                        final_url = image_url  # 默认使用临时URL
                         if config.IMAGE_SAVE_ENABLED and character_id:
                             local_path = self._save_image_to_local(
                                 image_url, character_id, user_id, image_type
                             )
                             if local_path:
                                 print(f"[AI生图] 图片已保存到本地: {local_path}")
+                                # 构建静态文件URL（使用本地保存的文件）
+                                from urllib.parse import quote
+                                filename = os.path.basename(local_path)
+                                encoded_filename = quote(filename, safe='')
+                                final_url = f"/static/images/characters/{encoded_filename}"
+                                print(f"[AI生图] 使用本地静态文件URL: {final_url}")
                         
-                        return [image_url]
+                        return [final_url]
                     else:
                         print(f"[警告] 响应中未找到图片URL: {resp_data}")
                         return None
@@ -643,18 +736,24 @@ class ImageService:
                 print(f"[AI生图] 图片生成成功: {image_url}")
                 
                 # 保存图片到本地（如果启用）- 人物图片
-                local_path = None
+                final_url = image_url  # 默认使用临时URL
                 if config.IMAGE_SAVE_ENABLED and character_id:
                     local_path = self._save_image_to_local(image_url, character_id, user_id, image_type)
                     if local_path:
                         print(f"[AI生图] 图片已保存到本地: {local_path}")
+                        # 构建静态文件URL（使用本地保存的文件）
+                        from urllib.parse import quote
+                        filename = os.path.basename(local_path)
+                        encoded_filename = quote(filename, safe='')
+                        final_url = f"/static/images/characters/{encoded_filename}"
+                        print(f"[AI生图] 使用本地静态文件URL: {final_url}")
                 
                 # TODO: 保存图片URL到数据库（关联到character_id）
                 if character_id:
                     # self._save_image_url(character_id, image_url, local_path)
                     pass
                 
-                return image_url
+                return final_url
             else:
                 print(f"[警告] 图片生成失败: {response.message}")
                 return None
@@ -898,11 +997,66 @@ class ImageService:
             # 清理玩家ID中的非法字符，限制长度
             safe_user_id = re.sub(r'[<>:"/\\|?*\s]', '_', user_id)[:20]
             
-            # 创建保存目录（支持相对路径和绝对路径）
-            if os.path.isabs(config.IMAGE_SAVE_DIR):
-                save_dir = config.IMAGE_SAVE_DIR
+            # 根据图片类型选择保存目录
+            if image_type == 'scene':
+                # 场景图片保存：判断是小场景还是大场景
+                # 小场景（在SUB_SCENES中）保存到smallscenes目录
+                # 大场景（在MAJOR_SCENES中）保存到scenes目录
+                try:
+                    from data.scenes import SUB_SCENES, MAJOR_SCENES
+                    is_small_scene = scene_id and scene_id in SUB_SCENES
+                    is_major_scene = scene_id and scene_id in MAJOR_SCENES
+                    
+                    if is_small_scene:
+                        # 小场景图片保存到smallscenes目录
+                        if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                            if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                                save_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+                            else:
+                                save_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
+                        else:
+                            # 如果没有配置smallscenes目录，使用scenes目录
+                            if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                                save_dir = config.SCENE_IMAGE_SAVE_DIR
+                            else:
+                                save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
+                    elif is_major_scene:
+                        # 大场景图片保存到scenes目录
+                        if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                            save_dir = config.SCENE_IMAGE_SAVE_DIR
+                        else:
+                            save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
+                    else:
+                        # 未知场景，默认保存到smallscenes目录（假设是小场景）
+                        if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                            if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                                save_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+                            else:
+                                save_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
+                        else:
+                            if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                                save_dir = config.SCENE_IMAGE_SAVE_DIR
+                            else:
+                                save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
+                except Exception as e:
+                    # 如果导入失败，默认保存到smallscenes目录
+                    print(f"[警告] 判断场景类型失败: {e}，默认保存到smallscenes目录")
+                    if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                        if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                            save_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+                        else:
+                            save_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
+                    else:
+                        if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                            save_dir = config.SCENE_IMAGE_SAVE_DIR
+                        else:
+                            save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
             else:
-                save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
+                # 人物图片保存到角色图片目录
+                if os.path.isabs(config.IMAGE_SAVE_DIR):
+                    save_dir = config.IMAGE_SAVE_DIR
+                else:
+                    save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
             os.makedirs(save_dir, exist_ok=True)
             
             # 下载图片
@@ -1150,6 +1304,33 @@ class ImageService:
                 else:
                     print(f"[警告] 下载场景图片失败: HTTP {scene_response.status_code}")
                     return None
+            elif scene_image_path.startswith('/static/'):
+                # 静态文件URL路径，转换为实际文件系统路径
+                filename = os.path.basename(scene_image_path)
+                if '/images/smallscenes/' in scene_image_path:
+                    # 小场景图片
+                    if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                        if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                            actual_path = os.path.join(config.SMALL_SCENE_IMAGE_SAVE_DIR, filename)
+                        else:
+                            actual_path = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR, filename)
+                    else:
+                        actual_path = None
+                elif '/images/scenes/' in scene_image_path:
+                    # 大场景图片
+                    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
+                        actual_path = os.path.join(config.SCENE_IMAGE_SAVE_DIR, filename)
+                    else:
+                        actual_path = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR, filename)
+                else:
+                    actual_path = None
+                
+                if actual_path and os.path.exists(actual_path):
+                    scene_img = Image.open(actual_path)
+                    print(f"[图片合成] 从静态文件路径转换为实际路径: {scene_image_path} -> {actual_path}")
+                else:
+                    print(f"[警告] 场景图片文件不存在: {scene_image_path} (实际路径: {actual_path})")
+                    return None
             else:
                 # 本地文件路径
                 if os.path.exists(scene_image_path):
@@ -1172,19 +1353,33 @@ class ImageService:
             elif character_image_path.startswith('/static/'):
                 # 静态文件URL路径，转换为实际文件系统路径
                 # 例如：/static/images/characters/filename.png -> backend/images/characters/filename.png
+                from urllib.parse import unquote
+                
+                # URL解码文件名（处理中文等特殊字符）
                 filename = os.path.basename(character_image_path)
+                decoded_filename = unquote(filename)  # URL解码，例如：%E4%BE%AF%E7%A0%9A%E6%BE%82 -> 侯杼漾
+                
                 if '/images/characters/' in character_image_path:
                     # 角色图片
                     if os.path.isabs(config.IMAGE_SAVE_DIR):
-                        actual_path = os.path.join(config.IMAGE_SAVE_DIR, filename)
+                        actual_path = os.path.join(config.IMAGE_SAVE_DIR, decoded_filename)
                     else:
-                        actual_path = os.path.join(backend_dir, config.IMAGE_SAVE_DIR, filename)
+                        actual_path = os.path.join(backend_dir, config.IMAGE_SAVE_DIR, decoded_filename)
                 elif '/images/scenes/' in character_image_path:
-                    # 场景图片
+                    # 大场景图片
                     if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
-                        actual_path = os.path.join(config.SCENE_IMAGE_SAVE_DIR, filename)
+                        actual_path = os.path.join(config.SCENE_IMAGE_SAVE_DIR, decoded_filename)
                     else:
-                        actual_path = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR, filename)
+                        actual_path = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                elif '/images/smallscenes/' in character_image_path:
+                    # 小场景图片
+                    if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                        if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                            actual_path = os.path.join(config.SMALL_SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                        else:
+                            actual_path = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR, decoded_filename)
+                    else:
+                        actual_path = None
                 else:
                     actual_path = None
                 
@@ -1393,13 +1588,13 @@ class ImageService:
             return deleted_count
     
     def get_latest_character_image_path(self, character_id: int) -> Optional[str]:
-        """获取角色最新的图片本地路径
+        """获取角色最新的图片本地路径（优先返回去除背景后的透明图片）
         
         Args:
             character_id: 角色ID
             
         Returns:
-            最新图片的本地路径，如果不存在返回None
+            最新图片的本地路径（优先透明背景图片），如果不存在返回None
         """
         try:
             import config
@@ -1415,72 +1610,118 @@ class ImageService:
             
             # 构建匹配模式（人物图片现在固定为PNG格式，但兼容旧格式）
             character_id_str = f"{character_id:04d}"
-            pattern = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+            # 匹配去除背景后的透明图片（不包含_img1/img2/img3后缀，格式：UNKNOWN_0034_角色名_portrait_v1_20260124_025959.png）
+            pattern_transparent = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+            # 匹配原始图片（包含_img1/img2/img3后缀，格式：UNKNOWN_0034_角色名_portrait_img2_v1_20260124_025959.png）
+            pattern_original = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait_img\d+_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
+            # 兼容旧格式（可能没有版本号和时间戳）
+            pattern_legacy = re.compile(rf"^[^_]+_{re.escape(character_id_str)}_[^_]+_portrait(?:_img\d+)?_v\d+_\d{{8}}_\d{{6}}\.(png|jpg|jpeg|webp)$", re.IGNORECASE)
             
-            # 查找匹配的文件
-            matching_files = []
+            # 分别查找透明图片和原始图片
+            transparent_files = []  # 去除背景后的图片（不包含_img1/img2/img3）
+            original_files = []     # 原始组图（包含_img1/img2/img3）
+            
             for filename in os.listdir(save_dir):
-                if pattern.match(filename):
-                    filepath = os.path.join(save_dir, filename)
-                    matching_files.append((filepath, os.path.getmtime(filepath)))
+                filepath = os.path.join(save_dir, filename)
+                mtime = os.path.getmtime(filepath)
+                
+                if pattern_transparent.match(filename):
+                    # 优先：去除背景后的透明图片（不包含_img1/img2/img3）
+                    transparent_files.append((filepath, mtime))
+                elif pattern_original.match(filename):
+                    # 备选：原始组图（包含_img1/img2/img3）
+                    original_files.append((filepath, mtime))
+                elif pattern_legacy.match(filename):
+                    # 兼容旧格式：如果包含_img1/img2/img3，视为原始图片；否则视为透明图片
+                    if '_img' in filename:
+                        original_files.append((filepath, mtime))
+                    else:
+                        transparent_files.append((filepath, mtime))
             
-            if not matching_files:
-                return None
+            # 优先返回透明背景图片（按修改时间排序，返回最新的）
+            if transparent_files:
+                transparent_files.sort(key=lambda x: x[1], reverse=True)
+                selected = transparent_files[0][0]
+                print(f"[图片查找] 角色 {character_id} 找到透明背景图片: {os.path.basename(selected)}")
+                return selected
             
-            # 按修改时间排序，返回最新的
-            matching_files.sort(key=lambda x: x[1], reverse=True)
-            return matching_files[0][0]
+            # 如果没有透明图片，返回原始图片（按修改时间排序，返回最新的）
+            if original_files:
+                original_files.sort(key=lambda x: x[1], reverse=True)
+                selected = original_files[0][0]
+                print(f"[图片查找] 角色 {character_id} 未找到透明背景图片，使用原始图片: {os.path.basename(selected)}")
+                return selected
+            
+            return None
             
         except Exception as e:
             print(f"[警告] 获取角色图片路径失败: {e}")
             return None
     
     def get_latest_scene_image_path(self, scene_id: str) -> Optional[str]:
-        """获取场景最新的图片本地路径
+        """获取场景图片本地路径（从smallscenes目录通过场景名称匹配，随机选择一个）
         
         Args:
             scene_id: 场景ID
             
         Returns:
-            最新图片的本地路径，如果不存在返回None
+            匹配的图片本地路径，如果不存在返回None
         """
         try:
             import config
+            import random
+            from data.scenes import SUB_SCENES
             
-            # 获取保存目录
-            if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
-                save_dir = config.SCENE_IMAGE_SAVE_DIR
-            else:
-                save_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
-            
-            if not os.path.exists(save_dir):
+            # 只从smallscenes目录查找
+            if not hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
                 return None
             
-            # 构建匹配模式（支持多种命名格式）
-            safe_scene_id = re.sub(r'[<>:"/\\|?*\s]', '_', scene_id)[:30]
-            patterns = [
-                re.compile(rf"^[^_]+_SCENE_{re.escape(safe_scene_id)}_[^_]+_scene_v\d+_\d{{8}}_\d{{6}}\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
-                re.compile(rf"^{re.escape(safe_scene_id)}_[^_]+\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
-                re.compile(rf"^{re.escape(safe_scene_id)}\.(jpg|jpeg|png|webp)$", re.IGNORECASE),
-            ]
+            if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                small_scene_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+            else:
+                small_scene_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
             
-            # 查找匹配的文件
+            if not os.path.exists(small_scene_dir):
+                return None
+            
+            # 获取场景的中文名称（用于匹配文件名）
+            scene_info = SUB_SCENES.get(scene_id, {})
+            scene_name_cn = scene_info.get('name', '')  # 中文名称，如"食堂"、"教室"等
+            
+            if not scene_name_cn:
+                print(f"[警告] 未找到场景 {scene_id} 的中文名称，无法匹配图片")
+                return None
+            
+            # 通过中文名称匹配文件名（不使用scene_id，只使用中文名字）
+            # 文件名格式：UNKNOWN_SCENE_{scene_id}_{场景中文名称}_scene_v{version}_{timestamp}.jpg
+            # 例如：UNKNOWN_SCENE_cafeteria_食堂_scene_v1_20260119_102422.jpg
+            # 匹配逻辑：查找文件名中包含中文名称"食堂"的所有文件
             matching_files = []
-            for filename in os.listdir(save_dir):
-                for pattern in patterns:
-                    if pattern.match(filename):
-                        filepath = os.path.join(save_dir, filename)
-                        matching_files.append((filepath, os.path.getmtime(filepath)))
-                        break
+            
+            for filename in os.listdir(small_scene_dir):
+                # 只匹配图片文件
+                if not filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+                    continue
+                
+                # 使用中文名称进行匹配（不使用scene_id）
+                # 例如：场景ID为"cafeteria"，中文名称为"食堂"
+                # 匹配所有文件名中包含"食堂"的图片文件
+                if scene_name_cn in filename:
+                    filepath = os.path.join(small_scene_dir, filename)
+                    matching_files.append(filepath)
             
             if not matching_files:
+                print(f"[警告] 在smallscenes目录中未找到包含中文名称 '{scene_name_cn}' 的图片文件")
                 return None
             
-            # 按修改时间排序，返回最新的
-            matching_files.sort(key=lambda x: x[1], reverse=True)
-            return matching_files[0][0]
+            # 随机选择一个匹配的文件
+            selected_file = random.choice(matching_files)
+            print(f"[图片查找] 场景 {scene_id} (中文名称: {scene_name_cn}) 通过中文名称匹配到 {len(matching_files)} 个文件，随机选择: {os.path.basename(selected_file)}")
+            return selected_file
             
         except Exception as e:
             print(f"[警告] 获取场景图片路径失败: {e}")
+            import traceback
+            print(traceback.format_exc())
             return None
     

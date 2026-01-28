@@ -199,8 +199,18 @@ class CharacterService:
         
         if is_new_system:
             # 新系统：直接返回character_data字典或从character_info中提取
+            # 确保character_id存在且有效
+            char_id = character_info.get('id') or character_info.get('character_id')
+            if not char_id:
+                print(f"[警告] 角色信息中缺少character_id，尝试使用传入的参数: {character_info}")
+                # 使用传入的character_id参数
+                char_id = character_id
+            
+            if not char_id:
+                print(f"[错误] 无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
+            
             return {
-                'character_id': str(character_info.get('id') or character_info.get('character_id')),
+                'character_id': str(char_id) if char_id else None,
                 'name': character_info.get('name', ''),
                 'gender': character_info.get('gender', ''),
                 'age': character_info.get('age'),
@@ -278,13 +288,23 @@ class CharacterService:
                 pass
         
         # 转换为API响应格式
+        # 确保character_id存在且有效
+        char_id = character_info.get('id')
+        if not char_id:
+            print(f"[警告] 角色信息中缺少id字段，尝试使用传入的参数: {character_info}")
+            # 使用传入的character_id参数
+            char_id = character_id
+        
+        if not char_id:
+            print(f"[错误] 无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
+        
         return {
-            'character_id': str(character_info['id']),
-            'name': character_info['name'],
+            'character_id': str(char_id) if char_id else None,
+            'name': character_info.get('name', ''),
             'height': appearance_data.get('height'),
             'weight': appearance_data.get('weight'),
             'age': age,
-            'gender': gender_raw or (character_info['gender'] if character_info['gender'] in ['male', 'female'] else None),
+            'gender': gender_raw or (character_info.get('gender') if character_info.get('gender') in ['male', 'female'] else None),
             'appearance': {
                 'keywords': appearance_data.get('keywords', []),
                 'height': appearance_data.get('height'),
