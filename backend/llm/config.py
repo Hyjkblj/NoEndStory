@@ -34,7 +34,7 @@ class LLMConfig:
             'api_key': os.getenv('VOLCENGINE_ARK_API_KEY', '').strip(),
             'region': os.getenv('VOLCENGINE_REGION', 'cn-beijing'),
             'base_url': os.getenv('VOLCENGINE_TEXT_API_URL', ''),
-            'model': os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-2-251201'),
+            'model': os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-1-terminus'),
         })
         
         # 通义千问配置

@@ -249,7 +249,7 @@ function FirstMeetingSelection() {
       
       // 保存初始游戏数据到sessionStorage，供Game组件使用
       // 注意：响应拦截器已经提取了data字段，所以storyResponse本身就是data内容
-      const storyData = storyResponse;
+      const storyData = storyResponse as any;
       sessionStorage.setItem('initialGameData', JSON.stringify({
         character_dialogue: storyData.character_dialogue,
         player_options: storyData.player_options,

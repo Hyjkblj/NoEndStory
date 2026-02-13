@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# 可选：应用启动时验证配置（开发环境只警告，生产环境会抛出异常）
+# 取消注释以下行以启用配置验证
+# from utils.config_validator import validate_config_on_startup
+# validate_config_on_startup()
+
 # PostgreSQL配置
 DB_CONFIG = {
     'host': os.getenv('DB_HOST', 'localhost'),
@@ -33,20 +38,90 @@ EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text2vec-chinese')
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 
 # 国内AI模型配置（替代方案）
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')  # 通义千问（阿里云）
+DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY', '')  # 阿里云百炼 API Key（通义/灵积/DashScope）
 # 通义千问模型选择：qwen-turbo（快速，成本低）、qwen-plus（平衡）、qwen-max（最强，成本高）、qwen-flash（极速，成本最低）
 DASHSCOPE_MODEL = os.getenv('DASHSCOPE_MODEL', 'qwen-flash')  # 默认使用qwen-flash（极速模型）
 ZHIPU_API_KEY = os.getenv('ZHIPU_API_KEY', '')  # 智谱AI
 BAIDU_API_KEY = os.getenv('BAIDU_API_KEY', '')  # 百度文心一言
 BAIDU_SECRET_KEY = os.getenv('BAIDU_SECRET_KEY', '')
 
+# DashScope TTS配置
+# 使用最新的VD-Realtime模型（支持Voice Design和实时合成）
+DASHSCOPE_TTS_MODEL = os.getenv('DASHSCOPE_TTS_MODEL', 'sambert-zhichu-v1')  # 百炼 TTS：基础模型
+
 # 火山引擎配置
 # 注意：从.env读取时去除首尾空格，避免配置格式错误
 VOLCENGINE_ARK_API_KEY = os.getenv('VOLCENGINE_ARK_API_KEY', '').strip()  # Bearer Token (ARK API Key)
 VOLCENGINE_REGION = os.getenv('VOLCENGINE_REGION', 'cn-beijing')  # 区域，默认：cn-beijing
 
+# 火山引擎 TTS 语音合成配置（双向流式WebSocket API）
+# ⚠️ 安全警告：敏感信息必须从环境变量读取，不允许硬编码默认值
+# 开发环境：如果未设置，会显示警告但不会阻止启动
+# 生产环境：必须设置，否则会抛出异常
+_env = os.getenv('ENV', 'dev').lower()
+
+VOLCENGINE_TTS_APP_ID = os.getenv('VOLCENGINE_TTS_APP_ID', '').strip()
+VOLCENGINE_TTS_ACCESS_TOKEN = os.getenv('VOLCENGINE_TTS_ACCESS_TOKEN', '').strip()
+VOLCENGINE_TTS_SECRET_KEY = os.getenv('VOLCENGINE_TTS_SECRET_KEY', '').strip()
+
+# 验证必需的敏感配置
+if _env == 'prod':
+    # 生产环境：必须设置，否则抛出异常
+    if not VOLCENGINE_TTS_APP_ID:
+        raise ValueError(
+            "生产环境必须设置 VOLCENGINE_TTS_APP_ID 环境变量。"
+            "请参考 .env.example 文件配置。"
+        )
+    if not VOLCENGINE_TTS_ACCESS_TOKEN:
+        raise ValueError(
+            "生产环境必须设置 VOLCENGINE_TTS_ACCESS_TOKEN 环境变量。"
+            "请参考 .env.example 文件配置。"
+        )
+    if not VOLCENGINE_TTS_SECRET_KEY:
+        raise ValueError(
+            "生产环境必须设置 VOLCENGINE_TTS_SECRET_KEY 环境变量。"
+            "请参考 .env.example 文件配置。"
+        )
+else:
+    # 开发环境：显示警告但不阻止启动
+    # 注意：如果TTS_PROVIDER不是volcengine，则不需要配置火山引擎TTS密钥
+    tts_provider = os.getenv('TTS_PROVIDER', 'volcengine').lower()
+    
+    missing_keys = []
+    # 只有当TTS提供商是volcengine时才检查火山引擎TTS配置
+    if tts_provider == 'volcengine':
+        if not VOLCENGINE_TTS_APP_ID:
+            missing_keys.append('VOLCENGINE_TTS_APP_ID')
+        if not VOLCENGINE_TTS_ACCESS_TOKEN:
+            missing_keys.append('VOLCENGINE_TTS_ACCESS_TOKEN')
+        if not VOLCENGINE_TTS_SECRET_KEY:
+            missing_keys.append('VOLCENGINE_TTS_SECRET_KEY')
+    
+    if missing_keys:
+        import warnings
+        warnings.warn(
+            f"开发环境警告：以下TTS配置项未设置，TTS功能将不可用：{', '.join(missing_keys)}。"
+            f"请编辑 backend/.env 文件并填写相应配置。"
+            f"如果使用其他TTS提供商（如DashScope），请设置 TTS_PROVIDER=dashscope。",
+            UserWarning
+        )
+
+# TTS模型配置
+VOLCENGINE_TTS_MODEL = os.getenv('VOLCENGINE_TTS_MODEL', 'seed-tts-2.0')  # TTS模型：seed-tts-2.0（豆包语音合成模型2.0）
+VOLCENGINE_TTS_RESOURCE_ID = os.getenv('VOLCENGINE_TTS_RESOURCE_ID', 'volc.tts.default')  # 使用有权限的资源ID
+TTS_PROVIDER = os.getenv('TTS_PROVIDER', 'volcengine')  # 切换回火山引擎检查权限
+
+# WebSocket TTS配置
+VOLCENGINE_TTS_WEBSOCKET_URL = os.getenv('VOLCENGINE_TTS_WEBSOCKET_URL', 'wss://openspeech.bytedance.com/api/v3/tts/bidirection')
+VOLCENGINE_TTS_USE_WEBSOCKET = os.getenv('VOLCENGINE_TTS_USE_WEBSOCKET', 'false').lower() == 'true'  # 暂时禁用WebSocket模式
+
+# TTS高级功能配置
+VOLCENGINE_TTS_ENABLE_TIMESTAMP = os.getenv('VOLCENGINE_TTS_ENABLE_TIMESTAMP', 'false').lower() == 'true'  # 是否启用时间戳
+VOLCENGINE_TTS_ENABLE_CACHE = os.getenv('VOLCENGINE_TTS_ENABLE_CACHE', 'true').lower() == 'true'  # 是否启用缓存
+VOLCENGINE_TTS_ENABLE_EMOTION = os.getenv('VOLCENGINE_TTS_ENABLE_EMOTION', 'true').lower() == 'true'  # 是否启用情感控制
+
 # 文本生成配置（火山引擎）
-VOLCENGINE_TEXT_MODEL = os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-2-251201')  # 文本生成模型：deepseek-v3-2-251201
+VOLCENGINE_TEXT_MODEL = os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-1-terminus')  # 文本生成模型：deepseek-v3-1-terminus
 VOLCENGINE_TEXT_API_URL = os.getenv('VOLCENGINE_TEXT_API_URL', '')  # 文本生成API端点（可选，默认根据region自动构建）
 
 # 图片生成配置（火山引擎 Seedream）

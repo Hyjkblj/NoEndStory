@@ -1,12 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
-import { Input, Button, Card, Typography, Empty, Spin, Space, Avatar, message } from 'antd';
-import { SendOutlined, UserOutlined, RobotOutlined } from '@ant-design/icons';
-import { processGameInput, initGame, initializeStory, getCharacterImages } from '@/services/api';
+import { Button, Typography, Spin, message } from 'antd';
+import { processGameInput, initGame, initializeStory, getCharacterImages, generateSpeech } from '@/services/api';
 import SceneTransition from '@/components/SceneTransition';
 import { SCENE_CONFIGS, getSceneImageUrl, buildSceneImageUrl } from '@/config/scenes';
 import './Game.css';
 
-const { TextArea } = Input;
 const { Text } = Typography;
 
 interface Message {
@@ -30,7 +28,8 @@ interface GameSave {
 }
 
 function Game() {
-  const [input, setInput] = useState('');
+  // 删除未使用的状态
+  // const [input, setInput] = useState('');
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -57,10 +56,59 @@ function Game() {
   
   // 当前角色对话（用于对话框显示）
   const [currentDialogue, setCurrentDialogue] = useState<string>('');
+  const dialogueAudioRef = useRef<HTMLAudioElement | null>(null);
+  const lastTtsDialogueRef = useRef<string>('');
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
+
+  // 初始化游戏时加载角色数据和音色配置
+  useEffect(() => {
+    const characterDataStr = sessionStorage.getItem('characterData');
+    if (characterDataStr) {
+      try {
+        const characterData = JSON.parse(characterDataStr);
+        console.log('[游戏] 加载角色数据:', characterData);
+        
+        // 如果有音色配置，记录日志
+        if (characterData.voiceConfig) {
+          console.log('[游戏] 角色音色配置:', characterData.voiceConfig);
+        }
+      } catch (error) {
+        console.error('加载角色数据失败:', error);
+      }
+    }
+  }, []);
+
+  // 角色对话更新时，使用玩家选择的音色自动播放 TTS
+  useEffect(() => {
+    if (!currentDialogue?.trim() || !characterId) return;
+    if (currentDialogue === lastTtsDialogueRef.current) return;
+    lastTtsDialogueRef.current = currentDialogue;
+
+    const textForTts = currentDialogue.replace(/^[^:：]+[：:]/, '').trim() || currentDialogue;
+    if (!textForTts) return;
+
+    const charId = typeof characterId === 'string' ? characterId : String(characterId);
+    if (charId === 'undefined' || charId === 'null' || charId === '') return;
+
+    let cancelled = false;
+    (async () => {
+      if (dialogueAudioRef.current) {
+        dialogueAudioRef.current.pause();
+        dialogueAudioRef.current = null;
+      }
+      const result = await generateSpeech(textForTts, characterId);
+      if (cancelled || !result?.audio_url) return;
+      const url = result.audio_url.startsWith('http') ? result.audio_url : `${window.location.origin}${result.audio_url}`;
+      const audio = new Audio(url);
+      dialogueAudioRef.current = audio;
+      audio.play().catch((e) => console.warn('[游戏] TTS 播放失败:', e));
+      audio.onended = () => { dialogueAudioRef.current = null; };
+    })();
+    return () => { cancelled = true; };
+  }, [currentDialogue, characterId]);
 
   // 工具函数：从 sessionStorage 获取角色图片（按优先级）
   const getCharacterImageFromStorage = (): string | undefined => {
@@ -103,7 +151,7 @@ function Game() {
     getCharacterImages(String(characterId))
       .then((imagesResponse) => {
         // 注意：响应拦截器已经提取了data字段
-        const images = imagesResponse?.data?.images || imagesResponse?.images;
+        const images = (imagesResponse as any)?.data?.images || (imagesResponse as any)?.images;
         if (images && Array.isArray(images) && images.length > 0) {
           setCharacterImageUrl(images[0]);
         }
@@ -152,89 +200,6 @@ function Game() {
       'street': '马路',
     };
     return sceneNameMap[sceneId] || sceneId;
-  };
-
-  // 获取场景所属的大场景ID（用于查找大场景图片）
-  const getMajorSceneId = (sceneId: string): string => {
-    // 小场景到大场景的映射
-    const majorSceneMap: Record<string, string> = {
-      'library': 'school',
-      'classroom': 'school',
-      'cafeteria': 'school',
-      'playground': 'school',
-      'dormitory': 'school',
-      'campus_path': 'school',
-      'school_gate': 'school',
-      'rooftop': 'school',
-      'gym': 'school',
-      'cafe_nearby': 'school',
-      'bookstore': 'school',
-      'study_room': 'school',
-      'basketball_court': 'school',
-      'swimming_pool': 'school',
-      'student_union': 'school',
-      'canteen_terrace': 'school',
-      'school_garden': 'school',
-      'lab': 'school',
-      'art_room': 'school',
-      'music_room': 'school',
-      'office_desk': 'company',
-      'meeting_room': 'company',
-      'break_room': 'company',
-      'reception': 'company',
-      'elevator': 'company',
-      'parking_lot': 'company',
-      'company_cafeteria': 'company',
-      'lounge': 'company',
-      'copy_room': 'company',
-      'coffee_corner': 'company',
-      'training_room': 'company',
-      'office_balcony': 'company',
-      'convenience_store': 'dailylife',
-      'residential_area': 'dailylife',
-      'community_park': 'dailylife',
-      'supermarket': 'dailylife',
-      'pharmacy': 'dailylife',
-      'bank': 'dailylife',
-      'post_office': 'dailylife',
-      'bus_stop': 'dailylife',
-      'subway_station': 'dailylife',
-      'park': 'dailylife',
-      'square': 'dailylife',
-      'mall': 'dailylife',
-      'cinema': 'leisure',
-      'karaoke': 'leisure',
-      'game_center': 'leisure',
-      'sports_club': 'leisure',
-      'fitness_center': 'leisure',
-      'swimming_pool_leisure': 'leisure',
-      'spa': 'leisure',
-      'beauty_salon': 'leisure',
-      'cafe': 'leisure',
-      'bar': 'leisure',
-      'restaurant': 'leisure',
-      'zoo': 'nature',
-      'aquarium': 'nature',
-      'amusement_park': 'nature',
-      'beach': 'nature',
-      'mountain': 'nature',
-      'forest': 'nature',
-      'lake': 'nature',
-      'river': 'nature',
-      'garden': 'nature',
-      'park_nature': 'nature',
-      'library_cultural': 'cultural',
-      'museum': 'cultural',
-      'art_gallery': 'cultural',
-      'theater': 'cultural',
-      'concert_hall': 'cultural',
-      'exhibition_hall': 'cultural',
-      'cultural_center': 'cultural',
-      'bookstore_cultural': 'cultural',
-      'reading_room': 'cultural',
-      'studio': 'cultural',
-    };
-    return majorSceneMap[sceneId] || 'school';  // 默认返回school
   };
 
   // 初始化：检查是否需要恢复存档或初始化新游戏
@@ -361,7 +326,7 @@ function Game() {
                   initializeStory(gameThreadId, gameCharacterId, selectedScene?.id, characterImageUrlForInit)
                     .then((storyResponse) => {
                       // 注意：响应拦截器已经提取了data字段，所以storyResponse本身就是data内容
-                      const storyData = storyResponse;
+                      const storyData = storyResponse as any;
                       
                       // 使用后端返回的小场景ID和名称更新过场动画
                       if (storyData.scene) {
@@ -452,7 +417,7 @@ function Game() {
               // 添加初始故事背景和角色对话
               // 注意：响应拦截器已经提取了data字段，所以storyResponse是 {code, message, data}
               // 后端返回格式：{code: 200, message: 'success', data: {...}}
-              const storyData = storyResponse?.data || storyResponse;  // 优先使用response.data，如果没有则使用response本身（兼容旧代码）
+              const storyData = (storyResponse as any)?.data || storyResponse;  // 优先使用response.data，如果没有则使用response本身（兼容旧代码）
               const initialMessages: Message[] = [];
               
               // 设置初始场景（初遇场景）
@@ -778,90 +743,6 @@ function Game() {
     // 检查游戏是否结束
     if (responseData.is_game_finished) {
       message.info('游戏结束');
-    }
-  };
-
-  const handleSubmit = async () => {
-    if (!input.trim() || loading || !threadId) return;
-
-    const userMessage: Message = { role: 'user', content: input };
-    setMessages((prev) => [...prev, userMessage]);
-    const userInput = input;
-    setInput('');
-    setCurrentOptions([]); // 清除选项
-    setLoading(true);
-
-    try {
-      // 调用后端API处理玩家输入
-      const response = await processGameInput({
-        thread_id: threadId,
-        user_input: userInput,
-        character_id: characterId || sessionStorage.getItem('currentCharacterId') || undefined,
-      });
-
-      // 如果会话被恢复，更新threadId
-      // 注意：响应拦截器已经提取了data字段，所以response是 {code, message, data}
-      // 后端返回格式：{code: 200, message: 'success', data: {thread_id: ..., ...}}
-      const responseThreadId = response?.data?.thread_id;
-      if (responseThreadId && responseThreadId !== threadId) {
-        setThreadId(responseThreadId);
-        message.info('游戏会话已恢复');
-      }
-
-      handleGameResponse(response);
-
-    } catch (error: any) {
-      console.error('处理输入失败:', error);
-      let errorMessage = '处理输入失败，请稍后重试';
-      
-      // 检查是否是会话过期错误
-      const errorMsg = error.response?.data?.message || error.message || '';
-      if (errorMsg.includes('会话已过期') || errorMsg.includes('not found') || errorMsg.includes('无法恢复')) {
-        errorMessage = '游戏会话已过期。正在尝试恢复...';
-        message.warning(errorMessage);
-        
-        // 尝试重新初始化游戏
-        const charId = characterId || sessionStorage.getItem('currentCharacterId');
-        if (charId) {
-          try {
-            console.log('[游戏恢复] 尝试重新初始化游戏，characterId:', charId);
-            const initResponse = await initGame({
-              game_mode: 'solo',
-              character_id: charId,
-            });
-            
-            const newThreadId = initResponse?.data?.thread_id;
-            if (newThreadId) {
-              setThreadId(newThreadId);
-              sessionStorage.setItem('gameThreadId', newThreadId);
-              message.success('游戏会话已恢复，请重新输入');
-              return;
-            }
-          } catch (recoverError) {
-            console.error('[游戏恢复] 恢复失败:', recoverError);
-            errorMessage = '游戏会话已过期且无法恢复，请返回重新开始游戏';
-            message.error(errorMessage);
-            // 可以选择跳转到角色选择页面
-            // navigate('/charactersetting');
-          }
-        } else {
-          errorMessage = '游戏会话已过期，请返回重新开始游戏';
-          message.error(errorMessage);
-        }
-      } else if (error.message && error.message.includes('超时')) {
-        errorMessage = '处理输入超时，AI生成可能需要更长时间。请稍后重试，或检查网络连接。';
-        message.error(errorMessage);
-      } else if (error.response?.data?.message) {
-        errorMessage = error.response.data.message;
-        message.error(errorMessage);
-      } else {
-        message.error(errorMessage);
-      }
-      
-      // 移除用户消息（因为处理失败）
-      setMessages((prev) => prev.filter((msg, idx) => idx !== prev.length - 1 || msg.role !== 'user'));
-    } finally {
-      setLoading(false);
     }
   };
 

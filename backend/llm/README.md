@@ -129,7 +129,7 @@ OPENAI_MODEL=gpt-4o  # 可选
 # 火山引擎配置
 VOLCENGINE_ARK_API_KEY=your-volcengine-key
 VOLCENGINE_REGION=cn-beijing
-VOLCENGINE_TEXT_MODEL=deepseek-v3-2-251201
+VOLCENGINE_TEXT_MODEL=deepseek-v3-1-terminus
 VOLCENGINE_TEXT_API_URL=  # 可选，默认根据region构建
 
 # 通义千问配置

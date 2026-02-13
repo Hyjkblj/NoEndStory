@@ -9,7 +9,7 @@
 ```env
 # 选项1：火山引擎（推荐）
 VOLCENGINE_ARK_API_KEY=your-key
-VOLCENGINE_TEXT_MODEL=deepseek-v3-2-251201
+VOLCENGINE_TEXT_MODEL=deepseek-v3-1-terminus
 
 # 选项2：通义千问
 DASHSCOPE_API_KEY=your-key

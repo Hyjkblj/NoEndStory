@@ -1,38 +1,28 @@
-"""通义千问（DashScope）提供商适配器（兼容OpenAI SDK格式）"""
+"""阿里云百炼（DashScope）提供商适配器"""
 
 from typing import List, Dict, Optional, Any
-
-try:
-    import dashscope
-    from dashscope import Generation
-    DASHSCOPE_AVAILABLE = True
-except ImportError:
-    DASHSCOPE_AVAILABLE = False
-    dashscope = None
-    Generation = None
+import requests
 
 from .base import ProviderAdapter, LLMResponse
-from ..exceptions import LLMProviderError, LLMAccountError, LLMNetworkError
+from ..exceptions import LLMProviderError, LLMAccountError, LLMNetworkError, LLMTimeoutError
 
 
 class DashScopeProvider(ProviderAdapter):
-    """通义千问（DashScope）提供商适配器（兼容OpenAI格式）"""
+    """阿里云百炼（DashScope）提供商适配器"""
     
     def __init__(self, config: Dict[str, Any]):
         """初始化DashScope适配器
         
         Args:
             config: 配置字典，包含：
-                - api_key: API密钥
-                - model: 模型名称
+                - api_key: DashScope API Key
+                - model: 模型名称（qwen-turbo, qwen-plus, qwen-max, qwen-flash等）
+                - base_url: API端点（可选，默认使用官方端点）
         """
-        if not DASHSCOPE_AVAILABLE:
-            raise ImportError("dashscope未安装，请运行: pip install dashscope")
-        
         super().__init__(config)
         
-        # 设置API密钥
-        dashscope.api_key = self.api_key
+        # DashScope API端点
+        self.api_url = config.get('base_url', 'https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation')
     
     def call(
         self,
@@ -41,7 +31,7 @@ class DashScopeProvider(ProviderAdapter):
         temperature: Optional[float] = None,
         **kwargs
     ) -> LLMResponse:
-        """调用DashScope API（转换为DashScope格式）
+        """调用DashScope API
         
         Args:
             messages: 消息列表
@@ -53,78 +43,91 @@ class DashScopeProvider(ProviderAdapter):
             LLMResponse对象
         """
         try:
-            # DashScope使用不同的格式，需要转换messages
-            # DashScope的Generation.call需要prompt参数
-            # 我们将messages转换为prompt字符串
-            prompt_parts = []
-            for msg in messages:
-                role = msg.get('role', 'user')
-                content = msg.get('content', '')
-                if role == 'system':
-                    prompt_parts.append(f"系统: {content}")
-                elif role == 'user':
-                    prompt_parts.append(f"用户: {content}")
-                elif role == 'assistant':
-                    prompt_parts.append(f"助手: {content}")
-            
-            prompt = "\n".join(prompt_parts)
-            
-            # 构建请求参数
-            params = {
-                "model": self.model,
-                "prompt": prompt,
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
             }
             
-            if max_tokens is not None:
-                params["max_tokens"] = max_tokens
-            if temperature is not None:
-                params["temperature"] = temperature
+            # 构建请求体（DashScope格式）
+            payload = {
+                "model": self.model,
+                "input": {
+                    "messages": messages
+                },
+                "parameters": {}
+            }
             
-            # 添加其他参数（DashScope支持的）
-            if 'top_p' in kwargs:
-                params["top_p"] = kwargs['top_p']
-            if 'top_k' in kwargs:
-                params["top_k"] = kwargs['top_k']
+            # 添加参数
+            if max_tokens is not None:
+                payload["parameters"]["max_tokens"] = max_tokens
+            if temperature is not None:
+                payload["parameters"]["temperature"] = temperature
+            
+            # 添加其他参数
+            if kwargs:
+                payload["parameters"].update(kwargs)
             
             # 调用API
-            response = Generation.call(**params)
+            response = requests.post(
+                self.api_url,
+                headers=headers,
+                json=payload,
+                timeout=60
+            )
             
-            # 检查响应状态
+            # 检查HTTP状态码
             if response.status_code == 200:
-                output_text = response.output.text.strip() if response.output.text else ""
+                result = response.json()
                 
-                return LLMResponse(
-                    text=output_text,
-                    model=self.model,
-                    usage={
-                        "prompt_tokens": getattr(response.usage, 'input_tokens', 0) if hasattr(response, 'usage') else 0,
-                        "completion_tokens": getattr(response.usage, 'output_tokens', 0) if hasattr(response, 'usage') else 0,
-                        "total_tokens": getattr(response.usage, 'input_tokens', 0) + getattr(response.usage, 'output_tokens', 0) if hasattr(response, 'usage') else 0,
-                    } if hasattr(response, 'usage') else None,
-                    finish_reason=None,  # DashScope不提供finish_reason
-                    raw_response=response
-                )
-            else:
-                error_message = response.message or ''
-                
-                # 检测账户相关错误
-                is_account_error = any(keyword in error_message.lower() for keyword in [
-                    'access denied', 'account', 'overdue', 'payment', 'good standing',
-                    '账户', '欠费', '余额', '权限', 'invalid', 'unauthorized'
-                ])
-                
-                if is_account_error:
-                    raise LLMAccountError(f"通义千问账户问题: {error_message}")
-                else:
-                    raise LLMProviderError(f"通义千问API调用失败: {error_message}")
+                # 解析DashScope响应格式
+                if result.get('status_code') == 200:
+                    output = result.get('output', {})
+                    choices = output.get('choices', [])
                     
-        except LLMAccountError:
-            raise
+                    if choices and len(choices) > 0:
+                        choice = choices[0]
+                        message = choice.get('message', {})
+                        content = message.get('content', '')
+                        
+                        return LLMResponse(
+                            text=content.strip() if content else "",
+                            model=self.model,
+                            usage=result.get('usage'),
+                            finish_reason=choice.get('finish_reason'),
+                            raw_response=result
+                        )
+                    else:
+                        raise LLMProviderError(f"DashScope API响应中没有choices: {result}")
+                else:
+                    # DashScope错误响应
+                    error_code = result.get('code', 'unknown')
+                    error_msg = result.get('message', '未知错误')
+                    
+                    if error_code in ['InvalidApiKey', 'Forbidden']:
+                        raise LLMAccountError(f"DashScope API密钥无效: {error_msg}")
+                    elif error_code == 'Throttling':
+                        raise LLMProviderError(f"DashScope API请求频率限制: {error_msg}")
+                    else:
+                        raise LLMProviderError(f"DashScope API错误 ({error_code}): {error_msg}")
+            else:
+                error_msg = response.text
+                status_code = response.status_code
+                
+                # 根据状态码判断错误类型
+                if status_code == 401:
+                    raise LLMAccountError(f"DashScope API密钥无效: {error_msg}")
+                elif status_code == 429:
+                    raise LLMProviderError(f"DashScope API请求频率限制: {error_msg}")
+                elif status_code >= 500:
+                    raise LLMProviderError(f"DashScope API服务器错误 ({status_code}): {error_msg}")
+                else:
+                    raise LLMProviderError(f"DashScope API调用失败 ({status_code}): {error_msg}")
+                    
+        except requests.exceptions.Timeout:
+            raise LLMTimeoutError("DashScope API请求超时")
+        except requests.exceptions.ConnectionError as e:
+            raise LLMNetworkError(f"DashScope API网络连接错误: {e}")
         except LLMProviderError:
             raise
         except Exception as e:
-            error_msg = str(e)
-            if "connection" in error_msg.lower() or "network" in error_msg.lower():
-                raise LLMNetworkError(f"通义千问API网络错误: {error_msg}")
-            else:
-                raise LLMProviderError(f"通义千问API调用异常: {error_msg}")
+            raise LLMProviderError(f"DashScope API调用异常: {e}")

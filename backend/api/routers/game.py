@@ -1,5 +1,5 @@
 """游戏管理API路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from api.schemas import (
     GameInitRequest,
     GameInitResponse,
@@ -10,46 +10,52 @@ from api.schemas import (
 )
 from api.response import success_response, error_response, not_found_response
 from api.services.game_service import GameService
+from api.dependencies import get_game_service
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
-game_service = GameService()
-
 
 @router.post("/init", response_model=dict)
-async def init_game(request: GameInitRequest):
+async def init_game(
+    request: GameInitRequest,
+    game_service: GameService = Depends(get_game_service)
+):
     """初始化游戏"""
     try:
-        print(f"[游戏初始化] 收到初始化请求: user_id={request.user_id}, character_id={request.character_id}, game_mode={request.game_mode}")
+        logger.info(f"收到初始化请求: user_id={request.user_id}, character_id={request.character_id}, game_mode={request.game_mode}")
         
         character_id = None
         if request.character_id:
             character_id = int(request.character_id)
         else:
-            print("[游戏初始化] 错误: character_id is required")
+            logger.error("character_id is required")
             return error_response(code=400, message="character_id is required")
         
-        print(f"[游戏初始化] 开始初始化游戏会话...")
+        logger.info("开始初始化游戏会话...")
         result = game_service.init_game(
             user_id=request.user_id,
             character_id=character_id,
             game_mode=request.game_mode
         )
         
-        print(f"[游戏初始化] 游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
+        logger.info(f"游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
         return success_response(data=result)
     except ValueError as e:
-        print(f"[游戏初始化] 参数错误: {str(e)}")
+        logger.error(f"参数错误: {str(e)}")
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
-        print(f"[游戏初始化] 初始化失败: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        logger.error(f"初始化失败: {str(e)}", exc_info=True)
         return error_response(code=500, message=f"初始化游戏失败: {str(e)}")
 
 
 @router.post("/input", response_model=dict)
-async def process_input(request: GameInputRequest):
+async def process_input(
+    request: GameInputRequest,
+    game_service: GameService = Depends(get_game_service)
+):
     """处理玩家输入"""
     try:
         # 尝试从user_input中解析option_id（如果格式为"option:1"）
@@ -105,15 +111,12 @@ async def process_input(request: GameInputRequest):
         
         return success_response(data=result)
     except ValueError as e:
-        print(f"[API错误] 参数错误: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        logger.error(f"参数错误: {str(e)}", exc_info=True)
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
-        print(f"[API错误] 处理输入失败: {str(e)}")
+        logger.error(f"处理输入失败: {str(e)}", exc_info=True)
         import traceback
         error_trace = traceback.format_exc()
-        print(error_trace)
         return error_response(code=500, message=f"处理输入失败: {str(e)}", error={"traceback": error_trace})
 
 
@@ -130,7 +133,10 @@ async def check_ending(thread_id: str):
 
 
 @router.post("/trigger-ending", response_model=dict)
-async def trigger_ending(request: TriggerEndingRequest):
+async def trigger_ending(
+    request: TriggerEndingRequest,
+    game_service: GameService = Depends(get_game_service)
+):
     """触发结局"""
     try:
         result = game_service.trigger_ending(request.thread_id)

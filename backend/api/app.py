@@ -1,18 +1,19 @@
 """FastAPI应用主文件"""
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import characters, game, vector_db_admin
+from api.routers import characters, game, vector_db_admin, tts
 from database.db_manager import DatabaseManager
+from api.exceptions import ServiceException
+from api.middleware.error_handler import service_exception_handler, general_exception_handler
+from utils.logger import setup_logger
 import uvicorn
-import logging
 import os
 import config
 
 # 配置日志
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+logger = setup_logger(__name__)
 
 # 创建FastAPI应用
 app = FastAPI(
@@ -20,6 +21,10 @@ app = FastAPI(
     description="无限流剧情游戏后端API接口",
     version="1.0.0"
 )
+
+# 注册异常处理器
+app.add_exception_handler(ServiceException, service_exception_handler)
+app.add_exception_handler(Exception, general_exception_handler)
 
 # 应用启动时初始化数据库
 @app.on_event("startup")
@@ -31,22 +36,47 @@ async def startup_event():
         db_manager.init_db()
         logger.info("数据库初始化完成")
     except Exception as e:
-        logger.error(f"数据库初始化失败: {e}")
+        logger.error(f"数据库初始化失败: {e}", exc_info=True)
         # 不阻止应用启动，但会记录错误
 
 # 配置CORS（允许前端跨域请求）
+# 根据环境变量配置允许的来源（安全最佳实践）
+_env = os.getenv('ENV', 'dev')
+if _env == 'prod':
+    # 生产环境：只允许指定的前端域名
+    allowed_origins_str = os.getenv('ALLOWED_ORIGINS', '')
+    if not allowed_origins_str:
+        raise ValueError("生产环境必须设置 ALLOWED_ORIGINS 环境变量（逗号分隔的前端域名列表）")
+    allowed_origins = [origin.strip() for origin in allowed_origins_str.split(',')]
+    allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allowed_headers = ["Content-Type", "Authorization", "X-Requested-With"]
+else:
+    # 开发环境：允许本地开发服务器
+    allowed_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173"
+    ]
+    # 如果设置了ALLOWED_ORIGINS，也添加到允许列表
+    if os.getenv('ALLOWED_ORIGINS'):
+        allowed_origins.extend([origin.strip() for origin in os.getenv('ALLOWED_ORIGINS').split(',')])
+    allowed_methods = ["*"]
+    allowed_headers = ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应该指定具体的前端域名
+    allow_origins=allowed_origins,  # ✅ 只允许指定来源
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=allowed_methods,
+    allow_headers=allowed_headers,
 )
 
 # 注册路由
 app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
 app.include_router(vector_db_admin.router, prefix="/api")
+app.include_router(tts.router, prefix="/api")
 
 # 配置静态文件服务（用于提供本地保存的图片）
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -118,6 +148,18 @@ try:
     logger.info(f"合成图片静态文件服务已配置: {composite_images_dir} -> /static/images/composite")
 except Exception as e:
     logger.warning(f"配置合成图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+
+# 配置音频文件静态文件服务（TTS缓存）
+try:
+    audio_cache_dir = os.path.join(backend_dir, "audio", "cache")
+    os.makedirs(audio_cache_dir, exist_ok=True)
+    
+    # 挂载音频文件静态文件服务
+    # 访问路径：/static/audio/cache/{filename}
+    app.mount("/static/audio/cache", StaticFiles(directory=audio_cache_dir), name="audio_cache")
+    logger.info(f"音频缓存静态文件服务已配置: {audio_cache_dir} -> /static/audio/cache")
+except Exception as e:
+    logger.warning(f"配置音频缓存静态文件服务失败: {e}")
 
 # 配置管理页面静态文件服务
 try:

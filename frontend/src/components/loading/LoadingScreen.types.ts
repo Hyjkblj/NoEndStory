@@ -10,15 +10,22 @@ export interface LoadingAnimationProps {
 export type LoadingAnimationComponent = React.ComponentType<LoadingAnimationProps>;
 
 /**
- * 加载动画类型枚举
+ * 加载动画类型
  */
-export enum LoadingAnimationType {
-  SAKURA = 'sakura',        // 樱花动画（默认）
-  SIMPLE = 'simple',        // 简单动画
-  CIRCLE = 'circle',        // 圆形动画
-  PULSE = 'pulse',          // 脉冲动画
-  CUSTOM = 'custom',        // 自定义动画
-}
+export type LoadingAnimationType = 
+  | 'sakura'        // 樱花动画（默认）
+  | 'simple'        // 简单动画
+  | 'circle'        // 圆形动画
+  | 'pulse'         // 脉冲动画
+  | 'custom';       // 自定义动画
+
+export const LoadingAnimationType = {
+  SAKURA: 'sakura' as const,
+  SIMPLE: 'simple' as const,
+  CIRCLE: 'circle' as const,
+  PULSE: 'pulse' as const,
+  CUSTOM: 'custom' as const,
+} as const;
 
 /**
  * 加载动画配置

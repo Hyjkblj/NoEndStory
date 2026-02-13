@@ -1,5 +1,5 @@
 import { Typography } from 'antd';
-import { LoadingAnimationProps } from '../LoadingScreen.types';
+import type { LoadingAnimationProps } from '../LoadingScreen.types';
 import './SakuraLoader.css';
 
 const { Text } = Typography;

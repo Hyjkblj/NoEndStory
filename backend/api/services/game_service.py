@@ -5,33 +5,37 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from api.services.game_session import GameSessionManager, GameSession
 from api.services.character_service import CharacterService
+from api.services.image_service import ImageService
 from data.scenes import SCENES, SUB_SCENES
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class GameService:
-    """游戏服务（单例模式）"""
-    _instance = None
-    _session_manager = None
-    _character_service = None
-    _image_executor = None
+    """游戏服务"""
     
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(GameService, cls).__new__(cls)
-        return cls._instance
-    
-    def __init__(self):
-        # 确保只初始化一次
-        if self._session_manager is None:
-            self._session_manager = GameSessionManager()
-            self._character_service = CharacterService()
-            # 创建线程池用于异步图片生成（最多2个并发）
-            self._image_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="image_gen")
+    def __init__(
+        self,
+        character_service: Optional[CharacterService] = None,
+        image_service: Optional[ImageService] = None,
+        session_manager: Optional[GameSessionManager] = None
+    ):
+        """初始化游戏服务
         
-        # 使用类变量，确保所有实例共享
-        self.session_manager = self._session_manager
-        self.character_service = self._character_service
-        self.image_executor = self._image_executor
+        Args:
+            character_service: 角色服务实例，如果为None则自动创建
+            image_service: 图片服务实例，如果为None则自动创建
+            session_manager: 会话管理器实例，如果为None则自动创建
+        """
+        self.session_manager = session_manager or GameSessionManager()
+        self.character_service = character_service or CharacterService(image_service=image_service)
+        self.image_service = image_service or ImageService()
+        # 创建线程池用于异步图片生成（最多2个并发）
+        self.image_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="image_gen")
     
     def init_game(
         self, 
@@ -40,19 +44,19 @@ class GameService:
         game_mode: str
     ) -> Dict[str, str]:
         """初始化游戏"""
-        print(f"[游戏服务] init_game 被调用: user_id={user_id}, character_id={character_id}, game_mode={game_mode}")
+        logger.info(f"init_game 被调用: user_id={user_id}, character_id={character_id}, game_mode={game_mode}")
         
         if not character_id:
             raise ValueError("character_id is required")
         
         # 创建游戏会话
-        print(f"[游戏服务] 正在创建游戏会话...")
+        logger.debug("正在创建游戏会话...")
         session = self.session_manager.create_session(
             user_id=user_id,
             character_id=character_id,
             game_mode=game_mode
         )
-        print(f"[游戏服务] 游戏会话创建成功: thread_id={session.thread_id}")
+        logger.info(f"游戏会话创建成功: thread_id={session.thread_id}")
         
         return {
             'thread_id': session.thread_id,
@@ -71,14 +75,14 @@ class GameService:
             character_image_url: 用户选择的角色图片URL（可选，如果不提供则使用最新图片）
             opening_event_id: 初遇事件ID（可选，如果不提供则随机选择）
         """
-        print(f"[游戏服务] initialize_story 被调用: thread_id={thread_id}, character_id={character_id}, scene_id={scene_id}")
-        print(f"[游戏服务] 当前会话管理器中的会话数量: {len(self.session_manager._sessions)}")
-        print(f"[游戏服务] 当前会话ID列表: {list(self.session_manager._sessions.keys())}")
+        logger.info(f"initialize_story 被调用: thread_id={thread_id}, character_id={character_id}, scene_id={scene_id}")
+        logger.debug(f"当前会话管理器中的会话数量: {len(self.session_manager._sessions)}")
+        logger.debug(f"当前会话ID列表: {list(self.session_manager._sessions.keys())}")
         
         session = self.session_manager.get_session(thread_id)
         if not session:
-            print(f"[游戏服务错误] 会话不存在: thread_id={thread_id}")
-            print(f"[游戏服务错误] 可用的会话ID: {list(self.session_manager._sessions.keys())}")
+            logger.error(f"会话不存在: thread_id={thread_id}")
+            logger.error(f"可用的会话ID: {list(self.session_manager._sessions.keys())}")
             raise ValueError(f"Thread {thread_id} not found")
         
         if session.character_id != character_id:
@@ -86,27 +90,25 @@ class GameService:
         
         # 使用玩家选择的场景ID获取开头事件
         if opening_event_id:
-            print(f"[游戏服务] 初始化故事，使用场景: {scene_id}，指定事件: {opening_event_id}")
+            logger.info(f"初始化故事，使用场景: {scene_id}，指定事件: {opening_event_id}")
         else:
-            print(f"[游戏服务] 初始化故事，使用场景: {scene_id}，随机选择事件")
+            logger.info(f"初始化故事，使用场景: {scene_id}，随机选择事件")
         try:
             event = session.story_engine.get_opening_event(
                 character_id=character_id,
                 scene_id=scene_id,
                 opening_event_id=opening_event_id
             )
-            print(f"[游戏服务] 获取开头事件成功: {event.get('title', '未知')}")
+            logger.info(f"获取开头事件成功: {event.get('title', '未知')}")
         except Exception as e:
-            print(f"[游戏服务错误] 获取开头事件失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"获取开头事件失败: {e}", exc_info=True)
             raise
         
         # 更新当前场景（使用事件返回的场景ID，可能因为事件ID对应场景而改变）
         # 例如：school场景的cafeteria事件会使用cafeteria场景
         event_scene = event.get('scene', scene_id)
         session.story_engine.current_scene = event_scene
-        print(f"[游戏服务] 当前场景设置为: {event_scene} (原始选择: {scene_id})")
+        logger.debug(f"当前场景设置为: {event_scene} (原始选择: {scene_id})")
         
         session.is_initialized = True
         
@@ -114,38 +116,32 @@ class GameService:
         try:
             dialogue_data = session.story_engine.get_next_dialogue_round(character_id)
             session.current_dialogue_round = dialogue_data
-            print(f"[游戏服务] 获取对话成功，角色对话: {dialogue_data.get('character_dialogue', '')[:50]}...")
+            logger.debug(f"获取对话成功，角色对话: {dialogue_data.get('character_dialogue', '')[:50]}...")
             
             # 记录角色对话
             session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
         except Exception as e:
-            print(f"[游戏服务错误] 获取对话失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"获取对话失败: {e}", exc_info=True)
             raise
         
         # 异步生成合成图片（场景+人物）- 不阻塞主流程
         composite_image_url = None
         # 将图片生成任务提交到线程池，不等待完成
         try:
-            from api.services.image_service import ImageService
             import os
             import config
-            image_service = ImageService()
             
-            if image_service.enabled:
+            if self.image_service.enabled:
                 event_scene = event.get('scene', scene_id)
                 # 异步生成图片（后台执行，不阻塞响应）
-                print(f"[游戏服务] 提交图片生成任务到后台（场景: {event_scene}）")
+                logger.debug(f"提交图片生成任务到后台（场景: {event_scene}）")
                 self.image_executor.submit(
                     self._generate_composite_image_async,
                     thread_id, character_id, event_scene, scene_id, character_image_url
                 )
-                print(f"[游戏服务] 图片生成任务已提交，继续返回对话数据")
+                logger.debug("图片生成任务已提交，继续返回对话数据")
         except Exception as e:
-            print(f"[警告] 提交图片生成任务失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.warning(f"提交图片生成任务失败: {e}", exc_info=True)
         
         # 使用事件返回的场景ID（可能因为事件ID对应场景而改变）
         event_scene = event.get('scene', scene_id)
@@ -153,16 +149,14 @@ class GameService:
         # 获取场景图片URL（如果已有）
         scene_image_url = None
         try:
-            from api.services.image_service import ImageService
             import os
             import config
             from urllib.parse import quote
-            image_service = ImageService()
             
             # 查找最新的场景图片
-            print(f"[游戏服务] 查找场景图片: scene_id={event_scene}")
-            scene_image_path = image_service.get_latest_scene_image_path(event_scene)
-            print(f"[游戏服务] 查找结果: scene_image_path={scene_image_path}")
+            logger.debug(f"查找场景图片: scene_id={event_scene}")
+            scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
+            logger.debug(f"查找结果: scene_image_path={scene_image_path}")
             
             if scene_image_path and os.path.exists(scene_image_path):
                 # URL编码文件名，确保中文文件名能正确访问
@@ -191,9 +185,9 @@ class GameService:
                 else:
                     scene_image_url = f"/static/images/scenes/{encoded_filename}"
                 
-                print(f"[游戏服务] 找到场景图片: 文件名={filename}, URL={scene_image_url}")
+                logger.debug(f"找到场景图片: 文件名={filename}, URL={scene_image_url}")
             else:
-                print(f"[游戏服务] 未找到场景图片文件: scene_id={event_scene}, path={scene_image_path}")
+                logger.debug(f"未找到场景图片文件: scene_id={event_scene}, path={scene_image_path}")
                 # 如果没有找到，尝试查找简化格式的文件名（用于大场景图片）
                 # 格式：{major_scene_id}_{场景名称}.{ext}
                 try:
@@ -225,7 +219,7 @@ class GameService:
                             f"{major_scene_id}.*"  # 仅大场景ID：school.*
                         ]
                         
-                        print(f"[游戏服务] 尝试查找场景图片，模式: {patterns}")
+                        logger.debug(f"尝试查找场景图片，模式: {patterns}")
                         for pattern in patterns:
                             full_pattern = os.path.join(scene_images_dir, pattern)
                             matching_files = glob.glob(full_pattern)
@@ -239,17 +233,15 @@ class GameService:
                                     filename = os.path.basename(latest_file)
                                     encoded_filename = quote(filename, safe='')
                                     scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                                    print(f"[游戏服务] 找到场景图片: 模式={pattern}, 文件名={filename}, URL={scene_image_url}")
+                                    logger.debug(f"找到场景图片: 模式={pattern}, 文件名={filename}, URL={scene_image_url}")
                                     break
                         
                         if not scene_image_url:
-                            print(f"[游戏服务] 未找到任何场景图片文件，场景ID={event_scene}, 大场景ID={major_scene_id}")
+                            logger.debug(f"未找到任何场景图片文件，场景ID={event_scene}, 大场景ID={major_scene_id}")
                 except Exception as e2:
-                    print(f"[警告] 查找大场景图片失败: {e2}")
+                    logger.warning(f"查找大场景图片失败: {e2}", exc_info=True)
         except Exception as e:
-            print(f"[警告] 获取场景图片URL失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
         
         # 验证返回的composite_image_url（如果存在且不是None）
         validated_composite_url = None
@@ -272,9 +264,9 @@ class GameService:
                 filepath = os.path.join(composite_dir, filename)
                 if os.path.exists(filepath):
                     validated_composite_url = composite_image_url
-                    print(f"[验证] 合成图片URL验证成功: {composite_image_url} -> {filepath}")
+                    logger.debug(f"合成图片URL验证成功: {composite_image_url} -> {filepath}")
                 else:
-                    print(f"[错误] 合成图片URL对应的文件不存在: {composite_image_url} -> {filepath}")
+                    logger.error(f"合成图片URL对应的文件不存在: {composite_image_url} -> {filepath}")
                     validated_composite_url = None
             else:
                 validated_composite_url = composite_image_url
@@ -307,7 +299,7 @@ class GameService:
             
             # 验证文件存在
             if not os.path.exists(filepath):
-                print(f"[错误] 合成图片文件不存在: {filepath}")
+                logger.error(f"合成图片文件不存在: {filepath}")
                 return None
             
             # 获取文件名并URL编码
@@ -317,15 +309,13 @@ class GameService:
             
             # 再次验证文件确实存在（双重检查）
             if os.path.exists(filepath):
-                print(f"[验证] 合成图片URL验证成功: {filepath} -> {composite_url}")
+                logger.debug(f"合成图片URL验证成功: {filepath} -> {composite_url}")
                 return composite_url
             else:
-                print(f"[错误] 合成图片文件验证失败: {filepath}")
+                logger.error(f"合成图片文件验证失败: {filepath}")
                 return None
         except Exception as e:
-            print(f"[错误] 验证合成图片URL失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"验证合成图片URL失败: {e}", exc_info=True)
             return None
     
     def _generate_composite_image_async(self, thread_id: str, character_id: int, 
@@ -333,20 +323,17 @@ class GameService:
                                         character_image_url: Optional[str] = None):
         """异步生成合成图片（在后台线程中执行）"""
         try:
-            from api.services.image_service import ImageService
             import os
             import config
             from data.scenes import SUB_SCENES
             
-            image_service = ImageService()
-            
             # 优化：先检查是否已有场景图片（复用已有图片，节省时间）
-            scene_image_path = image_service.get_latest_scene_image_path(event_scene)
+            scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
             scene_image_url = None
             
             if scene_image_path and os.path.exists(scene_image_path):
                 # 已有场景图片，直接使用
-                print(f"[图片生成-后台] 复用已有场景图片: {scene_image_path}")
+                logger.debug(f"复用已有场景图片: {scene_image_path}")
                 # URL编码文件名，确保中文文件名能正确访问
                 from urllib.parse import quote
                 import config
@@ -373,19 +360,19 @@ class GameService:
                     scene_image_url = f"/static/images/scenes/{encoded_filename}"
             else:
                 # 没有已有图片，生成新图片
-                print(f"[图片生成-后台] 开始生成场景图片: {event_scene}")
+                logger.info(f"开始生成场景图片: {event_scene}")
                 scene_info = SUB_SCENES.get(event_scene, {})
                 scene_data = {
                     'scene_id': event_scene,
                     'scene_name': scene_info.get('name', event_scene),
                     'scene_description': scene_info.get('description', '')
                 }
-                scene_image_url = image_service.generate_scene_image(scene_data, event_scene)
+                scene_image_url = self.image_service.generate_scene_image(scene_data, event_scene)
             
             if scene_image_url:
                 # 如果刚生成新图片，获取其本地路径并更新URL
                 if not scene_image_path or not os.path.exists(scene_image_path):
-                    scene_image_path = image_service.get_latest_scene_image_path(event_scene)
+                    scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
                     if scene_image_path and os.path.exists(scene_image_path):
                         # 重新构建URL，确保使用正确的路径
                         from urllib.parse import quote
@@ -415,14 +402,14 @@ class GameService:
                 
                 character_image_path = None
                 if character_image_url:
-                    print(f"[图片生成-后台] 用户选择的角色图片: {character_image_url}")
+                    logger.debug(f"用户选择的角色图片: {character_image_url}")
                     # 检查是否已经是透明背景图片（在remove_character_background中已处理）
                     # 如果character_image_url包含_img1/img2/img3，说明是原始图片，需要处理
                     # 否则可能是已经处理过的透明图片
                     if 'portrait_img1' in character_image_url or 'portrait_img2' in character_image_url or 'portrait_img3' in character_image_url:
                         # 原始组图，需要处理透明背景
-                        print(f"[图片生成-后台] 检测到原始组图，开始处理透明背景...")
-                        transparent_path = image_service.remove_background_with_rembg(
+                        logger.debug("检测到原始组图，开始处理透明背景...")
+                        transparent_path = self.image_service.remove_background_with_rembg(
                             image_path=character_image_url,
                             character_id=character_id,
                             rename_to_standard=False  # 使用基于原文件名的命名逻辑
@@ -430,31 +417,31 @@ class GameService:
                         
                         if transparent_path:
                             character_image_path = transparent_path
-                            print(f"[图片生成-后台] 透明背景处理成功: {transparent_path}")
+                            logger.debug(f"透明背景处理成功: {transparent_path}")
                         else:
-                            print(f"[图片生成-后台] 透明背景处理失败，使用原图: {character_image_url}")
+                            logger.warning(f"透明背景处理失败，使用原图: {character_image_url}")
                             character_image_path = character_image_url
                     else:
                         # 可能已经是透明背景图片，直接使用
-                        print(f"[图片生成-后台] 使用已处理的透明背景图片: {character_image_url}")
+                        logger.debug(f"使用已处理的透明背景图片: {character_image_url}")
                         character_image_path = character_image_url
                 else:
                     # 如果没有提供图片URL，尝试获取最新保存的透明图片
-                    character_image_path = image_service.get_latest_character_image_path(character_id)
+                    character_image_path = self.image_service.get_latest_character_image_path(character_id)
                     if character_image_path:
-                        print(f"[图片生成-后台] 使用最新保存的角色图片: {character_image_path}")
+                        logger.debug(f"使用最新保存的角色图片: {character_image_path}")
                     else:
-                        print(f"[图片生成-后台] 未找到角色图片，跳过合成")
+                        logger.debug("未找到角色图片，跳过合成")
                 
                 if character_image_path:
-                    print(f"[图片生成-后台] 开始合成图片...")
+                    logger.debug("开始合成图片...")
                     if scene_image_path and isinstance(scene_image_path, str) and not scene_image_path.startswith('http'):
                         if not os.path.exists(scene_image_path):
                             scene_image_path = scene_image_url
                     else:
                         scene_image_path = scene_image_url
                     
-                    composite_path = image_service.composite_scene_with_character(
+                    composite_path = self.image_service.composite_scene_with_character(
                         scene_image_path=scene_image_path,
                         character_image_path=character_image_path,
                         character_id=character_id,
@@ -466,19 +453,17 @@ class GameService:
                         # 验证并构建正确的URL
                         composite_image_url = self._validate_composite_image_url(composite_path)
                         if composite_image_url:
-                            print(f"[图片生成-后台] 合成图片生成成功: {composite_path} -> {composite_image_url}")
+                            logger.info(f"合成图片生成成功: {composite_path} -> {composite_image_url}")
                         else:
-                            print(f"[错误] 合成图片URL验证失败: {composite_path}")
+                            logger.error(f"合成图片URL验证失败: {composite_path}")
                     else:
-                        print(f"[图片生成-后台] 合成图片生成失败: composite_path={composite_path}")
+                        logger.warning(f"合成图片生成失败: composite_path={composite_path}")
                 else:
-                    print(f"[图片生成-后台] 未找到角色图片 (character_id: {character_id})")
+                    logger.warning(f"未找到角色图片 (character_id: {character_id})")
             else:
-                print(f"[图片生成-后台] 场景图片生成失败")
+                logger.warning("场景图片生成失败")
         except Exception as e:
-            print(f"[图片生成-后台] 生成合成图片失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"生成合成图片失败: {e}", exc_info=True)
     
     def _save_dialogue_async(self, session, character_id: int, dialogue_round: int, state_changes: dict):
         """异步保存对话轮次到向量数据库（在后台线程中执行）"""
@@ -488,11 +473,9 @@ class GameService:
                 dialogue_round=dialogue_round,
                 state_changes=state_changes
             )
-            print(f"[向量数据库-后台] 对话轮次保存成功 (round: {dialogue_round})")
+            logger.debug(f"对话轮次保存成功 (round: {dialogue_round})")
         except Exception as e:
-            print(f"[向量数据库-后台] 保存对话轮次失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"保存对话轮次失败: {e}", exc_info=True)
     
     def process_input(
         self, 
@@ -521,9 +504,9 @@ class GameService:
                 
                 # 输出玩家选择
                 option_text = selected_option.get('text', '') if isinstance(selected_option, dict) else str(selected_option)
-                print(f"\n[玩家选择] 选项 {option_id + 1}: {option_text}")
+                logger.debug(f"玩家选择 选项 {option_id + 1}: {option_text}")
                 if isinstance(selected_option, dict) and selected_option.get('state_changes'):
-                    print(f"  - 状态变化: {selected_option.get('state_changes')}")
+                    logger.debug(f"  - 状态变化: {selected_option.get('state_changes')}")
                 
                 # 处理玩家选择
                 try:
@@ -532,9 +515,7 @@ class GameService:
                         choice=selected_option
                     )
                 except Exception as e:
-                    print(f"[游戏服务错误] 处理玩家选择失败: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error(f"处理玩家选择失败: {e}", exc_info=True)
                     raise
                 
                 # 异步保存对话轮次到向量数据库（不阻塞主流程）
@@ -559,13 +540,11 @@ class GameService:
                         choice=temp_option
                     )
                 except Exception as e:
-                    print(f"[游戏服务错误] 处理无效选项失败: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error(f"处理无效选项失败: {e}", exc_info=True)
                     raise
         else:
             # 自由输入（创建中性选项）
-            print(f"\n[玩家输入] 自由文本: {user_input}")
+            logger.debug(f"玩家输入 自由文本: {user_input}")
             
             temp_option = {
                 'id': 2,
@@ -579,18 +558,14 @@ class GameService:
                     choice=temp_option
                 )
             except Exception as e:
-                print(f"[游戏服务错误] 处理自由输入失败: {e}")
-                import traceback
-                print(traceback.format_exc())
+                logger.error(f"处理自由输入失败: {e}", exc_info=True)
                 raise
         
         # 检查是否应该继续当前事件的对话（AI判断）
         try:
             should_continue = session.story_engine.should_continue_dialogue(character_id)
         except Exception as e:
-            print(f"[游戏服务错误] 检查是否继续对话失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"检查是否继续对话失败: {e}", exc_info=True)
             # 如果检查失败，默认继续对话
             should_continue = True
         
@@ -631,9 +606,7 @@ class GameService:
                 session.current_dialogue_round = dialogue_data
                 session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
             except Exception as e:
-                print(f"[游戏服务错误] 获取下一轮对话失败: {e}")
-                import traceback
-                print(traceback.format_exc())
+                logger.error(f"获取下一轮对话失败: {e}", exc_info=True)
                 raise
             
             # 输出详细信息到控制台
@@ -664,14 +637,12 @@ class GameService:
             current_scene = session.story_engine.current_event.get('scene') if session.story_engine.current_event else None
             if current_scene:
                 try:
-                    from api.services.image_service import ImageService
                     import os
                     import config
                     from urllib.parse import quote
-                    image_service = ImageService()
                     
                     # 查找最新的场景图片
-                    scene_image_path = image_service.get_latest_scene_image_path(current_scene)
+                    scene_image_path = self.image_service.get_latest_scene_image_path(current_scene)
                     if scene_image_path and os.path.exists(scene_image_path):
                         # URL编码文件名，确保中文文件名能正确访问
                         encoded_filename = quote(os.path.basename(scene_image_path), safe='')
@@ -695,9 +666,9 @@ class GameService:
                                 scene_image_url = f"/static/images/scenes/{encoded_filename}"
                         else:
                             scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                        print(f"[游戏服务] 找到场景图片: {scene_image_url} (路径: {scene_image_path})")
+                        logger.debug(f"找到场景图片: {scene_image_url} (路径: {scene_image_path})")
                 except Exception as e:
-                    print(f"[警告] 获取场景图片URL失败: {e}")
+                    logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
             
             response_data.update({
                 'character_dialogue': dialogue_data['character_dialogue'],
@@ -721,9 +692,7 @@ class GameService:
                     session.current_dialogue_round = dialogue_data
                     session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
                 except Exception as e:
-                    print(f"[游戏服务错误] 获取结尾事件对话失败: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error(f"获取结尾事件对话失败: {e}", exc_info=True)
                     raise
                 
                 # 输出详细信息到控制台
@@ -766,9 +735,7 @@ class GameService:
                     session.current_dialogue_round = dialogue_data
                     session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
                 except Exception as e:
-                    print(f"[游戏服务错误] 获取下一个事件对话失败: {e}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error(f"获取下一个事件对话失败: {e}", exc_info=True)
                     raise
                 
                 # 输出详细信息到控制台
@@ -778,10 +745,8 @@ class GameService:
                 composite_image_url = None
                 if next_event.get('scene'):
                     try:
-                        from api.services.image_service import ImageService
                         import os
                         import config
-                        image_service = ImageService()
                         
                         # 查找最新的合成图片
                         scene_id = next_event.get('scene')
@@ -812,13 +777,13 @@ class GameService:
                                 # 验证并构建正确的URL
                                 composite_image_url = self._validate_composite_image_url(latest_filepath)
                                 if composite_image_url:
-                                    print(f"[游戏服务] 找到合成图片: {latest_filepath} -> {composite_image_url}")
+                                    logger.debug(f"找到合成图片: {latest_filepath} -> {composite_image_url}")
                                 else:
-                                    print(f"[警告] 合成图片URL验证失败: {latest_filepath}")
+                                    logger.warning(f"合成图片URL验证失败: {latest_filepath}")
                             else:
-                                print(f"[游戏服务] 未找到匹配的合成图片: character_id={character_id}, scene_id={scene_id}")
+                                logger.debug(f"未找到匹配的合成图片: character_id={character_id}, scene_id={scene_id}")
                     except Exception as e:
-                        print(f"[警告] 获取合成图片URL失败: {e}")
+                        logger.warning(f"获取合成图片URL失败: {e}", exc_info=True)
                 
                 # 更新状态值
                 states = session.db_manager.get_character_states(character_id)
@@ -845,14 +810,12 @@ class GameService:
                 next_scene = next_event.get('scene')
                 if next_scene:
                     try:
-                        from api.services.image_service import ImageService
                         import os
                         import config
                         from urllib.parse import quote
-                        image_service = ImageService()
                         
                         # 查找最新的场景图片
-                        scene_image_path = image_service.get_latest_scene_image_path(next_scene)
+                        scene_image_path = self.image_service.get_latest_scene_image_path(next_scene)
                         if scene_image_path and os.path.exists(scene_image_path):
                             # URL编码文件名，确保中文文件名能正确访问
                             encoded_filename = quote(os.path.basename(scene_image_path), safe='')
@@ -876,9 +839,9 @@ class GameService:
                                     scene_image_url = f"/static/images/scenes/{encoded_filename}"
                             else:
                                 scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                            print(f"[游戏服务] 找到场景图片: {scene_image_url} (路径: {scene_image_path})")
+                            logger.debug(f"找到场景图片: {scene_image_url} (路径: {scene_image_path})")
                     except Exception as e:
-                        print(f"[警告] 获取场景图片URL失败: {e}")
+                        logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
                 
                 # 验证返回的composite_image_url（如果存在且不是None）
                 validated_composite_url = None
@@ -900,9 +863,9 @@ class GameService:
                         filepath = os.path.join(composite_dir, filename)
                         if os.path.exists(filepath):
                             validated_composite_url = composite_image_url
-                            print(f"[验证] 合成图片URL验证成功: {composite_image_url} -> {filepath}")
+                            logger.debug(f"合成图片URL验证成功: {composite_image_url} -> {filepath}")
                         else:
-                            print(f"[错误] 合成图片URL对应的文件不存在: {composite_image_url} -> {filepath}")
+                            logger.error(f"合成图片URL对应的文件不存在: {composite_image_url} -> {filepath}")
                             validated_composite_url = None
                     else:
                         validated_composite_url = composite_image_url
@@ -929,41 +892,41 @@ class GameService:
             attributes = self.character_service.db_manager.get_character_attributes(character_id)
             states = self.character_service.db_manager.get_character_states(character_id)
             
-            print("\n" + "="*80)
-            print("【游戏对话信息】")
-            print("="*80)
+            logger.debug("="*80)
+            logger.debug("【游戏对话信息】")
+            logger.debug("="*80)
             
             # 场景信息
             scene = event.get('scene', '未知场景')
             event_title = event.get('title', '未知事件')
             story_background = event.get('story_background', '')
             
-            print(f"\n📍 【场景】: {scene}")
-            print(f"📖 【事件】: {event_title}")
+            logger.debug(f"\n📍 【场景】: {scene}")
+            logger.debug(f"📖 【事件】: {event_title}")
             if story_background:
-                print(f"📝 【故事背景】: {story_background[:200]}{'...' if len(story_background) > 200 else ''}")
+                logger.debug(f"📝 【故事背景】: {story_background[:200]}{'...' if len(story_background) > 200 else ''}")
             
             # 角色设定
             if character:
-                print(f"\n👤 【角色设定】")
-                print(f"   姓名: {character.name}")
-                print(f"   性别: {character.gender}")
-                print(f"   外观: {character.appearance[:100]}{'...' if len(character.appearance) > 100 else ''}")
-                print(f"   性格: {character.personality[:100]}{'...' if len(character.personality) > 100 else ''}")
+                logger.debug(f"\n👤 【角色设定】")
+                logger.debug(f"   姓名: {character.name}")
+                logger.debug(f"   性别: {character.gender}")
+                logger.debug(f"   外观: {character.appearance[:100]}{'...' if len(character.appearance) > 100 else ''}")
+                logger.debug(f"   性格: {character.personality[:100]}{'...' if len(character.personality) > 100 else ''}")
                 
                 # 详细属性
                 if attributes:
-                    print(f"   详细属性:")
+                    logger.debug(f"   详细属性:")
                     if hasattr(attributes, 'appearance_data') and attributes.appearance_data:
                         try:
                             app_data = json.loads(attributes.appearance_data) if isinstance(attributes.appearance_data, str) else attributes.appearance_data
                             if isinstance(app_data, dict):
                                 if 'keywords' in app_data:
-                                    print(f"      - 外观关键词: {', '.join(app_data['keywords']) if isinstance(app_data['keywords'], list) else app_data['keywords']}")
+                                    logger.debug(f"      - 外观关键词: {', '.join(app_data['keywords']) if isinstance(app_data['keywords'], list) else app_data['keywords']}")
                                 if 'height' in app_data:
-                                    print(f"      - 身高: {app_data['height']}")
+                                    logger.debug(f"      - 身高: {app_data['height']}")
                                 if 'weight' in app_data:
-                                    print(f"      - 体重: {app_data['weight']}")
+                                    logger.debug(f"      - 体重: {app_data['weight']}")
                         except:
                             pass
                     
@@ -971,46 +934,46 @@ class GameService:
                         try:
                             pers_data = json.loads(attributes.personality_data) if isinstance(attributes.personality_data, str) else attributes.personality_data
                             if isinstance(pers_data, dict) and 'keywords' in pers_data:
-                                print(f"      - 性格关键词: {', '.join(pers_data['keywords']) if isinstance(pers_data['keywords'], list) else pers_data['keywords']}")
+                                logger.debug(f"      - 性格关键词: {', '.join(pers_data['keywords']) if isinstance(pers_data['keywords'], list) else pers_data['keywords']}")
                         except:
                             pass
                     
                     if hasattr(attributes, 'age') and attributes.age:
-                        print(f"      - 年龄: {attributes.age}")
+                        logger.debug(f"      - 年龄: {attributes.age}")
             
             # 角色当前状态
             if states:
-                print(f"\n💭 【角色当前状态】")
-                print(f"   好感度: {states.favorability}/100")
-                print(f"   信任度: {states.trust}/100")
-                print(f"   敌意值: {states.hostility}/100")
-                print(f"   依赖度: {states.dependence}/100")
-                print(f"   情绪值: {states.emotion}/100")
-                print(f"   压力值: {states.stress}/100")
-                print(f"   焦虑值: {states.anxiety}/100")
-                print(f"   快乐值: {states.happiness}/100")
-                print(f"   悲伤值: {states.sadness}/100")
-                print(f"   自信值: {states.confidence}/100")
-                print(f"   主动性: {states.initiative}/100")
-                print(f"   谨慎度: {states.caution}/100")
+                logger.debug(f"\n💭 【角色当前状态】")
+                logger.debug(f"   好感度: {states.favorability}/100")
+                logger.debug(f"   信任度: {states.trust}/100")
+                logger.debug(f"   敌意值: {states.hostility}/100")
+                logger.debug(f"   依赖度: {states.dependence}/100")
+                logger.debug(f"   情绪值: {states.emotion}/100")
+                logger.debug(f"   压力值: {states.stress}/100")
+                logger.debug(f"   焦虑值: {states.anxiety}/100")
+                logger.debug(f"   快乐值: {states.happiness}/100")
+                logger.debug(f"   悲伤值: {states.sadness}/100")
+                logger.debug(f"   自信值: {states.confidence}/100")
+                logger.debug(f"   主动性: {states.initiative}/100")
+                logger.debug(f"   谨慎度: {states.caution}/100")
             
             # 对话内容
             character_dialogue = dialogue_data.get('character_dialogue', '')
             player_options = dialogue_data.get('player_options', [])
             
-            print(f"\n💬 【角色对话】")
-            print(f"   {character_dialogue}")
+            logger.debug(f"\n💬 【角色对话】")
+            logger.debug(f"   {character_dialogue}")
             
             if player_options:
-                print(f"\n🎮 【玩家选项】")
+                logger.debug(f"\n🎮 【玩家选项】")
                 for idx, option in enumerate(player_options, 1):
                     option_text = option.get('text', '') if isinstance(option, dict) else str(option)
-                    print(f"   {idx}. {option_text}")
+                    logger.debug(f"   {idx}. {option_text}")
             
-            print("="*80 + "\n")
+            logger.debug("="*80)
             
         except Exception as e:
-            print(f"[警告] 输出对话信息时出错: {e}")
+            logger.warning(f"输出对话信息时出错: {e}", exc_info=True)
     
     def check_ending(self, thread_id: str) -> Dict[str, Any]:
         """检查是否满足结局条件"""

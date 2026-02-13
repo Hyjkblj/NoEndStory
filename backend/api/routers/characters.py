@@ -1,5 +1,5 @@
 """角色管理API路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from api.schemas import (
     CreateCharacterRequest,
@@ -11,53 +11,59 @@ from api.schemas import (
 from api.response import success_response, error_response, not_found_response
 from api.services.character_service import CharacterService
 from api.services.game_service import GameService
+from api.dependencies import get_character_service, get_game_service, get_image_service
+from api.services.image_service import ImageService
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/characters", tags=["角色管理"])
 
-character_service = CharacterService()
-game_service = GameService()
-
 
 @router.post("/create", response_model=dict)
-async def create_character(request: CreateCharacterRequest):
+async def create_character(
+    request: CreateCharacterRequest,
+    character_service: CharacterService = Depends(get_character_service)
+):
     """创建新角色"""
     try:
+        import json
+        logger.info("收到创建角色请求，开始处理...")
         # 转换请求数据
         request_data = request.dict()
         
-        # 输出前端接收的人物设定数据到控制台
-        import json
-        print("\n" + "="*80)
-        print("【前端接收的人物设定数据】")
-        print("="*80)
-        print(f"角色名称: {request_data.get('name', '未命名')}")
-        print(f"性别: {request_data.get('gender', '未指定')}")
-        print(f"年龄: {request_data.get('age', '未指定')}")
+        # 输出前端接收的人物设定数据到日志
+        logger.debug("="*80)
+        logger.debug("【前端接收的人物设定数据】")
+        logger.debug("="*80)
+        logger.debug(f"角色名称: {request_data.get('name', '未命名')}")
+        logger.debug(f"性别: {request_data.get('gender', '未指定')}")
+        logger.debug(f"年龄: {request_data.get('age', '未指定')}")
        
         
         # 外观设定
         appearance = request_data.get('appearance', {})
-        print(f"\n外观设定:")
+        logger.debug("外观设定:")
         if isinstance(appearance, dict):
             for key, value in appearance.items():
                 if isinstance(value, (list, dict)):
-                    print(f"  - {key}: {json.dumps(value, ensure_ascii=False, indent=4)}")
+                    logger.debug(f"  - {key}: {json.dumps(value, ensure_ascii=False, indent=4)}")
                 else:
-                    print(f"  - {key}: {value}")
+                    logger.debug(f"  - {key}: {value}")
         else:
-            print(f"  {appearance}")
+            logger.debug(f"  {appearance}")
         
         # 性格设定
         personality = request_data.get('personality', {})
-        print(f"\n性格设定:")
+        logger.debug("性格设定:")
         if isinstance(personality, dict):
             for key, value in personality.items():
                 if isinstance(value, (list, dict)):
-                    print(f"  - {key}: {json.dumps(value, ensure_ascii=False, indent=4)}")
+                    logger.debug(f"  - {key}: {json.dumps(value, ensure_ascii=False, indent=4)}")
                 else:
-                    print(f"  - {key}: {value}")
+                    logger.debug(f"  - {key}: {value}")
         else:
-            print(f"  {personality}")
+            logger.debug(f"  {personality}")
         
         # 生成角色图片的prompt（包含组图指令）
         image_prompt = character_service.generate_character_image_prompt(
@@ -65,23 +71,23 @@ async def create_character(request: CreateCharacterRequest):
             generate_group=True,  # 启用组图
             group_count=3  # 生成3张图片
         )
-        print(f"\n【角色图片生成Prompt】")
-        print("="*80)
-        print(image_prompt)
-        print("="*80 + "\n")
+        logger.debug("【角色图片生成Prompt】")
+        logger.debug("="*80)
+        logger.debug(image_prompt)
+        logger.debug("="*80)
         
         # 创建角色
         character_id = character_service.create_character(request_data)
         
         # 验证character_id是否有效
         if not character_id or character_id <= 0:
-            print(f"[错误] 创建角色失败: 返回的character_id无效: {character_id}")
+            logger.error(f"创建角色失败: 返回的character_id无效: {character_id}")
             return error_response(
                 code=500,
                 message=f"创建角色失败: 角色ID无效 ({character_id})"
             )
         
-        print(f"[API] 角色创建成功: character_id={character_id}")
+        logger.info(f"角色创建成功: character_id={character_id}")
         
         # 生成角色组图（如果服务已启用）
         # 获取user_id和image_type（用于文件命名）
@@ -89,20 +95,19 @@ async def create_character(request: CreateCharacterRequest):
         image_type = request_data.get('image_type', 'portrait')
         image_urls = None
         try:
+            logger.info("开始调用生图服务（火山引擎 Seedream 组图 x3）...")
             image_urls = character_service.generate_character_image(
                 request_data, character_id, user_id, image_type,
                 generate_group=True, group_count=3  # 生成3张图片供前端三选一
             )
             if image_urls:
-                print(f"[信息] 角色组图生成成功: 共 {len(image_urls)} 张图片")
+                logger.info(f"角色组图生成成功: 共 {len(image_urls)} 张图片")
                 for i, url in enumerate(image_urls, 1):
-                    print(f"[信息] 图片 {i}: {url}")
+                    logger.debug(f"图片 {i}: {url}")
             else:
-                print(f"[警告] 角色组图生成失败: image_urls为None或空")
+                logger.warning("角色组图生成失败: image_urls为None或空")
         except Exception as e:
-            print(f"[警告] 角色图片生成失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.warning(f"角色图片生成失败: {e}", exc_info=True)
         
         # 获取角色信息
         character_info = character_service.get_character(character_id)
@@ -110,18 +115,16 @@ async def create_character(request: CreateCharacterRequest):
         # 确保character_id在响应中（即使get_character已经返回了）
         if 'character_id' not in character_info or not character_info.get('character_id'):
             character_info['character_id'] = str(character_id)
-            print(f"[API] 补充character_id到响应: {character_id}")
+            logger.debug(f"补充character_id到响应: {character_id}")
         
         # 添加图片URL列表到响应（即使为空也要添加，确保前端能获取到）
         character_info['image_urls'] = image_urls if image_urls else []
         
-        print(f"[API] 创建角色响应: character_id={character_info.get('character_id')}, name={character_info.get('name')}, image_urls数量={len(character_info.get('image_urls', []))}")
+        logger.info(f"创建角色响应: character_id={character_info.get('character_id')}, name={character_info.get('name')}, image_urls数量={len(character_info.get('image_urls', []))}")
         
         return success_response(data=character_info)
     except Exception as e:
-        import traceback
-        error_detail = traceback.format_exc()
-        print(f"创建角色错误详情:\n{error_detail}")  # 输出到控制台
+        logger.error(f"创建角色失败: {e}", exc_info=True)
         return error_response(
             code=500,
             message=f"创建角色失败: {str(e)}",
@@ -148,12 +151,10 @@ async def get_scenes():
         # 导入场景数据
         try:
             from data.scenes import MAJOR_SCENES
-            print(f"[信息] 成功导入场景数据，共 {len(MAJOR_SCENES)} 个大场景")
-            print(f"[信息] 大场景ID列表: {list(MAJOR_SCENES.keys())}")
+            logger.info(f"成功导入场景数据，共 {len(MAJOR_SCENES)} 个大场景")
+            logger.debug(f"大场景ID列表: {list(MAJOR_SCENES.keys())}")
         except Exception as import_error:
-            print(f"[错误] 导入场景数据失败: {import_error}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"导入场景数据失败: {import_error}", exc_info=True)
             return error_response(code=500, message=f"导入场景数据失败: {str(import_error)}")
         
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -191,9 +192,9 @@ async def get_scenes():
                             'url': f"/static/images/scenes/{encoded_filename}",
                             'name': scene_name_from_file
                         }
-                        print(f"[信息] 找到大场景图片: {major_scene_id} -> {filename}")
+                        logger.debug(f"找到大场景图片: {major_scene_id} -> {filename}")
         else:
-            print(f"[警告] 场景图片目录不存在: {scene_images_dir}")
+            logger.warning(f"场景图片目录不存在: {scene_images_dir}")
         
         # 构建大场景列表
         major_scenes_list = []
@@ -223,20 +224,18 @@ async def get_scenes():
             }
             major_scenes_list.append(scene_data)
         
-        print(f"[信息] 总共返回 {len(major_scenes_list)} 个大场景")
-        print(f"[信息] 场景列表详情:")
+        logger.info(f"总共返回 {len(major_scenes_list)} 个大场景")
+        logger.debug("场景列表详情:")
         for scene in major_scenes_list:
-            print(f"  - {scene['id']}: {scene['name']} (图片: {scene.get('imageUrl', '无')})")
+            logger.debug(f"  - {scene['id']}: {scene['name']} (图片: {scene.get('imageUrl', '无')})")
         
         if len(major_scenes_list) == 0:
-            print(f"[警告] 场景列表为空！")
-            print(f"[警告] MAJOR_SCENES 数量: {len(MAJOR_SCENES)}")
+            logger.warning("场景列表为空！")
+            logger.warning(f"MAJOR_SCENES 数量: {len(MAJOR_SCENES)}")
         
         return success_response(data={'scenes': major_scenes_list})
     except Exception as e:
-        import traceback
-        print(f"[错误] 获取场景列表失败: {e}")
-        print(traceback.format_exc())
+        logger.error(f"获取场景列表失败: {e}", exc_info=True)
         return error_response(code=500, message=f"获取场景列表失败: {str(e)}")
 
 
@@ -274,21 +273,22 @@ async def get_opening_events(major_scene_id: str):
                 'sub_scene': event.get('sub_scene'),  # 对应的小场景ID
             })
         
-        print(f"[信息] 返回大场景 {major_scene_id} 的 {len(events_list)} 个初遇事件")
+        logger.info(f"返回大场景 {major_scene_id} 的 {len(events_list)} 个初遇事件")
         return success_response(data={
             'major_scene_id': major_scene_id,
             'major_scene_name': major_scene.get('name', major_scene_id),
             'events': events_list
         })
     except Exception as e:
-        import traceback
-        print(f"[错误] 获取初遇事件列表失败: {e}")
-        print(traceback.format_exc())
+        logger.error(f"获取初遇事件列表失败: {e}", exc_info=True)
         return error_response(code=500, message=f"获取初遇事件列表失败: {str(e)}")
 
 
 @router.get("/{character_id}", response_model=dict)
-async def get_character(character_id: str):
+async def get_character(
+    character_id: str,
+    character_service: CharacterService = Depends(get_character_service)
+):
     """获取角色信息"""
     try:
         character_id_int = int(character_id)
@@ -303,7 +303,10 @@ async def get_character(character_id: str):
 
 
 @router.get("/{character_id}/images", response_model=dict)
-async def get_character_images(character_id: str):
+async def get_character_images(
+    character_id: str,
+    character_service: CharacterService = Depends(get_character_service)
+):
     """获取角色图片列表"""
     try:
         # 检查character_id是否有效
@@ -319,14 +322,17 @@ async def get_character_images(character_id: str):
     except ValueError:
         return error_response(code=400, message=f"无效的角色ID: '{character_id}' 不是有效的数字")
     except Exception as e:
-        import traceback
-        print(f"[错误] 获取角色图片失败: {e}")
-        print(traceback.format_exc())
+        logger.error(f"获取角色图片失败: {e}", exc_info=True)
         return error_response(code=500, message=f"获取角色图片失败: {str(e)}")
 
 
 @router.post("/{character_id}/remove-background", response_model=dict)
-async def remove_character_background(character_id: str, request: RemoveBackgroundRequest = RemoveBackgroundRequest()):
+async def remove_character_background(
+    character_id: str,
+    request: RemoveBackgroundRequest = RemoveBackgroundRequest(),
+    character_service: CharacterService = Depends(get_character_service),
+    image_service: ImageService = Depends(get_image_service)
+):
     """选择角色图片并处理透明背景
     
     流程：
@@ -346,10 +352,6 @@ async def remove_character_background(character_id: str, request: RemoveBackgrou
         
         character_id_int = int(character_id)
         
-        # 获取图片服务
-        from api.services.image_service import ImageService
-        image_service = ImageService()
-        
         # 如果没有提供image_url，获取角色最新图片
         if not image_url:
             images = character_service.get_character_images(character_id_int)
@@ -358,10 +360,10 @@ async def remove_character_background(character_id: str, request: RemoveBackgrou
             # 使用最新图片（第一张）
             image_url = images[0]
         
-        print(f"[API] 用户选择角色图片: {image_url}")
+        logger.info(f"用户选择角色图片: {image_url}")
         
         # 先处理透明背景（使用基于原文件名的命名逻辑）
-        print(f"[API] 开始处理透明背景...")
+        logger.info("开始处理透明背景...")
         transparent_path = image_service.remove_background_with_rembg(
             image_path=image_url,
             character_id=character_id_int,
@@ -377,7 +379,7 @@ async def remove_character_background(character_id: str, request: RemoveBackgrou
         filename = os.path.basename(transparent_path)
         result_url = f"/static/images/characters/{quote(filename, safe='')}"
         
-        print(f"[API] 透明背景处理成功: {result_url}")
+        logger.info(f"透明背景处理成功: {result_url}")
         
         # 等待透明背景处理完成后，再删除未选中的图片
         deleted_count = 0
@@ -387,10 +389,10 @@ async def remove_character_background(character_id: str, request: RemoveBackgrou
                 image_urls=image_urls,
                 selected_index=selected_index
             )
-            print(f"[API] 已删除 {deleted_count} 张未选中的图片")
+            logger.info(f"已删除 {deleted_count} 张未选中的图片")
         
         # 返回透明背景图片URL
-        print(f"[API] 返回透明背景图片URL: {result_url}")
+        logger.info(f"返回透明背景图片URL: {result_url}")
         return success_response(data={
             "selected_image_url": image_url,  # 原始图片URL
             "transparent_url": result_url,    # 透明背景图片URL
@@ -403,45 +405,44 @@ async def remove_character_background(character_id: str, request: RemoveBackgrou
     except Exception as e:
         import traceback
         error_trace = traceback.format_exc()
-        print(f"[API错误] 选择图片失败: {str(e)}")
-        print(error_trace)
+        logger.error(f"选择图片失败: {str(e)}", exc_info=True)
         return error_response(code=500, message=f"选择图片失败: {str(e)}", error={"traceback": error_trace})
 
 
 @router.post("/initialize-story", response_model=dict)
-async def initialize_story(request: InitializeStoryRequest):
+async def initialize_story(
+    request: InitializeStoryRequest,
+    game_service: GameService = Depends(get_game_service)
+):
     """初始化故事（触发初遇场景）"""
     try:
         # 验证必填参数
         if not request.thread_id:
-            print(f"[API错误] thread_id 为空")
+            logger.error("thread_id 为空")
             return error_response(code=422, message="thread_id 是必填参数")
         if not request.character_id:
-            print(f"[API错误] character_id 为空")
+            logger.error("character_id 为空")
             return error_response(code=422, message="character_id 是必填参数")
         
         try:
             character_id = int(request.character_id)
         except (ValueError, TypeError) as e:
-            print(f"[API错误] character_id 格式错误: {request.character_id}, 错误: {e}")
+            logger.error(f"character_id 格式错误: {request.character_id}, 错误: {e}")
             return error_response(code=422, message=f"character_id 必须是有效的整数: {request.character_id}")
         
         scene_id = request.scene_id or 'school'  # 默认使用school场景
         opening_event_id = request.opening_event_id  # 用户选择的初遇事件ID（可选）
         character_image_url = request.character_image_url  # 用户选择的角色图片URL
-        print(f"[API] 初始化故事请求: thread_id={request.thread_id}, character_id={character_id}, scene_id={scene_id}, opening_event_id={opening_event_id}, character_image_url={character_image_url}")
+        logger.info(f"初始化故事请求: thread_id={request.thread_id}, character_id={character_id}, scene_id={scene_id}, opening_event_id={opening_event_id}, character_image_url={character_image_url}")
         result = game_service.initialize_story(request.thread_id, character_id, scene_id, character_image_url, opening_event_id)
-        print(f"[API] 初始化故事成功")
+        logger.info("初始化故事成功")
         return success_response(data=result)
     except ValueError as e:
-        print(f"[API错误] 参数错误: {str(e)}")
-        import traceback
-        print(traceback.format_exc())
+        logger.error(f"参数错误: {str(e)}", exc_info=True)
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
-        print(f"[API错误] 初始化故事失败: {str(e)}")
+        logger.error(f"初始化故事失败: {str(e)}", exc_info=True)
         import traceback
         error_trace = traceback.format_exc()
-        print(error_trace)
         return error_response(code=500, message=f"初始化故事失败: {str(e)}", error={"traceback": error_trace})
 

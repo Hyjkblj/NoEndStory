@@ -4,16 +4,24 @@ from database.db_manager import DatabaseManager
 from game.character_creator import CharacterCreator
 from data.player_choices import GENDER_OPTIONS, APPEARANCE_OPTIONS, PERSONALITY_OPTIONS
 from api.services.image_service import ImageService
+from utils.logger import get_logger
 import random
+
+logger = get_logger(__name__)
 
 
 class CharacterService:
     """角色服务"""
     
-    def __init__(self):
+    def __init__(self, image_service: Optional[ImageService] = None):
+        """初始化角色服务
+        
+        Args:
+            image_service: 图片服务实例，如果为None则自动创建
+        """
         self.db_manager = DatabaseManager()
         self.character_creator = CharacterCreator(self.db_manager)
-        self.image_service = ImageService()  # 初始化图片生成服务
+        self.image_service = image_service or ImageService()  # 初始化图片生成服务
     
     def _parse_character_data(self, request_data: Dict[str, Any]) -> Dict[str, str]:
         """解析前端发送的JSON数据，生成完整的人物设定描述
@@ -202,12 +210,12 @@ class CharacterService:
             # 确保character_id存在且有效
             char_id = character_info.get('id') or character_info.get('character_id')
             if not char_id:
-                print(f"[警告] 角色信息中缺少character_id，尝试使用传入的参数: {character_info}")
+                logger.warning(f"角色信息中缺少character_id，尝试使用传入的参数: {character_info}")
                 # 使用传入的character_id参数
                 char_id = character_id
             
             if not char_id:
-                print(f"[错误] 无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
+                logger.error(f"无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
             
             return {
                 'character_id': str(char_id) if char_id else None,
@@ -291,12 +299,12 @@ class CharacterService:
         # 确保character_id存在且有效
         char_id = character_info.get('id')
         if not char_id:
-            print(f"[警告] 角色信息中缺少id字段，尝试使用传入的参数: {character_info}")
+            logger.warning(f"角色信息中缺少id字段，尝试使用传入的参数: {character_info}")
             # 使用传入的character_id参数
             char_id = character_id
         
         if not char_id:
-            print(f"[错误] 无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
+            logger.error(f"无法获取有效的character_id: character_info={character_info}, character_id参数={character_id}")
         
         return {
             'character_id': str(char_id) if char_id else None,
@@ -343,7 +351,7 @@ class CharacterService:
                 save_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
             
             if not os.path.exists(save_dir):
-                print(f"[信息] 图片保存目录不存在: {save_dir}")
+                logger.warning(f"图片保存目录不存在: {save_dir}")
                 return []
             
             # 构建匹配模式：查找该角色的所有图片
@@ -366,16 +374,14 @@ class CharacterService:
             matching_files.sort(reverse=True)
             
             if matching_files:
-                print(f"[信息] 找到角色 {character_id} 的 {len(matching_files)} 张本地图片")
+                logger.info(f"找到角色 {character_id} 的 {len(matching_files)} 张本地图片")
             else:
-                print(f"[信息] 未找到角色 {character_id} 的本地图片")
+                logger.debug(f"未找到角色 {character_id} 的本地图片")
             
             return matching_files
             
         except Exception as e:
-            print(f"[错误] 获取角色本地图片失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.error(f"获取角色本地图片失败: {e}", exc_info=True)
             return []
     
     def generate_character_image_prompt(self, request_data: Dict[str, Any], generate_group: bool = True, group_count: int = 3) -> str:
