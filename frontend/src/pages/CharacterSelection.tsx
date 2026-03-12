@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, message } from 'antd';
+import { Button, App as AntdApp } from 'antd';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import LoadingScreen from '@/components/loading';
-import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, type PresetVoiceItem } from '@/services/api';
+import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
+import { ROUTES } from '@/config/routes';
+import * as gameStorage from '@/storage/gameStorage';
 import './CharacterSelection.css';
 
 interface CharacterOption {
@@ -14,8 +16,18 @@ interface CharacterOption {
   gender: 'male' | 'female';
 }
 
+interface RemoveBackgroundResultPayload {
+  transparent_url?: string;
+  selected_image_url?: string;
+  data?: {
+    transparent_url?: string;
+    selected_image_url?: string;
+  };
+}
+
 function CharacterSelection() {
   const navigate = useNavigate();
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('正在加载角色...');
   const [characters, setCharacters] = useState<CharacterOption[]>([]);
@@ -29,9 +41,6 @@ function CharacterSelection() {
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadCharacters();
-  }, []);
 
   // 进入音色选择时拉取预设音色（拉取全部，前端按性别分组展示）
   useEffect(() => {
@@ -48,11 +57,24 @@ function CharacterSelection() {
           list = [...(r.female || []), ...(r.male || []), ...(r.neutral || [])];
         }
         setPresetVoices(list);
+        if (list.length === 0) {
+          message.warning('未获取到音色列表，请检查后端服务');
+        }
       })
-      .catch(() => { if (!cancelled) setPresetVoices([]); })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        const err = error as { response?: { status?: number }; message?: string };
+        const is503 = err.response?.status === 503;
+        if (is503) {
+          message.warning('TTS 服务暂不可用，但您仍可选择音色（游戏中使用时需确保 TTS 服务已启用）');
+        } else {
+          message.error('获取音色列表失败，请检查后端服务');
+        }
+        setPresetVoices([]);
+      })
       .finally(() => { if (!cancelled) setVoicesLoading(false); });
     return () => { cancelled = true; };
-  }, [step]);
+  }, [step, message]);
 
   // 试听音色
   const handlePreviewVoice = async (v: PresetVoiceItem) => {
@@ -64,36 +86,44 @@ function CharacterSelection() {
         const url = result.audio_url.startsWith('http') ? result.audio_url : `${window.location.origin}${result.audio_url}`;
         const audio = new Audio(url);
         audio.onended = () => setPreviewingVoiceId(null);
-        audio.onerror = () => setPreviewingVoiceId(null);
-        audio.play().catch(() => setPreviewingVoiceId(null));
+        audio.onerror = () => {
+          setPreviewingVoiceId(null);
+          message.warning('试听音频播放失败');
+        };
+        audio.play().catch(() => {
+          setPreviewingVoiceId(null);
+          message.warning('试听音频播放失败');
+        });
       } else {
         setPreviewingVoiceId(null);
+        message.warning('试听功能暂不可用（TTS 服务未启用），但您仍可选择此音色');
       }
-    } catch {
+    } catch (error: unknown) {
       setPreviewingVoiceId(null);
+      const err = error as { response?: { status?: number; data?: { message?: string } }; message?: string };
+      const is503 = err.response?.status === 503;
+      // 使用后端返回的错误信息（已根据实际 TTS 提供商生成）
+      const errorMsg = err.response?.data?.message || err.message || '试听失败';
+      if (is503) {
+        // 503 错误：显示后端返回的详细错误信息，并提示仍可选择音色
+        message.warning(`${errorMsg}。您仍可选择此音色，游戏中使用时需确保 TTS 服务已启用。`);
+      } else {
+        message.warning(`试听失败：${errorMsg}`);
+      }
     }
   };
 
   // 加载角色列表
-  const loadCharacters = async () => {
+  const loadCharacters = useCallback(async () => {
     setLoading(true);
     setLoadingMessage('正在加载角色...');
     
     try {
-      // 尝试从 sessionStorage 获取创建的角色信息（可选）
-      const characterDataStr = sessionStorage.getItem('characterData');
-      const createdCharacterIdStr = sessionStorage.getItem('createdCharacterId');
-      
-      console.log('[角色选择] sessionStorage检查:');
-      console.log('  - characterData存在:', !!characterDataStr);
-      console.log('  - createdCharacterId存在:', !!createdCharacterIdStr);
-      console.log('  - createdCharacterId值:', createdCharacterIdStr);
-      
+      const characterData = gameStorage.getCharacterData();
+      const createdCharacterIdStr = gameStorage.getCreatedCharacterId();
       let characterOptions: CharacterOption[] = [];
-      
-      if (characterDataStr) {
-        // 如果有角色数据，使用它
-        const characterData = JSON.parse(characterDataStr);
+
+      if (characterData) {
         console.log('[角色选择] 解析的characterData:', characterData);
         console.log('[角色选择] characterData.characterId:', characterData.characterId);
         
@@ -103,14 +133,9 @@ function CharacterSelection() {
         console.log('[角色选择] 获取到的characterId:', createdCharacterId);
         console.log('[角色选择] characterId类型:', typeof createdCharacterId);
         
-        // 验证characterId是否有效
         if (!createdCharacterId || createdCharacterId === 'undefined' || createdCharacterId === 'null' || String(createdCharacterId).trim() === '') {
-          console.error('[角色选择] 无效的characterId:', createdCharacterId);
-          console.error('[角色选择] characterData完整内容:', characterData);
-          console.error('[角色选择] sessionStorage中的createdCharacterId:', createdCharacterIdStr);
-          // 如果characterId无效，清空sessionStorage并显示错误
-          sessionStorage.removeItem('characterData');
-          sessionStorage.removeItem('createdCharacterId');
+          gameStorage.removeCharacterData();
+          gameStorage.removeCreatedCharacterId();
           message.error('角色数据无效，请重新创建角色');
           setLoading(false);
           return;
@@ -131,44 +156,22 @@ function CharacterSelection() {
           );
           
           if (hasDeletedImages) {
-            // 如果包含已删除的图片，使用去除背景后的图片
-            imageUrls = [characterData.transparentImageUrl];
-            // 更新sessionStorage
-            characterData.image_urls = imageUrls;
-            characterData.imageUrl = characterData.transparentImageUrl;
-            sessionStorage.setItem('characterData', JSON.stringify(characterData));
+            imageUrls = [characterData.transparentImageUrl!];
+            gameStorage.setCharacterData({ ...characterData, image_urls: imageUrls, imageUrl: characterData.transparentImageUrl });
           }
         }
-        
         characterOptions = [
           {
             id: createdCharacterId,
             name: characterData.name || '角色1',
-            imageUrl: characterData.transparentImageUrl || characterData.imageUrl,  // 优先使用去除背景后的图片
-            imageUrls: imageUrls,  // 组图URL列表（如果已去除背景，则只包含一张）
-            gender: characterData.gender || 'female'
-          }
+            imageUrl: characterData.transparentImageUrl || characterData.imageUrl,
+            imageUrls: imageUrls,
+            gender: characterData.gender || 'female',
+          },
         ];
-        console.log('[角色选择] 从sessionStorage加载角色数据:', {
-          characterId: createdCharacterId,
-          name: characterData.name,
-          imageUrl: characterData.imageUrl,
-          image_urls: imageUrls,
-          imageUrlsCount: imageUrls.length
-        });
-        
-        // 如果图片URL列表为空，尝试从API获取
-        if (imageUrls.length === 0) {
-          console.warn('[角色选择] 图片URL列表为空，尝试从API获取');
-        }
       } else {
-        // 如果没有角色数据，提示用户需要先创建角色
-        console.warn('[角色选择] sessionStorage中没有角色数据，用户需要先创建角色');
         message.warning('未找到角色数据，请先创建角色');
-        // 延迟后跳转到角色设置页面
-        setTimeout(() => {
-          navigate('/charactersetting');
-        }, 1500);
+        setTimeout(() => navigate(ROUTES.CHARACTER_SETTING), 1500);
         setLoading(false);
         return;
       }
@@ -188,8 +191,8 @@ function CharacterSelection() {
             try {
               const imagesResponse = await getCharacterImages(String(character.id));
               // 注意：响应拦截器已经提取了data字段
-              if ((imagesResponse as any)?.images && (imagesResponse as any).images.length > 0) {
-                character.imageUrl = (imagesResponse as any).images[0];
+              if (imagesResponse?.images?.length) {
+                character.imageUrl = imagesResponse.images[0];
               }
             } catch (error) {
               console.warn(`获取角色 ${character.id} 的图片失败:`, error);
@@ -208,7 +211,11 @@ function CharacterSelection() {
       message.error('加载角色失败，请稍后重试');
       setLoading(false);
     }
-  };
+  }, [message, navigate]);
+
+  useEffect(() => {
+    void loadCharacters();
+  }, [loadCharacters]);
 
   // 点击 CHOICE：仅保存选中的图片并进入音色选择界面
   const handleSelectImage = (characterId: string, imageIndex: number) => {
@@ -227,16 +234,15 @@ function CharacterSelection() {
     setSelectedCharacter(characterId);
     setSelectedImageIndex(imageIndex);
 
-    const characterDataStr = sessionStorage.getItem('characterData');
-    if (characterDataStr) {
+    const characterData = gameStorage.getCharacterData();
+    if (characterData) {
       try {
-        const characterData = JSON.parse(characterDataStr);
         characterData.selectedCharacterId = characterId;
         characterData.imageUrl = urlToSave;
         characterData.selectedImageIndex = imageIndex;
-        sessionStorage.setItem('characterData', JSON.stringify(characterData));
+        gameStorage.setCharacterData(characterData);
       } catch (e) {
-        console.warn('[角色选择] 更新 sessionStorage 失败', e);
+        console.warn('[角色选择] 更新存储失败', e);
       }
     }
     // 先切换步骤，确保进入音色选择界面
@@ -273,22 +279,27 @@ function CharacterSelection() {
           character.imageUrls || [],
           imageIndex
         );
-        const characterDataStr = sessionStorage.getItem('characterData');
-        if (characterDataStr) {
-          const characterData = JSON.parse(characterDataStr);
-          const transparentUrl = (selectionResponse as any)?.transparent_url ?? (selectionResponse as any)?.data?.transparent_url;
-          const selectedUrl = (selectionResponse as any)?.selected_image_url ?? (selectionResponse as any)?.data?.selected_image_url;
+        const characterData = gameStorage.getCharacterData();
+        if (characterData) {
+          const selectionPayload = selectionResponse as RemoveBackgroundResultPayload;
+          const transparentUrl = selectionPayload.transparent_url ?? selectionPayload.data?.transparent_url;
+          const selectedUrl = selectionPayload.selected_image_url ?? selectionPayload.data?.selected_image_url;
           if (transparentUrl) {
             characterData.transparentImageUrl = transparentUrl;
             characterData.imageUrl = transparentUrl;
             characterData.image_urls = [transparentUrl];
           } else {
-            characterData.selectedImageUrl = selectedUrl;
-            characterData.originalImageUrl = selectedUrl;
-            characterData.imageUrl = selectedUrl || characterData.imageUrl;
-            characterData.image_urls = [selectedUrl || characterData.imageUrl];
+            if (selectedUrl) {
+              characterData.selectedImageUrl = selectedUrl;
+              characterData.originalImageUrl = selectedUrl;
+            }
+            const fallbackUrl = selectedUrl || characterData.imageUrl;
+            if (fallbackUrl) {
+              characterData.imageUrl = fallbackUrl;
+              characterData.image_urls = [fallbackUrl];
+            }
           }
-          sessionStorage.setItem('characterData', JSON.stringify(characterData));
+          gameStorage.setCharacterData(characterData);
         }
         
         // 保存音色配置到角色数据和后端
@@ -301,10 +312,8 @@ function CharacterSelection() {
               preset_voice_id: selectedVoiceId,
             });
             
-            // 保存到sessionStorage中的角色数据
-            const characterDataStr = sessionStorage.getItem('characterData');
-            if (characterDataStr) {
-              const characterData = JSON.parse(characterDataStr);
+            const characterData = gameStorage.getCharacterData();
+            if (characterData) {
               const selectedVoice = presetVoices.find(v => v.id === selectedVoiceId);
               characterData.voiceConfig = {
                 voice_type: 'preset',
@@ -313,7 +322,7 @@ function CharacterSelection() {
                 voice_description: selectedVoice?.description || '',
                 voice_id: selectedVoice?.voice_id || ''
               };
-              sessionStorage.setItem('characterData', JSON.stringify(characterData));
+              gameStorage.setCharacterData(characterData);
               console.log('[角色选择] 已保存音色配置:', characterData.voiceConfig);
             }
           } catch (e) {
@@ -322,12 +331,12 @@ function CharacterSelection() {
         }
         setLoadingMessage('选择完成，正在跳转...');
         await new Promise((r) => setTimeout(r, 500));
-        navigate('/firstmeeting');
-      } catch (bgError: any) {
+        navigate(ROUTES.FIRST_MEETING);
+      } catch (bgError: unknown) {
         console.error('选择图片失败:', bgError);
         message.warning('选择图片失败，将使用原图继续');
         await new Promise((r) => setTimeout(r, 500));
-        navigate('/firstmeeting');
+        navigate(ROUTES.FIRST_MEETING);
       }
     } catch (error) {
       console.error('选择角色失败:', error);
@@ -368,7 +377,7 @@ function CharacterSelection() {
               <div className="voice-character-panel">
                 {selectedImageUrlForVoice ? (
                   <img
-                    src={selectedImageUrlForVoice}
+                    src={getStaticAssetUrl(selectedImageUrlForVoice)}
                     alt="人物"
                     className="voice-character-image"
                   />
@@ -471,7 +480,7 @@ function CharacterSelection() {
                 <div className="character-image-container">
                   {imageUrl ? (
                     <img 
-                      src={imageUrl} 
+                      src={getStaticAssetUrl(imageUrl)} 
                       alt={`${characters[0].name} - 选项 ${index + 1}`}
                       className="character-image"
                       onLoad={() => {
@@ -523,7 +532,7 @@ function CharacterSelection() {
                 <div className="character-image-container">
                   {character.imageUrl ? (
                     <img 
-                      src={character.imageUrl} 
+                      src={getStaticAssetUrl(character.imageUrl)} 
                       alt={character.name}
                       className="character-image"
                       onLoad={() => {

@@ -97,7 +97,7 @@ class VectorDatabase:
         
         if model_name == 'default':
             # ChromaDB默认模型（all-MiniLM-L6-v2）
-            return None  # None表示使用默认
+            return embedding_functions.DefaultEmbeddingFunction()
         elif model_name == 'text2vec-chinese':
             # 中文优化模型（推荐）
             try:
@@ -108,7 +108,7 @@ class VectorDatabase:
                 print(f"[警告] 无法加载text2vec-chinese模型: {e}")
                 print("[提示] 正在安装依赖: pip install sentence-transformers")
                 print("[信息] 回退到默认模型")
-                return None
+                return embedding_functions.DefaultEmbeddingFunction()
         elif model_name == 'm3e-base':
             # M3E中文embedding模型
             try:
@@ -119,7 +119,7 @@ class VectorDatabase:
                 print(f"[警告] 无法加载m3e-base模型: {e}")
                 print("[提示] 正在安装依赖: pip install sentence-transformers")
                 print("[信息] 回退到默认模型")
-                return None
+                return embedding_functions.DefaultEmbeddingFunction()
         elif model_name == 'bge-small-zh-v1.5':
             # 百度开源中文embedding模型
             try:
@@ -130,7 +130,7 @@ class VectorDatabase:
                 print(f"[警告] 无法加载bge-small-zh-v1.5模型: {e}")
                 print("[提示] 正在安装依赖: pip install sentence-transformers")
                 print("[信息] 回退到默认模型")
-                return None
+                return embedding_functions.DefaultEmbeddingFunction()
         elif model_name == 'paraphrase-multilingual':
             # 多语言模型（支持中英文）
             try:
@@ -141,10 +141,10 @@ class VectorDatabase:
                 print(f"[警告] 无法加载paraphrase-multilingual模型: {e}")
                 print("[提示] 正在安装依赖: pip install sentence-transformers")
                 print("[信息] 回退到默认模型")
-                return None
+                return embedding_functions.DefaultEmbeddingFunction()
         else:
             print(f"[警告] 未知的embedding模型: {model_name}，使用默认模型")
-            return None
+            return embedding_functions.DefaultEmbeddingFunction()
     
     def _reset_database(self):
         """重置向量数据库（删除旧数据）- 改进的Windows文件锁定处理"""

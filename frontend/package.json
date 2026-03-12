@@ -55,7 +55,6 @@
       "electron/**/*",
       "package.json"
     ],
-    "extraResources": [],
     "win": {
       "target": [
         {
@@ -63,7 +62,8 @@
           "arch": ["x64"]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false
     },
     "mac": {
       "target": [

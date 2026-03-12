@@ -1,3 +1,5 @@
+export { logger } from './logger';
+
 // 格式化日期
 export const formatDate = (date: string | Date): string => {
   const d = typeof date === 'string' ? new Date(date) : date;
@@ -11,7 +13,7 @@ export const formatDate = (date: string | Date): string => {
 };
 
 // 防抖函数
-export const debounce = <T extends (...args: any[]) => any>(
+export const debounce = <T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {
@@ -23,7 +25,7 @@ export const debounce = <T extends (...args: any[]) => any>(
 };
 
 // 节流函数
-export const throttle = <T extends (...args: any[]) => any>(
+export const throttle = <T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {

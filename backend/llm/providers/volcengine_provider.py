@@ -1,6 +1,7 @@
 """火山引擎提供商适配器（兼容OpenAI SDK格式）"""
 
 from typing import List, Dict, Optional, Any
+import json
 import requests
 
 from .base import ProviderAdapter, LLMResponse
@@ -104,11 +105,41 @@ class VolcEngineProvider(ProviderAdapter):
             else:
                 error_msg = response.text
                 status_code = response.status_code
-                
+                error_code = ""
+                error_type = ""
+                error_detail = error_msg
+
+                # Parse structured error payload if available.
+                try:
+                    error_json = response.json()
+                    if isinstance(error_json, dict) and isinstance(error_json.get("error"), dict):
+                        err = error_json["error"]
+                        error_code = str(err.get("code", "")).strip()
+                        error_type = str(err.get("type", "")).strip()
+                        if err.get("message"):
+                            error_detail = str(err["message"])
+                except (ValueError, json.JSONDecodeError, TypeError):
+                    pass
+
+                error_lower = error_msg.lower()
+                code_lower = error_code.lower()
+                type_lower = error_type.lower()
+
                 # 根据状态码判断错误类型
                 if status_code == 401:
                     raise LLMAccountError(f"火山引擎API密钥无效: {error_msg}")
+                elif status_code == 403:
+                    raise LLMAccountError(f"火山引擎API无权限访问当前模型: {error_msg}")
                 elif status_code == 429:
+                    # Account/model quota or safety-limit pause: do not retry.
+                    if (
+                        code_lower == "setlimitexceeded"
+                        or "setlimitexceeded" in error_lower
+                        or "safe experience mode" in error_lower
+                        or "has reached the set inference limit" in error_lower
+                        or type_lower == "toomanyrequests"
+                    ):
+                        raise LLMAccountError(f"火山引擎模型调用受限（账号额度/安全模式）: {error_detail}")
                     raise LLMProviderError(f"火山引擎API请求频率限制: {error_msg}")
                 elif status_code >= 500:
                     raise LLMProviderError(f"火山引擎API服务器错误 ({status_code}): {error_msg}")

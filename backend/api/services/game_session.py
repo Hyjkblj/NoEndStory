@@ -1,5 +1,6 @@
 """游戏会话管理"""
 import uuid
+import threading
 from typing import Dict, Optional
 from database.db_manager import DatabaseManager
 from database.vector_db import VectorDatabase
@@ -33,6 +34,8 @@ class GameSession:
         # 游戏状态
         self.is_initialized = False
         self.current_dialogue_round = None  # 当前对话轮次数据
+        # 单会话串行锁，避免同一 thread 并发处理输入导致轮次错位
+        self.lock = threading.RLock()
 
 
 class GameSessionManager:

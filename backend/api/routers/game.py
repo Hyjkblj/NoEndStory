@@ -1,4 +1,5 @@
 """游戏管理API路由"""
+import re
 from fastapi import APIRouter, HTTPException, Depends
 from api.schemas import (
     GameInitRequest,
@@ -58,22 +59,37 @@ async def process_input(
 ):
     """处理玩家输入"""
     try:
-        # 尝试从user_input中解析option_id（如果格式为"option:1"）
+        # 尝试从user_input中解析option_id（仅接受严格格式: option:<number>）
         option_id = None
-        user_input = request.user_input
-        
-        if user_input.startswith("option:"):
-            try:
-                option_id = int(user_input.split(":")[1]) - 1  # 转换为0-based索引
-                user_input = ""  # 清空user_input，使用选项
-            except:
-                pass
+        user_input = (request.user_input or "").strip()
+
+        option_match = re.fullmatch(r"option:(\d+)", user_input, flags=re.IGNORECASE)
+        if option_match:
+            option_id = int(option_match.group(1)) - 1  # 转换为0-based索引
+            user_input = ""  # 清空user_input，使用选项
+        elif user_input.lower().startswith("option:"):
+            return error_response(code=400, message="无效的选项格式，应为 option:<number>")
+
+        def _process_with_session_lock(target_thread_id: str, input_text: str, input_option_id):
+            target_session = game_service.session_manager.get_session(target_thread_id)
+            if target_session and hasattr(target_session, "lock"):
+                with target_session.lock:
+                    return game_service.process_input(
+                        thread_id=target_thread_id,
+                        user_input=input_text,
+                        option_id=input_option_id
+                    )
+            return game_service.process_input(
+                thread_id=target_thread_id,
+                user_input=input_text,
+                option_id=input_option_id
+            )
         
         try:
-            result = game_service.process_input(
-                thread_id=request.thread_id,
-                user_input=user_input,
-                option_id=option_id
+            result = _process_with_session_lock(
+                target_thread_id=request.thread_id,
+                input_text=user_input,
+                input_option_id=option_id
             )
         except ValueError as e:
             # 如果会话不存在，尝试自动恢复
@@ -89,13 +105,24 @@ async def process_input(
                     new_thread_id = init_result['thread_id']
                     
                     # 初始化故事
-                    game_service.initialize_story(new_thread_id, character_id_int)
-                    
-                    # 使用新的thread_id重试
-                    result = game_service.process_input(
-                        thread_id=new_thread_id,
-                        user_input=user_input,
-                        option_id=option_id
+                    restored_story = game_service.initialize_story(new_thread_id, character_id_int)
+
+                    # 关键修复：旧会话的选项不重放到新会话，避免“点了A却执行新会话的A”错配
+                    if option_id is not None:
+                        restored_story['thread_id'] = new_thread_id
+                        restored_story['session_restored'] = True
+                        restored_story['need_reselect_option'] = True
+                        restored_story['restored_from_thread_id'] = request.thread_id
+                        return success_response(
+                            data=restored_story,
+                            message="会话已恢复，请重新选择选项"
+                        )
+
+                    # 非选项输入可在新会话中继续处理
+                    result = _process_with_session_lock(
+                        target_thread_id=new_thread_id,
+                        input_text=user_input,
+                        input_option_id=option_id
                     )
                     
                     # 在响应中返回新的thread_id，让前端更新

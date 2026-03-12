@@ -1,4 +1,5 @@
 """AI文本生成模块 - 使用通用LLM框架"""
+import json
 import re
 from typing import Optional, List, Dict
 
@@ -257,8 +258,9 @@ class AIGenerator:
             
             for item in previous_dialogues:
                 if isinstance(item, str):
-                    if item.startswith("[历史]"):
-                        vector_db_dialogues.append(item.replace("[历史]", "").strip())
+                    if item.startswith("[历史"):
+                        # 兼容 [历史] / [历史对话] / [历史事件] 等标签
+                        vector_db_dialogues.append(re.sub(r'^\[历史[^\]]*\]\s*', '', item).strip())
                     else:
                         current_event_dialogues.append(item)
                 else:
@@ -415,8 +417,9 @@ class AIGenerator:
             
             for item in previous_dialogues:
                 if isinstance(item, str):
-                    if item.startswith("[历史]"):
-                        vector_db_dialogues.append(item.replace("[历史]", "").strip())
+                    if item.startswith("[历史"):
+                        # 兼容 [历史] / [历史对话] / [历史事件] 等标签
+                        vector_db_dialogues.append(re.sub(r'^\[历史[^\]]*\]\s*', '', item).strip())
                     else:
                         current_event_dialogues.append(item)
                 else:
@@ -562,27 +565,96 @@ class AIGenerator:
     
     def _parse_options(self, text: str) -> List[str]:
         """解析AI生成的选项文本，去除player:前缀"""
-        lines = [line.strip() for line in text.split('\n') if line.strip()]
-        options = []
-        
-        for line in lines:
-            # 移除可能的编号（1. 2. 3. 或 A. B. C.）
-            line = line.lstrip('1234567890.）)ABCabc、')
-            line = line.strip()
-            
-            # 去除player:前缀（如果存在）
-            if line.startswith("player:") or line.startswith("player："):
-                line = re.sub(r'^player[：:]\s*', '', line)
-            
-            if line and len(line) > 5:  # 至少5个字符
-                options.append(line)
+        if not text:
+            return ["我明白了", "继续", "好的"]
+
+        def _clean_option(raw: object) -> Optional[str]:
+            if raw is None:
+                return None
+
+            line = str(raw).strip()
+            if not line:
+                return None
+
+            # 移除列表序号/项目符号前缀
+            line = re.sub(r'^\s*(?:[-*•]+|\d+\s*[\.、:：)\-]|[A-Za-z]\s*[\.、:：)\-])\s*', '', line)
+            # 去除可能的引号
+            line = line.strip().strip('"').strip("'").strip('“”')
+
+            # 去除玩家前缀
+            line = re.sub(r'^(?:player|玩家)[：:]\s*', '', line, flags=re.IGNORECASE)
+            if not line:
+                return None
+
+            lower = line.lower()
+            # 过滤常见说明性前言，避免被当成选项
+            if lower.startswith(("here are", "options", "choices", "player options")):
+                return None
+            if line.startswith(("以下是", "下面是", "当然", "玩家选项", "可选项", "选项如下")):
+                return None
+            if re.search(r'\b(here are|options?|choices?)\b', lower) and (':' in line or '：' in line):
+                return None
+            if re.match(r'^(?:options?|choices?|player_options?)\s*[：:]\s*$', lower):
+                return None
+            if re.match(r'^(?:option|选项)\s*\d+\s*$', lower):
+                return None
+
+            return line if len(line) >= 2 else None
+
+        options: List[str] = []
+
+        def _append_options(raw_items: List[object]) -> None:
+            for item in raw_items:
+                if isinstance(item, dict):
+                    item = item.get('text') or item.get('content') or item.get('option')
+                cleaned = _clean_option(item)
+                if cleaned and cleaned not in options:
+                    options.append(cleaned)
                 if len(options) >= 3:
-                    break
-        
-        # 如果解析不到3个，补充默认选项
-        while len(options) < 3:
-            options.append(f"选项{len(options)+1}")
-        
+                    return
+
+        # 优先尝试按 JSON 解析，兼容数组/对象与 markdown 代码块
+        json_candidates = [text.strip()]
+        fence_match = re.search(r'```(?:json)?\s*(.*?)\s*```', text, flags=re.IGNORECASE | re.DOTALL)
+        if fence_match:
+            json_candidates.insert(0, fence_match.group(1).strip())
+        array_match = re.search(r'\[[\s\S]*\]', text)
+        if array_match:
+            json_candidates.insert(0, array_match.group(0))
+
+        for candidate in json_candidates:
+            try:
+                parsed = json.loads(candidate)
+            except Exception:
+                continue
+
+            raw_items = None
+            if isinstance(parsed, list):
+                raw_items = parsed
+            elif isinstance(parsed, dict):
+                for key in ("options", "player_options", "choices"):
+                    value = parsed.get(key)
+                    if isinstance(value, list):
+                        raw_items = value
+                        break
+
+            if isinstance(raw_items, list):
+                _append_options(raw_items)
+                if len(options) >= 3:
+                    return options[:3]
+
+        # 兼容普通分行文本
+        lines = [line.strip() for line in text.split('\n') if line.strip()]
+        _append_options(lines)
+
+        # 不足时补默认选项
+        defaults = ["我明白了", "继续", "好的"]
+        for default_text in defaults:
+            if len(options) >= 3:
+                break
+            if default_text not in options:
+                options.append(default_text)
+
         return options[:3]
     
     def _ensure_dialogue_unique(self, dialogue: str, previous_dialogues: List[str], dialogue_round: int) -> str:
@@ -669,26 +741,60 @@ class AIGenerator:
         
         return filtered
     
+    def _tokenize_text(self, text: str) -> set:
+        """文本切分：兼容中文（字/双字gram）与英文单词。"""
+        if not text:
+            return set()
+
+        normalized = re.sub(r'\s+', ' ', text.strip().lower())
+        if not normalized:
+            return set()
+
+        tokens = set()
+
+        # 英文/数字 token
+        for word in re.findall(r'[a-z0-9_]+', normalized):
+            if len(word) > 1:
+                tokens.add(word)
+
+        # 中文 token：整段、单字、双字 gram
+        for chunk in re.findall(r'[\u4e00-\u9fff]+', normalized):
+            if not chunk:
+                continue
+            tokens.add(chunk)
+            for ch in chunk:
+                tokens.add(ch)
+            if len(chunk) >= 2:
+                for i in range(len(chunk) - 1):
+                    tokens.add(chunk[i:i + 2])
+
+        # 兜底空格分词
+        for part in normalized.split():
+            if len(part) > 1:
+                tokens.add(part)
+
+        return tokens
+
     def _calculate_similarity(self, text1: str, text2: str) -> float:
-        """计算两个文本的相似度（简单的词汇重叠度）"""
-        words1 = set(text1.split())
-        words2 = set(text2.split())
-        
+        """计算两个文本相似度（Jaccard）。"""
+        words1 = self._tokenize_text(text1)
+        words2 = self._tokenize_text(text2)
+
         if not words1 or not words2:
             return 0.0
-        
+
         intersection = words1.intersection(words2)
         union = words1.union(words2)
-        
+
         if not union:
             return 0.0
-        
+
         return len(intersection) / len(union)
     
     def _has_significant_overlap(self, text1: str, text2: str, threshold: float = 0.5) -> bool:
         """检查两个文本是否有显著重叠（默认超过50%的词汇相同，可调整阈值）"""
-        words1 = set(text1.split())
-        words2 = set(text2.split())
+        words1 = self._tokenize_text(text1)
+        words2 = self._tokenize_text(text2)
         
         if not words1 or not words2:
             return False

@@ -91,9 +91,40 @@ export function buildSceneImageUrl(sceneId: string, sceneName: string, extension
  */
 export function getSceneImageUrl(scene: SceneConfig): string | null {
   const extensions = scene.imageExtensions || ['.jpeg', '.jpg', '.png', '.webp'];
-  // 返回第一个可能的URL（实际加载时如果失败会显示占位符）
-  // 注意：文件名格式为 {scene_id}_{场景名称}.{ext}
   const url = buildSceneImageUrl(scene.id, scene.name, extensions[0]);
-  console.log(`[场景配置] 构建图片URL: ${scene.id} -> ${url}`);
   return url;
+}
+
+/** 场景 ID -> 中文名（先查 SCENE_CONFIGS，再查扩展表；小场景等未在 config 中的用扩展表） */
+const SCENE_NAME_MAP: Record<string, string> = {
+  school: '学校',
+  library: '图书馆',
+  classroom: '教室',
+  cafeteria: '食堂',
+  playground: '操场',
+  dormitory: '宿舍',
+  campus_path: '校园小径',
+  school_gate: '校门口',
+  rooftop: '天台',
+  gym: '体育馆',
+  cafe_nearby: '咖啡厅',
+  bookstore: '书店',
+  restaurant: '餐厅',
+  convenience_store: '便利店',
+  company: '公司',
+  zoo: '动物园',
+  aquarium: '水族馆',
+  amusement_park: '游乐园',
+  badminton_court: '羽毛球场',
+  study_room: '自习室',
+  street: '马路',
+};
+
+/**
+ * 根据场景 ID 返回中文名称，与 SCENE_CONFIGS 及扩展表一致
+ */
+export function getSceneNameById(sceneId: string): string {
+  const fromConfig = SCENE_CONFIGS.find((c) => c.id === sceneId);
+  if (fromConfig) return fromConfig.name;
+  return SCENE_NAME_MAP[sceneId] ?? sceneId;
 }

@@ -13,15 +13,30 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/tts", tags=["TTS语音合成"])
 
 
-def _tts_error_response(exc: Exception) -> tuple[int, str]:
-    """将 TTS 异常转为对前端的 (code, message)。鉴权/计费错误返回 503 与友好提示。"""
+def _tts_error_response(exc: Exception, provider: str = 'volcengine') -> tuple[int, str]:
+    """将 TTS 异常转为对前端的 (code, message)。鉴权/计费错误返回 503 与友好提示。
+    
+    Args:
+        exc: 异常对象
+        provider: TTS 提供商名称（volcengine, dashscope, edge-tts）
+    """
     msg = str(exc)
+    
+    # 根据提供商生成对应的错误提示
+    provider_messages = {
+        'volcengine': '语音服务暂不可用，请检查火山引擎（VolcEngine）账号状态与计费。',
+        'dashscope': '语音服务暂不可用，请检查阿里云百炼（DashScope）账号状态与计费。',
+        'edge-tts': '语音服务暂不可用，请检查网络连接或 Edge TTS 服务状态。',
+    }
+    default_message = provider_messages.get(provider, '语音服务暂不可用，请检查服务配置。')
+    
     if (
         "Access denied" in msg or "account is in good standing" in msg or "overdue" in msg.lower()
         or "websocket closed" in msg.lower() or "closed due to" in msg.lower()
         or "未返回音频数据" in msg or "语音服务暂不可用" in msg
+        or "TTS服务未启用" in msg or "enabled" in msg.lower() and "false" in msg.lower()
     ):
-        return 503, "语音服务暂不可用，请检查阿里云百炼（DashScope）账号状态与计费。"
+        return 503, default_message
     return 500, f"语音服务异常: {msg}"
 
 
@@ -82,7 +97,7 @@ async def generate_speech(
         return error_response(code=400, message=str(e))
     except Exception as e:
         logger.error(f"TTS API错误: {e}", exc_info=True)
-        code, message = _tts_error_response(e)
+        code, message = _tts_error_response(e, provider=tts_service.provider)
         return error_response(code=code, message=message)
 
 
@@ -172,6 +187,23 @@ async def get_voice_config(
         return error_response(code=500, message=f"获取音色配置失败: {str(e)}")
 
 
+@router.get("/status")
+async def get_tts_status(
+    tts_service: TTSService = Depends(get_tts_service)
+):
+    """获取 TTS 服务状态
+    
+    返回 TTS 服务的启用状态、提供商、模型等信息。
+    """
+    return success_response(data={
+        'enabled': tts_service.enabled,
+        'provider': tts_service.provider,
+        'model': tts_service.voice_model.get_model() if hasattr(tts_service.voice_model, 'get_model') else None,
+        'voice_design_enabled': tts_service.voice_design_enabled,
+        'message': 'TTS服务已启用' if tts_service.enabled else 'TTS服务未启用，请检查配置'
+    })
+
+
 @router.get("/presets")
 async def get_preset_voices(
     gender: Optional[str] = None,
@@ -220,7 +252,15 @@ async def preview_voice(
         text = (request.text or voice.get("preview_text") or "你好，这是试听。")[:600]
         bailian_voice_id = voice.get("voice_id") or "Cherry"
         if not tts_service.enabled:
-            return error_response(code=503, message="TTS服务未启用")
+            provider_name = {
+                'volcengine': '火山引擎（VolcEngine）',
+                'dashscope': '阿里云百炼（DashScope）',
+                'edge-tts': 'Edge TTS',
+            }.get(tts_service.provider, 'TTS服务')
+            return error_response(
+                code=503,
+                message=f"TTS服务未启用，请检查{provider_name}配置"
+            )
         audio_info = tts_service.generate_speech(
             text=text,
             character_id=0,
@@ -233,7 +273,7 @@ async def preview_voice(
         })
     except Exception as e:
         logger.error(f"TTS Preview错误: {e}", exc_info=True)
-        code, message = _tts_error_response(e)
+        code, message = _tts_error_response(e, provider=tts_service.provider)
         return error_response(code=code, message=message)
 
 

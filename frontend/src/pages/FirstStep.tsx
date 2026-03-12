@@ -1,91 +1,56 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, message, Modal } from 'antd';
-import { 
-  PlayCircleOutlined, 
-  FileTextOutlined, 
-  SettingOutlined, 
-  LogoutOutlined 
+import { Button, Modal, App as AntdApp } from 'antd';
+import {
+  PlayCircleOutlined,
+  FileTextOutlined,
+  SettingOutlined,
+  LogoutOutlined,
 } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
 import { checkServerHealth } from '@/services/api';
+import { ROUTES } from '@/config/routes';
+import * as gameStorage from '@/storage/gameStorage';
 import './FirstStep.css';
-
-interface GameSave {
-  threadId: string;
-  characterId?: string;
-  lastMessage?: string;
-  timestamp: number;
-}
 
 function FirstStep() {
   const navigate = useNavigate();
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('正在连接服务器...');
 
-  // 读取玩家存档
-  const loadGameSave = (): GameSave | null => {
-    try {
-      const saveData = localStorage.getItem('gameSave');
-      if (saveData) {
-        return JSON.parse(saveData);
-      }
-    } catch (error) {
-      console.error('读取存档失败:', error);
-    }
-    return null;
-  };
-
-  // 继续游戏
   const handleContinueGame = async () => {
-    const saveData = loadGameSave();
-    
-    if (!saveData) {
-      message.warning('没有找到存档，请开始新的故事');
+    const saveData = gameStorage.getMainGameSave();
+    if (!saveData?.threadId) {
+      message.warning('没有找到存档，请先开始新的故事。');
       return;
     }
 
-    // 如果有 threadId，跳转到游戏页面并恢复存档
-    if (saveData.threadId) {
-      setLoading(true);
-      setLoadingMessage('正在连接服务器...');
-      
-      try {
-        // 检查后端服务是否可用
-        const isHealthy = await checkServerHealth();
-        
-        if (isHealthy) {
-          // 将存档信息存储到 sessionStorage，供 Game 页面使用
-          sessionStorage.setItem('restoreThreadId', saveData.threadId);
-          if (saveData.characterId) {
-            sessionStorage.setItem('restoreCharacterId', saveData.characterId);
-          }
-          
-          setLoadingMessage('正在加载存档...');
-          // 短暂延迟以显示加载消息
-          await new Promise(resolve => setTimeout(resolve, 500));
-          navigate('/game');
-        } else {
-          message.error('无法连接到服务器，请检查后端服务是否运行');
-        }
-      } catch (error) {
-        message.error('连接服务器失败，请稍后重试');
-      } finally {
-        setLoading(false);
+    setLoading(true);
+    setLoadingMessage('正在连接服务器...');
+    try {
+      const isHealthy = await checkServerHealth();
+      if (isHealthy) {
+        gameStorage.setRestoreThreadId(saveData.threadId);
+        if (saveData.characterId) gameStorage.setRestoreCharacterId(saveData.characterId);
+        setLoadingMessage('正在加载存档...');
+        await new Promise((r) => setTimeout(r, 500));
+        navigate(ROUTES.GAME);
+      } else {
+        message.error('无法连接到服务器，请检查后端服务是否运行。');
       }
-    } else {
-      message.warning('存档数据不完整，请开始新的故事');
+    } catch {
+      message.error('连接服务器失败，请稍后重试。');
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 新的故事
   const handleNewStory = () => {
-    // 导航到角色设置页面
-    navigate('/charactersetting');
+    navigate(ROUTES.CHARACTER_SETTING);
   };
 
-  // 设置
   const handleSettings = () => {
     Modal.info({
       title: '游戏设置',
@@ -106,7 +71,6 @@ function FirstStep() {
     });
   };
 
-  // 退出
   const handleExit = () => {
     Modal.confirm({
       title: '确认退出',
@@ -115,15 +79,12 @@ function FirstStep() {
       cancelText: '取消',
       okType: 'danger',
       onOk: () => {
-        // 返回首页
-        navigate('/');
+        navigate(ROUTES.HOME);
       },
     });
   };
 
-  if (loading) {
-    return <LoadingScreen message={loadingMessage} />;
-  }
+  if (loading) return <LoadingScreen message={loadingMessage} />;
 
   return (
     <div
@@ -142,7 +103,6 @@ function FirstStep() {
         padding: '40px 60px',
       }}
     >
-      {/* 半透明遮罩层，增强按钮可读性 */}
       <div
         style={{
           position: 'absolute',
@@ -155,7 +115,6 @@ function FirstStep() {
         }}
       />
 
-      {/* 樱花飘落动画 */}
       <div className="sakura-container">
         {Array.from({ length: 20 }).map((_, index) => (
           <div
@@ -178,7 +137,6 @@ function FirstStep() {
         ))}
       </div>
 
-      {/* 按钮区域 */}
       <div
         style={{
           position: 'relative',
@@ -189,7 +147,6 @@ function FirstStep() {
           minWidth: '280px',
         }}
       >
-        {/* 继续游戏按钮 */}
         <Button
           type="primary"
           size="large"
@@ -213,7 +170,6 @@ function FirstStep() {
           继续游戏
         </Button>
 
-        {/* 新的故事按钮 */}
         <Button
           type="primary"
           size="large"
@@ -238,7 +194,6 @@ function FirstStep() {
         </Button>
       </div>
 
-      {/* 左下角按钮区域 - 设置和退出 */}
       <div
         style={{
           position: 'absolute',
@@ -249,7 +204,6 @@ function FirstStep() {
           gap: '16px',
         }}
       >
-        {/* 设置按钮 */}
         <Button
           type="default"
           size="large"
@@ -282,7 +236,6 @@ function FirstStep() {
           设置
         </Button>
 
-        {/* 退出按钮 */}
         <Button
           type="default"
           size="large"
@@ -323,3 +276,4 @@ function FirstStep() {
 }
 
 export default FirstStep;
+

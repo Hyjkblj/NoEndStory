@@ -81,35 +81,41 @@
   z-index: 1;
 }
 
-/* 对话框区域（固定在底部） */
+/* 对话框区域（固定在底部）- 棕黄配色 */
 .game-dialogue-container {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  position: absolute !important;
+  bottom: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  top: auto !important;
   z-index: 10;
-  padding: 0 40px 40px 40px;
+  padding: 20px 32px 24px 32px;
+  background: rgba(255, 228, 181, 0.96);
+  border-top: 2px solid rgba(139, 69, 19, 0.5);
+  box-shadow: 0 -4px 20px rgba(139, 69, 19, 0.15);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  min-height: 280px;
+  max-height: 65vh;
+  overflow-y: auto;
+  width: 100% !important;
+  margin: 0 !important;
 }
 
-/* 对话框 */
+/* 对话框内容区域（无独立背景，作为容器的一部分） */
 .game-dialogue-box {
-  background: rgba(255, 228, 181, 0.95);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 3px solid rgba(139, 69, 19, 0.6);
-  border-radius: 16px;
-  padding: 24px 32px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  min-height: 120px;
-  max-height: 200px;
-  overflow-y: auto;
+  background: transparent;
+  border: none;
+  padding: 0;
+  box-shadow: none;
+  min-height: auto;
+  max-height: none;
+  overflow: visible;
 }
 
 .dialogue-header {
-  font-size: 18px;
+  font-size: 20px;
   font-weight: bold;
   color: #654321;
   margin-bottom: 12px;
@@ -117,20 +123,20 @@
 }
 
 .dialogue-content {
-  font-size: 16px;
+  font-size: 18px;
   line-height: 1.8;
   color: #333;
   white-space: pre-wrap;
   word-wrap: break-word;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
 }
 
 /* 玩家选项按钮容器 */
 .game-options-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  max-height: 200px;
-  overflow-y: auto;
+  gap: 8px;
+  overflow-y: visible;
 }
 
 .game-option-button {
@@ -139,9 +145,7 @@
   min-height: 50px;
   padding: 14px 20px;
   background: rgba(210, 105, 30, 0.9) !important;
-  backdrop-filter: blur(5px);
-  -webkit-backdrop-filter: blur(5px);
-  border: 2px solid rgba(139, 69, 19, 0.8) !important;
+  border: 2px solid rgba(139, 69, 19, 0.75) !important;
   border-radius: 12px !important;
   color: #fff !important;
   font-size: 16px !important;
@@ -150,13 +154,14 @@
   white-space: normal !important;
   word-wrap: break-word !important;
   transition: all 0.3s ease !important;
-  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(139, 69, 19, 0.25) !important;
 }
 
 .game-option-button:hover {
-  background: rgba(139, 69, 19, 1) !important;
+  background: rgba(139, 69, 19, 0.95) !important;
+  border-color: rgba(139, 69, 19, 0.9) !important;
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(139, 69, 19, 0.4) !important;
+  box-shadow: 0 6px 16px rgba(139, 69, 19, 0.35) !important;
 }
 
 .game-option-button:active {
@@ -206,22 +211,28 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
   .game-dialogue-container {
-    padding: 0 20px 20px 20px;
+    padding: 16px 20px 20px 20px;
+    min-height: 240px;
+    max-height: 60vh;
   }
   
   .game-dialogue-box {
-    padding: 16px 20px;
-    min-height: 100px;
-    max-height: 150px;
+    padding: 0;
+  }
+  
+  .dialogue-header {
+    font-size: 18px;
+    margin-bottom: 10px;
   }
   
   .dialogue-content {
-    font-size: 14px;
+    font-size: 16px;
   }
   
   .game-option-button {
     padding: 12px 16px;
     font-size: 14px !important;
+    min-height: 44px;
   }
 }
 /* 游戏设置按钮 */

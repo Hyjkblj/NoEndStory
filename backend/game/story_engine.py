@@ -744,12 +744,12 @@ class StoryEngine:
                 else:
                     previous_dialogues.append(content)
             elif item['type'] == 'player':
-                # 直接使用内容，不添加player:前缀
+                # 明确标注玩家发言，避免模型混淆角色与玩家语句
                 content = item['content']
                 # 如果包含player:前缀，去除它
                 if content.startswith("player:") or content.startswith("player："):
                     content = re.sub(r'^player[：:]\s*', '', content)
-                previous_dialogues.append(content)
+                previous_dialogues.append(f"玩家: {content}")
         
         # 从向量数据库添加历史对话（必须基于这些生成）
         if recent_dialogues.get('documents') and len(recent_dialogues['documents']) > 0:
@@ -802,12 +802,12 @@ class StoryEngine:
                     if item['type'] == 'character':
                         dialogue_summary.append(f"{character_name}: {item['content']}")
                     elif item['type'] == 'player':
-                        # 直接使用内容，不添加player:前缀
+                        # 明确标注玩家发言，避免模型混淆角色与玩家语句
                         content = item['content']
                         # 如果包含player:前缀，去除它
                         if content.startswith("player:") or content.startswith("player："):
                             content = re.sub(r'^player[：:]\s*', '', content)
-                        dialogue_summary.append(content)
+                        dialogue_summary.append(f"玩家: {content}")
                 
                 dialogue_text = "\n".join(dialogue_summary)
                 

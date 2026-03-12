@@ -2,6 +2,7 @@
 import os
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
+from model_config import get_text_llm_model
 
 load_dotenv()
 
@@ -49,7 +50,7 @@ class Config:
         # 火山引擎配置
         self.volcengine_ark_api_key = os.getenv('VOLCENGINE_ARK_API_KEY', '').strip()
         self.volcengine_region = os.getenv('VOLCENGINE_REGION', 'cn-beijing')
-        self.volcengine_text_model = os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-1-terminus')
+        self.volcengine_text_model = get_text_llm_model()
         self.volcengine_text_api_url = os.getenv('VOLCENGINE_TEXT_API_URL', '')
         self.volcengine_image_model = os.getenv('VOLCENGINE_IMAGE_MODEL', 'doubao-seedream-4-0-250828')
         self.volcengine_image_size = os.getenv('VOLCENGINE_IMAGE_SIZE', '2K')

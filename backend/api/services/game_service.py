@@ -496,9 +496,15 @@ class GameService:
         character_id = session.character_id
         
         # 如果提供了option_id，使用选项；否则使用user_input作为自由输入
-        if option_id is not None and session.current_dialogue_round:
+        if option_id is not None:
+            if not session.current_dialogue_round:
+                raise ValueError("No active dialogue round found. Please request options again.")
+
             # 从当前对话轮次中选择选项
             options = session.current_dialogue_round.get('player_options', [])
+            if not options:
+                raise ValueError("No available options in current dialogue round.")
+
             if 0 <= option_id < len(options):
                 selected_option = options[option_id]
                 
@@ -527,21 +533,9 @@ class GameService:
                     session, character_id, dialogue_round, state_changes
                 )
             else:
-                # 无效的option_id，创建中性选项
-                temp_option = {
-                    'id': 2,
-                    'text': user_input or "继续",
-                    'type': 'neutral',
-                    'state_changes': {}
-                }
-                try:
-                    session.story_engine.process_player_choice(
-                        character_id=character_id,
-                        choice=temp_option
-                    )
-                except Exception as e:
-                    logger.error(f"处理无效选项失败: {e}", exc_info=True)
-                    raise
+                raise ValueError(
+                    f"Invalid option_id: {option_id}. Valid range: 0 to {len(options) - 1}"
+                )
         else:
             # 自由输入（创建中性选项）
             logger.debug(f"玩家输入 自由文本: {user_input}")
@@ -681,7 +675,11 @@ class GameService:
             })
         else:
             # 当前事件对话结束，保存事件并进入下一个事件
-            session.story_engine.save_event_to_vector_db(character_id)
+            try:
+                session.story_engine.save_event_to_vector_db(character_id)
+            except Exception as e:
+                # 向量库属于增强能力，失败不应中断主流程
+                logger.warning(f"保存事件到向量数据库失败，已跳过: {e}", exc_info=True)
             
             # 检查游戏是否结束
             if session.story_engine.is_game_finished():

@@ -169,7 +169,8 @@ def summarize_story_background(story_background: str) -> str:
     for pattern in location_patterns:
         match = re.search(pattern, story_background)
         if match:
-            location_info = match.group(-1) if match.groups() else match.group(0)
+            # Use the last captured group when available; Python regex does not support group(-1).
+            location_info = match.group(match.lastindex) if match.lastindex else match.group(0)
             break
     
     # 提取动作信息（简化：取前50个字符）

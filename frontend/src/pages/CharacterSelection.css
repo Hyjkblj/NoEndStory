@@ -10,6 +10,8 @@
   justify-content: center;
   background-color: #f5f5dc;
   overflow: hidden;
+  padding: 40px;
+  box-sizing: border-box;
 }
 
 /* 背景图片 */
@@ -30,6 +32,8 @@
   position: relative;
   z-index: 1;
   width: 1200px;
+  max-width: calc(100vw - 80px);
+  max-height: calc(100vh - 80px);
   min-height: 600px;
   background: #ffe4b5;
   border: 3px solid #8b4513;
@@ -37,6 +41,8 @@
   padding: 40px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   box-sizing: border-box;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .selection-title {
@@ -163,6 +169,7 @@
   display: flex;
   flex-direction: column;
   min-height: 600px;
+  height: 100%;
 }
 
 .voice-selection-title {
@@ -251,11 +258,13 @@
 
 .voice-selection-right {
   flex: 1;
+  min-height: 0;
   background: #d2691e;
   border: 2px solid #654321;
   border-radius: 12px;
   padding: 20px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .voice-selection-loading {

@@ -1,6 +1,8 @@
 import type { LoadingAnimationProps } from './types';
 import { getLoadingAnimation, VIDEO_LOADING_CONFIG, DEFAULT_LOADING_TYPE } from './loadingConfig';
 
+const LoadingAnimation = getLoadingAnimation();
+
 /**
  * 统一的加载屏幕组件
  * 
@@ -8,8 +10,6 @@ import { getLoadingAnimation, VIDEO_LOADING_CONFIG, DEFAULT_LOADING_TYPE } from 
  * 要更换加载动画，只需修改 loadingConfig.ts 中的配置
  */
 function LoadingScreen(props: LoadingAnimationProps) {
-  const LoadingAnimation = getLoadingAnimation();
-  
   // 如果使用视频加载动画，自动注入视频配置
   if (DEFAULT_LOADING_TYPE === 'video' && !props.videoSrc) {
     return (

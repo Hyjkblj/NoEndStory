@@ -1,33 +1,31 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Typography, Button, message } from 'antd';
+import { Typography, Button, App as AntdApp } from 'antd';
 import { PlayCircleOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/image.png';
 import LoadingScreen from '@/components/loading';
 import { checkServerHealth } from '@/services/api';
+import { ROUTES } from '@/config/routes';
 
 const { Title } = Typography;
 
 function Home() {
   const navigate = useNavigate();
+  const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
 
   const handleBegin = async () => {
     setLoading(true);
-    
+
     try {
-      // 检查后端服务是否可用
       const isHealthy = await checkServerHealth();
-      
       if (isHealthy) {
-        // 后端服务可用，跳转到 firststep
-        navigate('/firststep');
+        navigate(ROUTES.FIRST_STEP);
       } else {
-        // 后端服务不可用，显示错误信息
-        message.error('无法连接到服务器，请检查后端服务是否运行');
+        message.error('无法连接到服务器，请检查后端服务是否运行。');
       }
-    } catch (error) {
-      message.error('连接服务器失败，请稍后重试');
+    } catch {
+      message.error('连接服务器失败，请稍后重试。');
     } finally {
       setLoading(false);
     }
@@ -54,7 +52,6 @@ function Home() {
         padding: '40px 20px',
       }}
     >
-      {/* 半透明遮罩层，增强文字可读性 */}
       <div
         style={{
           position: 'absolute',
@@ -67,7 +64,6 @@ function Home() {
         }}
       />
 
-      {/* 内容区域 */}
       <div
         style={{
           position: 'relative',
@@ -77,7 +73,6 @@ function Home() {
           maxWidth: '800px',
         }}
       >
-        {/* 游戏标题 - 模仿 mainbackgound.png 的样式 */}
         <div style={{ marginBottom: '60px' }}>
           <Title
             level={1}
@@ -111,7 +106,6 @@ function Home() {
           </Title>
         </div>
 
-        {/* BEGIN 按钮 - 模仿 mainbackgound.png 的样式 */}
         <Button
           type="primary"
           size="large"
@@ -147,3 +141,4 @@ function Home() {
 }
 
 export default Home;
+

@@ -4,19 +4,12 @@ import './SakuraLoading.css';
 
 const { Text } = Typography;
 
-/**
- * 樱花加载动画组件
- * 这是默认的加载动画实现
- */
 function SakuraLoading({ message = '正在连接服务器...' }: LoadingAnimationProps) {
   return (
     <div className="loading-screen">
-      {/* 背景遮罩 */}
       <div className="loading-backdrop" />
-      
-      {/* 加载内容 */}
+
       <div className="loading-content">
-        {/* 旋转的樱花加载动画 */}
         <div className="sakura-loader">
           <div className="sakura-petal-loader sakura-1">
             <svg width="40" height="40" viewBox="0 0 20 20">
@@ -47,10 +40,8 @@ function SakuraLoading({ message = '正在连接服务器...' }: LoadingAnimatio
           </div>
         </div>
 
-        {/* 加载文本 */}
         <Text className="loading-text">{message}</Text>
-        
-        {/* 加载点动画 */}
+
         <div className="loading-dots">
           <span className="dot dot-1">.</span>
           <span className="dot dot-2">.</span>
@@ -62,3 +53,4 @@ function SakuraLoading({ message = '正在连接服务器...' }: LoadingAnimatio
 }
 
 export default SakuraLoading;
+

@@ -1,5 +1,5 @@
 // API响应类型
-export interface ApiResponse<T = any> {
+export interface ApiResponse<T = unknown> {
   code: number;
   message: string;
   data: T;
@@ -36,7 +36,7 @@ export interface StoryState {
   id: string;
   threadId: string;
   currentScene: string;
-  characters: Record<string, any>;
+  characters: Record<string, unknown>;
   emotions: Record<string, number>;
-  metadata: Record<string, any>;
+  metadata: Record<string, unknown>;
 }

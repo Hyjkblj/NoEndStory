@@ -27,9 +27,9 @@ except ImportError:
 try:
     from rembg import remove, new_session
     REMBG_AVAILABLE = True
-except ImportError:
+except Exception as e:
     REMBG_AVAILABLE = False
-    logger.warning("rembg未安装，高质量背景去除功能将不可用。请运行: pip install rembg")
+    logger.warning(f"rembg导入失败，背景去除功能将不可用: {e}")
 
 
 class ImageProcessingService:

@@ -4,6 +4,7 @@ import os
 from typing import Optional, Dict, Any
 from dotenv import load_dotenv
 from .exceptions import LLMConfigError
+from model_config import get_text_llm_model
 
 load_dotenv()
 
@@ -34,7 +35,7 @@ class LLMConfig:
             'api_key': os.getenv('VOLCENGINE_ARK_API_KEY', '').strip(),
             'region': os.getenv('VOLCENGINE_REGION', 'cn-beijing'),
             'base_url': os.getenv('VOLCENGINE_TEXT_API_URL', ''),
-            'model': os.getenv('VOLCENGINE_TEXT_MODEL', 'deepseek-v3-1-terminus'),
+            'model': get_text_llm_model(),
         })
         
         # 通义千问配置
