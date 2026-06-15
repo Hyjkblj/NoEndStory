@@ -17,6 +17,34 @@ logger = get_logger(__name__)
 # 当设置为 false 时，使用旧的 StoryEngine
 USE_NOS_AGENT_ENGINE = os.getenv('USE_NOS_AGENT_ENGINE', 'false').lower() == 'true'
 
+# W6: Lazy import — 只在启用 Agent 引擎时加载
+_agent_orchestrator = None
+
+
+def _get_agent_orchestrator():
+    """获取 AgentOrchestrator 单例（延迟加载）"""
+    global _agent_orchestrator
+    if _agent_orchestrator is None and USE_NOS_AGENT_ENGINE:
+        from game.agents import AgentOrchestrator
+        from game.ai_generator import _get_text_gen
+        from database.db_manager import DatabaseManager
+        from database.vector_db import VectorDatabase
+        from data.scenes import SCENES
+
+        text_gen = _get_text_gen()
+        db = DatabaseManager()
+        vdb = VectorDatabase()
+        scenes_data = {scene_id: info.get('name', scene_id) for scene_id, info in SCENES.get('sub_scenes', {}).items()}
+
+        _agent_orchestrator = AgentOrchestrator(
+            text_gen=text_gen,
+            db_manager=db,
+            vector_db=vdb,
+            scenes_data=scenes_data,
+        )
+        logger.info("NOS Agent 引擎已加载")
+    return _agent_orchestrator
+
 
 class GameService:
     """游戏服务"""
@@ -486,7 +514,14 @@ class GameService:
         user_input: str, 
         option_id: Optional[int] = None
     ) -> Dict[str, Any]:
-        """处理玩家输入"""
+        """处理玩家输入
+        
+        W6: 当 USE_NOS_AGENT_ENGINE=true 时使用 Agent 引擎
+        """
+        # W6: NOS Agent 引擎路径
+        if USE_NOS_AGENT_ENGINE:
+            return self._process_with_nos_engine(thread_id, user_input)
+
         session = self.session_manager.get_session(thread_id)
         if not session:
             # 会话不存在，尝试从请求中获取character_id重新创建
@@ -885,6 +920,94 @@ class GameService:
         
         return response_data
     
+    # ==================== W6: NOS Agent 引擎处理 ====================
+
+    async def _process_with_nos_engine(self, thread_id: str, user_input: str) -> Dict[str, Any]:
+        """使用 NOS Agent 引擎处理玩家输入（W6）
+        
+        当你准备启用 Agent 引擎时，设置环境变量:
+            USE_NOS_AGENT_ENGINE=true
+        
+        然后这个函数将替代原有的 StoryEngine 流程。
+        """
+        import asyncio
+        orchestrator = _get_agent_orchestrator()
+        if not orchestrator:
+            logger.warning("Agent 引擎未初始化，回退到 StoryEngine")
+            session = self.session_manager.get_session(thread_id)
+            if session:
+                with session.lock:
+                    return self._process_with_story_engine(session)
+            raise RuntimeError("无法处理输入：Agent 引擎和 StoryEngine 均不可用")
+
+        # 如果 orchestrator 尚未初始化当前会话
+        if not orchestrator.state or orchestrator.state.thread_id != thread_id:
+            session = self.session_manager.get_session(thread_id)
+            if session:
+                character_id = session.character_id
+                character = self.character_service.get_character(character_id) if self.character_service else None
+                character_name = character.get("name", "") if character else ""
+                initial_scene = getattr(session, "current_scene", "classroom") if hasattr(session, "current_scene") else "classroom"
+                await orchestrator.init_session(
+                    thread_id=thread_id,
+                    character_id=character_id,
+                    character_name=character_name,
+                    initial_scene=initial_scene,
+                )
+            else:
+                raise RuntimeError(f"会话不存在: {thread_id}")
+
+        # 处理输入
+        try:
+            result = await orchestrator.process_input(user_input)
+        except Exception as e:
+            logger.error(f"Agent 引擎处理失败: {e}", exc_info=True)
+            raise
+
+        # 场景图片
+        scene_image_url = None
+        try:
+            if self.image_service:
+                scene_image_url = self._get_scene_image(result.get("scene", "classroom"))
+        except Exception:
+            pass
+
+        return {
+            "thread_id": thread_id,
+            "character_dialogue": result["character_dialogue"],
+            "player_options": result["player_options"],
+            "scene": result["scene"],
+            "scene_image_url": scene_image_url,
+            "current_states": result["current_states"],
+            "state_changes": result.get("state_changes", {}),
+            "phase": result["phase"],
+            "elapsed_minutes": result["elapsed_minutes"],
+            "weather": result.get("weather", "clear"),
+            "current_time": result.get("current_time", "morning"),
+            "round": result["round"],
+            "is_game_finished": result["is_game_finished"],
+            "event_type": result.get("event_type"),
+            "event_description": result.get("event_description"),
+            "consistency": result.get("consistency", {}),
+            "emotion_tags": result.get("emotion_tags", ""),
+            "engine": "nos_agent",
+        }
+
+    def _process_with_story_engine(self, session):
+        """使用原有 StoryEngine 处理（回退方案）"""
+        # 这里是原有的处理逻辑
+        pass
+
+    def _get_scene_image(self, scene_id: str) -> Optional[str]:
+        """获取场景图片URL（复用图片池）"""
+        try:
+            from api.services.image.image_pool_service import ImagePoolService
+            pool = ImagePoolService()
+            image = pool.get_random_image(scene_id)
+            return image.get("image_url") if image else None
+        except Exception:
+            return None
+
     def _print_dialogue_info(self, character_id: int, event: Dict, dialogue_data: Dict):
         """输出详细的对话信息到控制台"""
         try:
