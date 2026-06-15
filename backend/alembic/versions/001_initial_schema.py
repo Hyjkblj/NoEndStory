@@ -3,9 +3,6 @@
 Revision ID: 001
 Revises: None
 Create Date: 2026-06-15
-
-This migration creates the base table structure matching the pre-W2 database.
-W2 constraints, indexes, and new columns are applied in 002_add_w2_constraints.
 """
 from typing import Sequence, Union
 
@@ -20,8 +17,6 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    """Create base tables (pre-W2 structure)."""
-    # ---- characters ----
     op.create_table(
         'characters',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -35,8 +30,6 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(), server_default=sa.text('now()')),
         sa.PrimaryKeyConstraint('id'),
     )
-
-    # ---- character_states ----
     op.create_table(
         'character_states',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -57,8 +50,6 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint('id'),
         sa.ForeignKeyConstraint(['character_id'], ['characters.id'], ondelete='CASCADE'),
     )
-
-    # ---- character_attributes ----
     op.create_table(
         'character_attributes',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),
@@ -72,7 +63,6 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    """Drop all tables in reverse dependency order."""
     op.drop_table('character_attributes')
     op.drop_table('character_states')
     op.drop_table('characters')

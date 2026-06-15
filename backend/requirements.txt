@@ -15,4 +15,5 @@ Pillow>=10.0.0
 requests>=2.31.0
 pydub>=0.25.1  # 用于音频处理（获取时长等）
 rembg==2.0.41
+alembic==1.13.0  # W2: database migration management
 

@@ -1,1 +1,1 @@
-"""Alembic 迁移版本目录"""
+"""Alembic migration versions directory"""

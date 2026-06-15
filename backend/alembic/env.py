@@ -1,4 +1,4 @@
-"""Alembic 迁移环境配置"""
+"""Alembic migration environment config"""
 import os
 import sys
 from logging.config import fileConfig
@@ -8,23 +8,20 @@ from sqlalchemy import pool
 
 from alembic import context
 
-# 将 backend 目录添加到 Python 路径，以便导入项目模块
+# Add backend dir to Python path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Alembic Config 对象
 config = context.config
 
-# 日志配置
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-# 导入所有模型 Base，确保 autogenerate 能检测到所有表
 from models.character import Base
 target_metadata = Base.metadata
 
-# 从 .env 或环境变量覆盖数据库 URL（比 alembic.ini 中的硬编码更安全）
+
 def get_url():
-    """从环境变量构建数据库 URL，支持特殊字符密码"""
+    """Build DB URL from config.py (supports special-char passwords)"""
     from config import DB_CONFIG
     from sqlalchemy.engine import URL
     return URL.create(
@@ -38,36 +35,32 @@ def get_url():
 
 
 def run_migrations_offline() -> None:
-    """离线模式：生成 SQL 脚本而不连接数据库"""
-    url = get_url() if config.get_main_option("sqlalchemy.url") is None else config.get_main_option("sqlalchemy.url")
+    """Offline mode: generate SQL without DB connection"""
+    url = get_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
     )
-
     with context.begin_transaction():
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    """在线模式：连接数据库并执行迁移"""
-    # 从环境变量获取 URL，优先于 alembic.ini
+    """Online mode: connect and execute migrations"""
     connectable = engine_from_config(
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
-        url=get_url(),  # 覆盖 alembic.ini 中的 URL
+        url=get_url(),
     )
-
     with connectable.connect() as connection:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
-            compare_type=True,  # 检测列类型变化
+            compare_type=True,
         )
-
         with context.begin_transaction():
             context.run_migrations()
 
