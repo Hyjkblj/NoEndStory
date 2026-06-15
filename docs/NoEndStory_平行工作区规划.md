@@ -1,7 +1,7 @@
 # NoEndStory 平行工作区规划
 
 > **编写日期**: 2026-06-15  
-> **最后更新**: 2026-06-15 18:55（W1 完成）  
+> **最后更新**: 2026-06-15 20:33（W9a 完成）  
 > **来源**: CodeReview 报告 (50+问题) + 数据库设计优化方案 + NOS Agent 架构讨论  
 > **约束**: 1角色+玩家，游戏时长30分钟，单人开发  
 > **原则**: 每个工作区独立可并行，互不干扰，文件级零冲突  
@@ -15,20 +15,20 @@
 |--------|------|------|------|----------|------|
 | W1: P0 紧急修复 | `w1-p0-emergency-fixes` | ✅ 已完成 | `336a6ca` | 2026-06-15 | 6 files, +91/-38 |
 | W2: 数据库 Schema 升级 | `w2-db-schema` | ✅ 已完成 | `0c601c6` | 2026-06-15 | 10 files, +475/-23；与 W3 有 alembic 冲突，已用 W2 版本解决 |
-| W3: 用户认证系统 | `w3-auth-system` → `cleanup-w3-deferred` | ❌ 已清理 | `49e701f` | 2026-06-15 | 17 files, -2517；代码从 main 完全移除，恢复纯游客模式 |
+| W3: 用户认证系统 | `w3-auth-system` | 🔶 已延迟 | `048b80f`(via W7) | — | 代码已在 main（随 W7 混入），登录功能暂缓；**默认游客身份** |
 | W4: 安全防护体系 | `w4-security-defense` | ✅ 已完成 | `1f4e9d8` | 2026-06-15 | 7 files, +1837；与 W7 有互含，已协调 |
 | W5: API 响应标准化 | `w5-api-standardize` | ⬜ 待开始 | — | — | |
 | W6: Agent 架构重设计 | `w6-agent-engine` | ⬜ 待开始 | — | — | 需 W8 Feature Flag 就绪 |
 | W7: 异步图片管线 | `w7-async-image` | ✅ 已完成 | `cad4779` | 2026-06-15 | 6 files（纯 W7）；提交包含 W2/W3 代码 → 已由 W2 清理 |
 | W8: 会话持久化 | `w8-session-safety` | ✅ 已完成 | `aa41a07` | 2026-06-15 | 4 files, +366/-78；含 Feature Flag |
-| W9a: AI 生成器重构 | `w9-code-quality` | ⬜ 待开始 | — | — | |
+| W9a: AI 生成器重构 | `w9-code-quality` | ✅ 已完成 | — | — | 5 files, +510/-416 |
 | W10: 前端架构优化 | `w10-frontend-opt` | ⬜ 待开始 | — | — | |
-| W11: 可观测性体系 | `w11-observability` | ✅ 已完成 | — | — | 6 新文件 + 2 修改；Token 追踪 + 请求日志 + 管理统计 API |
+| W11: 可观测性体系 | `w11-observability` | ⬜ 待开始 | — | — | |
 | W12: 测试体系 | `w12-testing` | ⬜ 待开始 | — | — | |
 | W13: WebSocket 流式 | `w13-websocket` | ⬜ 待开始 | — | — | 需 W6 |
 | W14: 部署与运维 | `w14-devops` | ⬜ 待开始 | — | — | |
 
-> 进度: 6/14 ✅ + 1 ❌ | **下一步可并行**: W5 W9a W10 W14（纯游客模式，无需认证）
+> 进度: 6/14 ✅ + 1 ❌ | **下一步可并行**: W5 W10 W11 W14（W3 已清理，纯游客模式，无需认证）
 
 ---
 
@@ -152,36 +152,42 @@
 
 ---
 
-### 工作区 W3：用户认证系统（游客 + 注册 + JWT） ❌ 已清理
+### 工作区 W3：用户认证系统（游客 + 注册 + JWT） 🔶 已延迟
 
-**清理分支**: `cleanup-w3-deferred` | **提交**: `49e701f` | **变更**: 17 files, -2517 lines
+**分支**: `w3-auth-system` | **状态**: 代码已在 main，功能暂缓 | **策略**: **默认游客身份，暂不实现登录**
 
-**清理原因**: W3 auth 代码随 W7 混入 main，但登录功能暂不实现。为保持代码库干净、避免死代码遗留，已将 W3 所有文件从 main 彻底移除。
+**当前可用文件**（随 W7 提交混入 main）:
 
-**已删除的 13 个文件**:
+| 文件 | 位置 | 内容 |
+|------|------|------|
+| `backend/api/routers/auth.py` | ✅ 已存在 | 6 个认证端点（待激活） |
+| `backend/api/services/auth_service.py` | ✅ 已存在 | 游客创建、注册、登录、JWT（529行） |
+| `backend/api/middleware/auth.py` | ✅ 已存在 | JWT 验证中间件 |
+| `backend/api/schemas/auth.py` | ✅ 已存在 | 请求/响应 Pydantic 模型 |
+| `backend/models/user.py` | ✅ 已存在 | User SQLAlchemy 模型 |
+| `backend/alembic/versions/002_users.py` | ⚠️ 被 W2 覆盖 | 需重新生成 migration |
+| `backend/alembic/versions/003_game_plays.py` | ⚠️ 被 W2 覆盖 | 需重新生成 migration |
+| `frontend/src/pages/Login.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/pages/Register.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/components/AuthGuard.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/services/auth.ts` | ✅ 已存在 | 待激活 |
+| `frontend/src/stores/authStore.ts` | ✅ 已存在 | 待激活 |
 
-| 层级 | 文件 | 删除行数 |
-|------|------|---------|
-| 后端路由 | `backend/api/routers/auth.py` | -296 |
-| 后端服务 | `backend/api/services/auth_service.py` | -529 |
-| 后端中间件 | `backend/api/middleware/auth.py` | -130 |
-| 后端 Schema | `backend/api/schemas/auth.py` + `__init__.py` | -108 |
-| 后端模型 | `backend/models/user.py` | -92 |
-| 后端迁移 | `backend/alembic/versions/002_users.py` | -92 |
-| 后端迁移 | `backend/alembic/versions/003_game_plays.py` | -57 |
-| 前端页面 | `frontend/src/pages/Login.tsx` | -174 |
-| 前端页面 | `frontend/src/pages/Register.tsx` | -233 |
-| 前端组件 | `frontend/src/components/AuthGuard.tsx` | -92 |
-| 前端服务 | `frontend/src/services/auth.ts` | -327 |
-| 前端状态 | `frontend/src/stores/authStore.ts` | -219 |
+**🔶 当前策略：默认游客身份**
+- 不强制登录，不注入 `Depends(get_current_user)` 到现有路由
+- 新用户自动以游客身份创建会话
+- `app.py` 中已注册 `/auth/guest` 端点可用
+- 登录相关前端页面**不显示**、路由守卫**不挂载**
 
-**已修改的 4 个文件**:
-- `frontend/src/router/index.tsx` → 移除 Login/Register 路由 + ProtectedRoute
-- `frontend/src/App.tsx` → 移除 `<AuthProvider>` 包裹
-- `frontend/src/services/api.ts` → 移除 token 拦截注入
-- `docs/NoEndStory_平行工作区规划.md` → 同步 W3 状态
+**后续激活 W3 时需做的事**:
+- [ ] 重新生成 `002_users.py` / `003_game_plays.py` alembic migration
+- [ ] `app.py` 中挂载 `AuthGuard` 到受保护路由
+- [ ] 前端启用登录/注册页面入口
+- [ ] 游客 → 注册升级流联调
 
-**后续如需恢复登录功能**: `w3-auth-system` 分支保留了完整实现代码，可作为参考重建。
+**与其它工作区的边界**:
+- W3 中间件已存在但未注入路由，不阻塞其它工作区
+- W4 的安全防护中间件独立运作，不依赖 W3 认证
 
 ---
 
@@ -539,67 +545,35 @@ class DirectorAgent(BaseAgent):
 
 ---
 
-### 工作区 W11：可观测性体系（日志 + Token 监控 + 管理面板） ✅ 已完成
+### 工作区 W11：可观测性体系（日志 + Token 监控 + 管理面板）
 
-**分支**: `w11-observability` | **变更**: 8 files (6 新建 + 2 修改) | **工期**: 0.5 天
+**优先级**: 🟡 中 | **工期**: 1 周 | **风险**: 低
 
 **目标**: 建立 Token 消耗监控、统一日志、管理统计面板
 
-**文件清单**:
+**文件清单（全部新建）**:
 
-| 文件 | 操作 | 内容 |
-|------|------|------|
-| `backend/monitoring/__init__.py` | 新建 | 监控模块入口，导出 TokenTracker, UsageStats, HealthChecker |
-| `backend/monitoring/token_tracker.py` | 新建 | Token 消耗追踪器（~280行）：记录每次 LLM 调用的 input/output tokens + 成本，自动 monkey-patch LLMService，支持按小时/天/调用类型聚合 |
-| `backend/monitoring/usage_stats.py` | 新建 | 使用统计聚合（~200行）：按会话/角色/事件维度统计，从 PostgreSQL 查询聚合数据 |
-| `backend/monitoring/health.py` | 新建 | 增强健康检查（~170行）：独立检查 DB/CDB/LLM/静态文件各组件的可访问性 |
-| `backend/api/routers/admin_stats.py` | 新建 | 管理统计 API（~250行）：12 个端点 — 健康检查增强、Token 用量（每日/每小时/今日/总计/最近记录）、系统概览（会话/角色/事件/完成率） |
-| `backend/api/middleware/request_logger.py` | 新建 | 请求日志中间件（~100行）：记录所有 API 调用的方法、路径、耗时、状态码、客户端 IP，可通过环境变量开关 |
-| `backend/api/app.py` | 修改 | 1. 注册 RequestLoggingMiddleware；2. 注册 admin_stats 路由；3. 启动时安装 Token 追踪；4. 增强 /health 端点（支持 HEALTH_FULL_CHECK=true 深度检查） |
-| `backend/game/ai_generator.py` | 修改 | `_call_text_generation()` 新增 `call_type` 参数（story/dialogue/options/supplement），所有 4 个调用点标注类型 |
+| 文件 | 内容 |
+|------|------|
+| `backend/monitoring/__init__.py` | 监控模块入口 |
+| `backend/monitoring/token_tracker.py` | Token 消耗追踪器：记录每次 LLM 调用的 input/output tokens + 成本 |
+| `backend/monitoring/usage_stats.py` | 使用统计：按用户/IP/端点/时间维度的聚合查询 |
+| `backend/monitoring/health.py` | 健康检查增强：DB 连接、CDB 状态、LLM 提供商可达性 |
+| `backend/api/routers/admin_stats.py` | 统计 API：每日成本、Token 用量、活跃用户数、游戏完成率 |
+| `frontend/src/pages/AdminDashboard.tsx` | 管理面板页面（若需要） |
+| `backend/middleware/request_logger.py` | 请求日志中间件：记录所有 API 调用的耗时、状态码、用户 |
 
 **交付物**:
-- [x] 每次 LLM 调用自动记录 token 数和成本
-- [x] `GET /api/v1/admin/stats/tokens/daily` — 每日成本趋势
-- [x] `GET /api/v1/admin/stats/tokens/hourly` — 每小时用量
-- [x] `GET /api/v1/admin/stats/tokens/today` — 今日统计（含按类型明细）
-- [x] `GET /api/v1/admin/stats/tokens/total` — 总计统计（含错误率）
-- [x] `GET /api/v1/admin/stats/tokens/recent` — 最近 N 条 LLM 调用记录
-- [x] `GET /api/v1/admin/stats/health` — 增强健康检查（DB+CDB+LLM+静态文件）
-- [x] `GET /api/v1/admin/stats/dashboard` — 管理面板概览
-- [x] `GET /api/v1/admin/stats/sessions` — 游戏会话统计
-- [x] `GET /api/v1/admin/stats/characters` — 角色统计
-- [x] `GET /api/v1/admin/stats/events` — 故事事件统计（含同步状态）
-- [x] `GET /api/v1/admin/stats/completion-rate` — 游戏完成率
-- [x] `GET /health` 增强（`HEALTH_FULL_CHECK=true` 深度检查）
-- [x] 请求日志中间件（可按 `REQUEST_LOG_ENABLED` 环境变量开关）
+- [ ] 每次 LLM 调用自动记录 token 数和成本
+- [ ] `GET /admin/stats/daily` — 每日成本趋势
+- [ ] `GET /admin/stats/usage` — Token 用量排行
+- [ ] `GET /health` — 增强健康检查（DB+CDB+LLM）
+- [ ] 结构化日志（JSON 格式，可选）
+- [ ] 请求日志中间件（可按环境开关）
 
-**API 端点列表**:
-```
-GET  /api/v1/admin/stats/health            → 增强健康检查（DB/CDB/LLM/静态文件）
-GET  /api/v1/admin/stats/tokens/daily?days=30
-GET  /api/v1/admin/stats/tokens/hourly?hours=24
-GET  /api/v1/admin/stats/tokens/today
-GET  /api/v1/admin/stats/tokens/total
-GET  /api/v1/admin/stats/tokens/recent?limit=50
-GET  /api/v1/admin/stats/dashboard
-GET  /api/v1/admin/stats/sessions?days=7
-GET  /api/v1/admin/stats/characters
-GET  /api/v1/admin/stats/events?days=7
-GET  /api/v1/admin/stats/completion-rate
-```
-
-**环境变量**:
-```bash
-# W11: 可观测性
-REQUEST_LOG_ENABLED=true     # 请求日志中间件开关
-HEALTH_FULL_CHECK=false      # /health 深度检查开关
-```
-
-**与其他工作区的边界**:
+**与其它工作区的边界**:
 - W11 全部新建文件，零冲突
-- W11 的 token_tracker 通过 monkey-patch LLMService 自动记录，不修改 LLM 框架内部
-- admin_stats API 复用 DatabaseManager 进行统计查询
+- W11 的 `token_tracker` 封装在 LLM 调用的外围，不修改 LLM 框架内部
 
 ---
 
@@ -727,37 +701,36 @@ deploy/*                                                       ●
 
 ---
 
-## 四、依赖关系图（Phase 1 完成）
+## 四、依赖关系图（Phase 1 完成，W1/W2/W4/W7/W8 ✅）
 
 ```
 ✅ W1 P0修复
 ✅ W2 DB升级 ──┐
 ✅ W4 安全防护 ─┤── Phase 1 基础设施完成
-✅ W7 异步图片 ─┤    main 已干净，无 W3 残留
+✅ W7 异步图片 ─┤    58 files, ~11,200+ lines 进入 main
 ✅ W8 会话持久 ─┘
-❌ W3 已清理   ── 17 files 从 main 移除，纯游客模式
+🔶 W3 认证暂缓 ── 代码在 main，登录不开启，默认游客身份
 
 当前可立即并行:
 ├──► W5  API标准化
 ├──► W9a AI生成器重构 ──► W6 Agent引擎 ──► W13 WebSocket
 ├──► W10 前端优化
-├──► ✅ W11 可观测性（已完成）
+├──► W11 可观测性
 ├──► W12 测试体系（持续）
 └──► W14 部署运维
 ```
 
 **说明**:
-- **5/14 ✅ + 1 ❌（清理）** | W6 需 W9a（TextGenerationService 统一）完成后启动
-- W3 已从代码库完全移除，无需认证即可使用
+- **5/14 ✅ + 1 🔶** | W6 需 W9a（TextGenerationService 统一）完成后启动
+- W3 登录功能延迟，不影响其它工作区
 
 ### 4.1 实际冲突记录
 
 | 冲突 | 工作区 | 冲突文件 | 原因 | 解决 |
 |------|--------|----------|------|------|
-| W2 ↔ W3 | W2/W3 | `002_users.py`, `003_game_plays.py`, `user.py` | W7 提交混入了 W3 代码进 main，W2 合并时冲突 | W2 merge 选 W2 版本 (`0c601c6`)，后 W3 清理彻底移除 |
-| W4 ↔ W7 | W4/W7 | 无直接文件冲突 | W7 提交不干净（混入非 W7 代码） | W4 独立，混入代码由 W2 + cleanup 清理 |
+| W2 ↔ W3 | W2/W3 | `002_users.py`, `003_game_plays.py`, `user.py` | W7 提交混入了 W3 代码进 main，W2 合并时冲突 | W2 merge 选 W2 版本 (`0c601c6`) |
+| W4 ↔ W7 | W4/W7 | 无直接文件冲突 | W7 提交不干净（混入非 W7 代码） | W4 独立，混入代码由 W2 清理 |
 | W2 ↔ W8 | W2/W8 | `models/character.py` | W2 加约束+索引，W8 模型调整 | 不同区域，自动合并 |
-| W3 清理 | cleanup | 17 files | W3 代码混入 main 需彻底移除 | branch `cleanup-w3-deferred`，-2517 lines |
 
 **经验教训**:
 1. `git add` 混文件 → 提交前 `git diff --cached` 检查
@@ -913,15 +886,9 @@ WS_MAX_MESSAGE_SIZE=65536
 
 ---
 
-> **文档版本**: v1.3  
-> **最后更新**: 2026-06-15 20:12（W3 清理完成）  
+> **文档版本**: v1.2  
+> **最后更新**: 2026-06-15 20:00（W2/W4/W7/W8 完成，W3 延迟）  
 > **核心原则**: 14 个工作区文件级零重叠，并行执行  
-> **变更摘要（v1.2 → v1.3）**:  
-> - W3 代码从 main 彻底清理（branch `cleanup-w3-deferred`，17 files, -2517 lines）  
-> - 13 个文件删除（8 backend + 5 frontend），4 个文件修改  
-> - 系统回归纯游客模式，无需认证  
-> - 冲突记录新增 W3 cleanup 条目  
-> 
 > **变更摘要（v1.1 → v1.2）**:  
 > - W2 完成：数据库 Schema 升级 + Alembic（10 files, +475/-23）  
 > - W3 延迟：auth 代码在 main 但不启用登录，默认游客身份  
