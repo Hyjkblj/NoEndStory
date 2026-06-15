@@ -27,11 +27,11 @@ const routes = [
     ],
   },
   {
-    path: '/login',
+    path: ROUTES.LOGIN,
     element: <Login />,
   },
   {
-    path: '/register',
+    path: ROUTES.REGISTER,
     element: <Register />,
   },
 ];
