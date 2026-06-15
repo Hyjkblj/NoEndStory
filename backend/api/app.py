@@ -3,7 +3,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import characters, game, vector_db_admin, tts, admin_stats
+from api.routers import characters, game, vector_db_admin, tts, admin_stats, ws_game
 from database.db_manager import DatabaseManager
 from api.exceptions import ServiceException
 from api.middleware.error_handler import service_exception_handler, general_exception_handler, http_exception_handler
@@ -121,6 +121,7 @@ app.include_router(game.router, prefix="/api")
 app.include_router(vector_db_admin.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(admin_stats.router, prefix="/api")
+app.include_router(ws_game.router)
 
 # 配置静态文件服务（用于提供本地保存的图片）- W8: 合并为循环，消除重复代码
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
