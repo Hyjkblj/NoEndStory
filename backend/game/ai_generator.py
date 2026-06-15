@@ -69,7 +69,8 @@ class TextGenerationService:
     # ==================== 核心 LLM 调用接口 ====================
     
     def _call_text_generation(self, prompt: str, max_tokens: int = 200, temperature: float = 0.7,
-                              system_message: Optional[str] = None) -> Optional[str]:
+                              system_message: Optional[str] = None,
+                              call_type: str = "unknown") -> Optional[str]:
         """统一的文本生成调用接口
         
         Args:
@@ -77,6 +78,7 @@ class TextGenerationService:
             max_tokens: 最大token数
             temperature: 温度参数
             system_message: 可选的系统消息
+            call_type: 调用类型（story/dialogue/options/supplement），用于 Token 追踪
             
         Returns:
             生成的文本，如果失败返回None
@@ -228,7 +230,8 @@ class TextGenerationService:
 故事背景（必须包含player和{character_name}的名字）："""
         
         try:
-            result = self._call_text_generation(prompt, max_tokens=300, temperature=0.8)
+            result = self._call_text_generation(prompt, max_tokens=300, temperature=0.8,
+                                                call_type="story")
             if result:
                 return result
             else:
@@ -529,7 +532,8 @@ class TextGenerationService:
     def _call_llm_for_dialogue(self, prompt: str) -> Optional[str]:
         """调用 LLM 生成角色对话"""
         try:
-            return self._call_text_generation(prompt, max_tokens=100, temperature=0.9)
+            return self._call_text_generation(prompt, max_tokens=100, temperature=0.9,
+                                                call_type="dialogue")
         except Exception as e:
             logger.error("LLM 对话生成异常: %s", e)
             return None
@@ -709,7 +713,8 @@ class TextGenerationService:
 玩家选项（直接输出文本，每行一个选项）："""
         
         try:
-            result = self._call_text_generation(prompt, max_tokens=150, temperature=0.9)
+            result = self._call_text_generation(prompt, max_tokens=150, temperature=0.9,
+                                                call_type="options")
             if result:
                 options_text = result.strip()
                 # 解析选项
@@ -995,7 +1000,8 @@ class TextGenerationService:
         
         try:
             if self.enabled:
-                result = self._call_text_generation(supplement_prompt, max_tokens=100, temperature=0.9)
+                result = self._call_text_generation(supplement_prompt, max_tokens=100, temperature=0.9,
+                                                       call_type="supplement")
                 if result:
                     supplement_text = result.strip()
                     supplement_options = self._parse_options(supplement_text)
