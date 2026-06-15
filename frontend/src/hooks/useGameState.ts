@@ -1,5 +1,64 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import type { GameMessage, PlayerOption } from '@/types/game';
+
+// ======== W10: 拆分为 4 个独立 Hook ========
+
+/** 对话消息状态 */
+export function useDialogueState() {
+  const [messages, setMessages] = useState<GameMessage[]>([]);
+  const [currentDialogue, setCurrentDialogue] = useState('');
+  const [currentOptions, setCurrentOptions] = useState<PlayerOption[]>([]);
+
+  return { messages, setMessages, currentDialogue, setCurrentDialogue, currentOptions, setCurrentOptions };
+}
+
+/** 会话元数据状态 */
+export function useSessionMeta() {
+  const [threadId, setThreadId] = useState<string | null>(null);
+  const [characterId, setCharacterId] = useState<string | null>(null);
+
+  return { threadId, setThreadId, characterId, setCharacterId };
+}
+
+/** 场景与视觉状态 */
+export function useSceneState() {
+  const [currentScene, setCurrentScene] = useState<string | null>(null);
+  const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
+  const [compositeImageUrl, setCompositeImageUrl] = useState<string | null>(null);
+  const [characterImageUrl, setCharacterImageUrl] = useState<string | null>(null);
+  const [shouldUseComposite, setShouldUseComposite] = useState(false);
+  const [showTransition, setShowTransition] = useState(false);
+  const [transitionSceneName, setTransitionSceneName] = useState('');
+  const previousSceneRef = useRef<string | null>(null);
+
+  return {
+    currentScene, setCurrentScene,
+    sceneImageUrl, setSceneImageUrl,
+    compositeImageUrl, setCompositeImageUrl,
+    characterImageUrl, setCharacterImageUrl,
+    shouldUseComposite, setShouldUseComposite,
+    showTransition, setShowTransition,
+    transitionSceneName, setTransitionSceneName,
+    previousSceneRef,
+  };
+}
+
+/** 游戏进度与 UI 状态 */
+export function useGameProgress() {
+  const [loading, setLoading] = useState(false);
+  const [actNumber, setActNumber] = useState(1);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, []);
+
+  return { loading, setLoading, actNumber, setActNumber, messagesEndRef, scrollToBottom };
+}
+
+// ======== 向后兼容：聚合 Hook ========
+export type { GameStateBag };
+import type { GameStateBag as _GameStateBag } from './useGameState';
 
 export interface GameStateBag {
   messages: GameMessage[];
@@ -35,60 +94,23 @@ export interface GameStateBag {
   scrollToBottom: () => void;
 }
 
+/** 向后兼容的聚合 Hook（旧代码可继续使用） */
 export function useGameState(): GameStateBag {
-  const [messages, setMessages] = useState<GameMessage[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [threadId, setThreadId] = useState<string | null>(null);
-  const [characterId, setCharacterId] = useState<string | null>(null);
-  const [currentOptions, setCurrentOptions] = useState<PlayerOption[]>([]);
-  const [currentScene, setCurrentScene] = useState<string | null>(null);
-  const [actNumber, setActNumber] = useState(1);
-  const [showTransition, setShowTransition] = useState(false);
-  const [transitionSceneName, setTransitionSceneName] = useState('');
-  const [compositeImageUrl, setCompositeImageUrl] = useState<string | null>(null);
-  const [sceneImageUrl, setSceneImageUrl] = useState<string | null>(null);
-  const [characterImageUrl, setCharacterImageUrl] = useState<string | null>(null);
-  const [shouldUseComposite, setShouldUseComposite] = useState(false);
-  const [currentDialogue, setCurrentDialogue] = useState('');
+  const dialogue = useDialogueState();
+  const session = useSessionMeta();
+  const scene = useSceneState();
+  const progress = useGameProgress();
 
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const previousSceneRef = useRef<string | null>(null);
-
-  const scrollToBottom = useCallback(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, []);
-
-  return {
-    messages,
-    setMessages,
-    loading,
-    setLoading,
-    threadId,
-    setThreadId,
-    characterId,
-    setCharacterId,
-    currentOptions,
-    setCurrentOptions,
-    currentScene,
-    setCurrentScene,
-    actNumber,
-    setActNumber,
-    showTransition,
-    setShowTransition,
-    transitionSceneName,
-    setTransitionSceneName,
-    compositeImageUrl,
-    setCompositeImageUrl,
-    sceneImageUrl,
-    setSceneImageUrl,
-    characterImageUrl,
-    setCharacterImageUrl,
-    shouldUseComposite,
-    setShouldUseComposite,
-    currentDialogue,
-    setCurrentDialogue,
-    messagesEndRef,
-    previousSceneRef,
-    scrollToBottom,
-  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => ({
+    ...dialogue,
+    ...session,
+    ...scene,
+    ...progress,
+  }), [dialogue.messages, dialogue.currentDialogue, dialogue.currentOptions,
+       session.threadId, session.characterId,
+       scene.currentScene, scene.sceneImageUrl, scene.compositeImageUrl,
+       scene.characterImageUrl, scene.shouldUseComposite, scene.showTransition,
+       scene.transitionSceneName,
+       progress.loading, progress.actNumber]);
 }
