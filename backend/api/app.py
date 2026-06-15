@@ -29,7 +29,10 @@ app.add_exception_handler(Exception, general_exception_handler)
 # 应用启动时初始化数据库
 @app.on_event("startup")
 async def startup_event():
-    """应用启动时执行"""
+    """应用启动时执行（W8: 关键服务失败返回503）"""
+    global _startup_failed
+    _startup_failed = False
+    
     try:
         logger.info("正在初始化数据库...")
         db_manager = DatabaseManager()
@@ -37,7 +40,11 @@ async def startup_event():
         logger.info("数据库初始化完成")
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}", exc_info=True)
-        # 不阻止应用启动，但会记录错误
+        _startup_failed = True
+        # 数据库是关键服务，失败时标记为不可用
+
+# 全局变量标记启动是否失败
+_startup_failed = False
 
 # 配置CORS（允许前端跨域请求）
 # 根据环境变量配置允许的来源（安全最佳实践）
@@ -72,82 +79,72 @@ app.add_middleware(
     allow_headers=allowed_headers,
 )
 
+# W8: 启动失败时返回503的中间件
+@app.middleware("http")
+async def check_startup_status(request: Request, call_next):
+    """检查应用启动状态，如果关键服务失败则返回503"""
+    global _startup_failed
+    
+    # 健康检查端点允许访问
+    if request.url.path in ["/health", "/docs", "/openapi.json"]:
+        return await call_next(request)
+    
+    # 如果启动失败，返回503
+    if _startup_failed:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "code": 503,
+                "message": "服务暂时不可用，关键服务启动失败",
+                "data": None
+            }
+        )
+    
+    return await call_next(request)
+
 # 注册路由
 app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
 app.include_router(vector_db_admin.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 
-# 配置静态文件服务（用于提供本地保存的图片）
+# 配置静态文件服务（用于提供本地保存的图片）- W8: 合并为循环，消除重复代码
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# 配置角色图片静态文件服务
-try:
-    if os.path.isabs(config.IMAGE_SAVE_DIR):
-        character_images_dir = config.IMAGE_SAVE_DIR
-    else:
-        character_images_dir = os.path.join(backend_dir, config.IMAGE_SAVE_DIR)
-    
-    # 确保目录存在
-    os.makedirs(character_images_dir, exist_ok=True)
-    
-    # 挂载静态文件服务
-    # 访问路径：/static/images/characters/{filename}
-    app.mount("/static/images/characters", StaticFiles(directory=character_images_dir), name="character_images")
-    logger.info(f"角色图片静态文件服务已配置: {character_images_dir} -> /static/images/characters")
-except Exception as e:
-    logger.warning(f"配置角色图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+# 静态文件挂载配置列表（路径映射）
+STATIC_MOUNTS = [
+    # (URL路径, 配置属性名, 描述)
+    ("/static/images/characters", "IMAGE_SAVE_DIR", "角色图片"),
+    ("/static/images/scenes", "SCENE_IMAGE_SAVE_DIR", "场景图片"),
+    ("/static/images/smallscenes", "SMALL_SCENE_IMAGE_SAVE_DIR", "小场景图片"),
+    ("/static/images/composite", "COMPOSITE_IMAGE_SAVE_DIR", "合成图片"),
+]
 
-# 配置场景图片静态文件服务（大场景）
-try:
-    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
-        scene_images_dir = config.SCENE_IMAGE_SAVE_DIR
-    else:
-        scene_images_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
-    
-    # 确保目录存在
-    os.makedirs(scene_images_dir, exist_ok=True)
-    
-    # 挂载静态文件服务
-    # 访问路径：/static/images/scenes/{filename}
-    app.mount("/static/images/scenes", StaticFiles(directory=scene_images_dir), name="scene_images")
-    logger.info(f"场景图片静态文件服务已配置: {scene_images_dir} -> /static/images/scenes")
-except Exception as e:
-    logger.warning(f"配置场景图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
-
-# 配置小场景图片静态文件服务
-try:
-    if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
-        small_scene_images_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
-    else:
-        small_scene_images_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
-    
-    # 确保目录存在
-    os.makedirs(small_scene_images_dir, exist_ok=True)
-    
-    # 挂载静态文件服务
-    # 访问路径：/static/images/smallscenes/{filename}
-    app.mount("/static/images/smallscenes", StaticFiles(directory=small_scene_images_dir), name="small_scene_images")
-    logger.info(f"小场景图片静态文件服务已配置: {small_scene_images_dir} -> /static/images/smallscenes")
-except Exception as e:
-    logger.warning(f"配置小场景图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
-
-# 配置合成图片静态文件服务
-try:
-    if os.path.isabs(config.COMPOSITE_IMAGE_SAVE_DIR):
-        composite_images_dir = config.COMPOSITE_IMAGE_SAVE_DIR
-    else:
-        composite_images_dir = os.path.join(backend_dir, config.COMPOSITE_IMAGE_SAVE_DIR)
-    
-    # 确保目录存在
-    os.makedirs(composite_images_dir, exist_ok=True)
-    
-    # 挂载静态文件服务
-    # 访问路径：/static/images/composite/{filename}
-    app.mount("/static/images/composite", StaticFiles(directory=composite_images_dir), name="composite_images")
-    logger.info(f"合成图片静态文件服务已配置: {composite_images_dir} -> /static/images/composite")
-except Exception as e:
-    logger.warning(f"配置合成图片静态文件服务失败: {e}，本地图片将无法通过URL访问")
+# 挂载图片静态文件服务
+for mount_path, config_attr, description in STATIC_MOUNTS:
+    try:
+        dir_config = getattr(config, config_attr, None)
+        if dir_config is None:
+            logger.warning(f"配置项 {config_attr} 未设置，跳过 {description} 静态文件服务")
+            continue
+        
+        # 解析目录路径（支持绝对路径和相对路径）
+        if os.path.isabs(dir_config):
+            static_dir = dir_config
+        else:
+            static_dir = os.path.join(backend_dir, dir_config)
+        
+        # 确保目录存在
+        os.makedirs(static_dir, exist_ok=True)
+        
+        # 生成唯一的名称（基于URL路径）
+        name = mount_path.replace("/", "_").strip("_")
+        
+        # 挂载静态文件服务
+        app.mount(mount_path, StaticFiles(directory=static_dir), name=name)
+        logger.info(f"{description}静态文件服务已配置: {static_dir} -> {mount_path}")
+    except Exception as e:
+        logger.warning(f"配置{description}静态文件服务失败: {e}，本地图片将无法通过URL访问")
 
 # 配置音频文件静态文件服务（TTS缓存）
 try:

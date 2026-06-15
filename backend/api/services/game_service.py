@@ -2,6 +2,7 @@
 from typing import Dict, Any, Optional
 import json
 import threading
+import os
 from concurrent.futures import ThreadPoolExecutor
 from api.services.game_session import GameSessionManager, GameSession
 from api.services.character_service import CharacterService
@@ -10,9 +11,11 @@ from data.scenes import SCENES, SUB_SCENES
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-from utils.logger import get_logger
 
-logger = get_logger(__name__)
+# W8: Feature Flag - Agent 引擎开关
+# 当设置为 true 时，使用新的 NOS Agent 引擎（W6 实现）
+# 当设置为 false 时，使用旧的 StoryEngine
+USE_NOS_AGENT_ENGINE = os.getenv('USE_NOS_AGENT_ENGINE', 'false').lower() == 'true'
 
 
 class GameService:
