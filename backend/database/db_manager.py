@@ -3,8 +3,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
-from models.character import Base, Character, CharacterAttribute, CharacterState
+from models.character import Base, Character, CharacterAttribute, CharacterState, StoryEvent
 import config
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
@@ -159,4 +162,108 @@ class DatabaseManager:
             ).all()
             
             return {attr.attribute_type: attr.attribute_value for attr in attributes}
-
+    
+    # ============================================================
+    # Saga 双写补偿方法（W2 新增）
+    # PG 先写（主写），CDB 后写（副写），CDB 失败时标记 pending_sync
+    # ============================================================
+    
+    def add_event_safe(self, character_id: int, event_id: str, story_text: str,
+                       dialogue_text: str = '', metadata: dict = None,
+                       vector_db=None) -> int:
+        """Saga 补偿模式写入事件：PG 先写 → CDB 后写，CDB 失败标记 pending_sync
+        
+        Args:
+            character_id: 角色ID
+            event_id: 事件唯一ID
+            story_text: 故事/旁白文本
+            dialogue_text: 对话文本
+            metadata: 事件元数据
+            vector_db: VectorDatabase 实例（用于 CDB 写入）
+        
+        Returns:
+            PG 中 story_events 记录 ID
+            
+        Raises:
+            仅在 PG 写入失败时抛出异常（CDB 失败不会中断流程）
+        """
+        # Step 1: PG 主写（source of truth）
+        with self.get_session() as session:
+            event = StoryEvent(
+                character_id=character_id,
+                event_id=event_id,
+                story_text=story_text,
+                dialogue_text=dialogue_text,
+                metadata_json=metadata,
+                sync_status='synced'  # 乐观标记为已同步
+            )
+            session.add(event)
+            session.flush()
+            pg_event_id = event.id
+            session.commit()
+            logger.info(f"[Saga] PG 写入成功: event_id={event_id}, pg_id={pg_event_id}")
+        
+        # Step 2: CDB 副写（ChromaDB 向量存储）
+        if vector_db is not None:
+            try:
+                vector_db.add_event(
+                    character_id=character_id,
+                    event_id=event_id,
+                    story_text=story_text,
+                    dialogue_text=dialogue_text,
+                    metadata=metadata
+                )
+                logger.info(f"[Saga] CDB 写入成功: event_id={event_id}")
+            except Exception as cdb_err:
+                # Step 3: CDB 写入失败 → 补偿：标记 pending_sync
+                logger.warning(f"[Saga] CDB 写入失败，标记 pending_sync: event_id={event_id}, error={cdb_err}")
+                with self.get_session() as session:
+                    pg_event = session.query(StoryEvent).filter(
+                        StoryEvent.id == pg_event_id
+                    ).first()
+                    if pg_event:
+                        pg_event.sync_status = 'pending_sync'
+                        session.commit()
+                # 不抛出异常，不阻塞游戏流程
+        
+        return pg_event_id
+    
+    def retry_pending_events(self, vector_db=None, limit: int = 50):
+        """重试所有 pending_sync 的事件（定期任务/手动补偿）
+        
+        Args:
+            vector_db: VectorDatabase 实例
+            limit: 每次重试的最大事件数
+        
+        Returns:
+            (retried, success, failed) 三元组
+        """
+        retried, success, failed = 0, 0, 0
+        
+        with self.get_session() as session:
+            pending_events = session.query(StoryEvent).filter(
+                StoryEvent.sync_status == 'pending_sync'
+            ).limit(limit).all()
+            
+            for event in pending_events:
+                retried += 1
+                try:
+                    if vector_db is not None:
+                        vector_db.add_event(
+                            character_id=event.character_id,
+                            event_id=event.event_id,
+                            story_text=event.story_text,
+                            dialogue_text=event.dialogue_text or '',
+                            metadata=event.metadata_json
+                        )
+                    event.sync_status = 'synced'
+                    success += 1
+                    logger.info(f"[Saga Retry] 补偿成功: event_id={event.event_id}")
+                except Exception as retry_err:
+                    event.sync_status = 'failed'
+                    failed += 1
+                    logger.error(f"[Saga Retry] 补偿失败: event_id={event.event_id}, error={retry_err}")
+            
+            session.commit()
+        
+        return retried, success, failed
