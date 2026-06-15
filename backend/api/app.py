@@ -1,12 +1,12 @@
 """FastAPI应用主文件"""
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from api.routers import characters, game, vector_db_admin, tts
 from database.db_manager import DatabaseManager
 from api.exceptions import ServiceException
-from api.middleware.error_handler import service_exception_handler, general_exception_handler
+from api.middleware.error_handler import service_exception_handler, general_exception_handler, http_exception_handler
 from utils.logger import setup_logger
 import uvicorn
 import os
@@ -23,6 +23,7 @@ app = FastAPI(
 )
 
 # 注册异常处理器
+app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(ServiceException, service_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 

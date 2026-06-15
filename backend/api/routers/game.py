@@ -3,13 +3,17 @@ import re
 from fastapi import APIRouter, HTTPException, Depends
 from api.schemas import (
     GameInitRequest,
-    GameInitResponse,
+    GameInitData,
+    GameInitApiResponse,
     GameInputRequest,
-    GameInputResponse,
-    CheckEndingResponse,
-    TriggerEndingRequest
+    GameInputData,
+    GameInputApiResponse,
+    CheckEndingData,
+    CheckEndingApiResponse,
+    TriggerEndingRequest,
+    TriggerEndingData,
+    TriggerEndingApiResponse,
 )
-from api.response import success_response, error_response, not_found_response
 from api.services.game_service import GameService
 from api.dependencies import get_game_service
 from utils.logger import get_logger
@@ -19,7 +23,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
 
-@router.post("/init", response_model=dict)
+@router.post("/init", response_model=GameInitApiResponse)
 async def init_game(
     request: GameInitRequest,
     game_service: GameService = Depends(get_game_service)
@@ -33,7 +37,7 @@ async def init_game(
             character_id = int(request.character_id)
         else:
             logger.error("character_id is required")
-            return error_response(code=400, message="character_id is required")
+            raise HTTPException(status_code=400, detail="character_id is required")
         
         logger.info("开始初始化游戏会话...")
         result = game_service.init_game(
@@ -43,16 +47,13 @@ async def init_game(
         )
         
         logger.info(f"游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
-        return success_response(data=result)
+        return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
         logger.error(f"参数错误: {str(e)}")
-        return error_response(code=400, message=f"参数错误: {str(e)}")
-    except Exception as e:
-        logger.error(f"初始化失败: {str(e)}", exc_info=True)
-        return error_response(code=500, message=f"初始化游戏失败: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"参数错误: {str(e)}")
 
 
-@router.post("/input", response_model=dict)
+@router.post("/input", response_model=GameInputApiResponse)
 async def process_input(
     request: GameInputRequest,
     game_service: GameService = Depends(get_game_service)
@@ -68,7 +69,7 @@ async def process_input(
             option_id = int(option_match.group(1)) - 1  # 转换为0-based索引
             user_input = ""  # 清空user_input，使用选项
         elif user_input.lower().startswith("option:"):
-            return error_response(code=400, message="无效的选项格式，应为 option:<number>")
+            raise HTTPException(status_code=400, detail="无效的选项格式，应为 option:<number>")
 
         def _process_with_session_lock(target_thread_id: str, input_text: str, input_option_id):
             target_session = game_service.session_manager.get_session(target_thread_id)
@@ -107,16 +108,17 @@ async def process_input(
                     # 初始化故事
                     restored_story = game_service.initialize_story(new_thread_id, character_id_int)
 
-                    # 关键修复：旧会话的选项不重放到新会话，避免“点了A却执行新会话的A”错配
+                    # 关键修复：旧会话的选项不重放到新会话，避免"选了A却执行新会话的A"错配
                     if option_id is not None:
                         restored_story['thread_id'] = new_thread_id
                         restored_story['session_restored'] = True
                         restored_story['need_reselect_option'] = True
                         restored_story['restored_from_thread_id'] = request.thread_id
-                        return success_response(
-                            data=restored_story,
-                            message="会话已恢复，请重新选择选项"
-                        )
+                        return {
+                            "code": 200,
+                            "message": "会话已恢复，请重新选择选项",
+                            "data": restored_story
+                        }
 
                     # 非选项输入可在新会话中继续处理
                     result = _process_with_session_lock(
@@ -129,35 +131,33 @@ async def process_input(
                     result['thread_id'] = new_thread_id
                     result['session_restored'] = True
                 except Exception as restore_error:
-                    return error_response(
-                        code=400, 
-                        message=f"会话已过期且无法恢复: {str(e)}。请重新开始游戏。"
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"会话已过期且无法恢复: {str(e)}。请重新开始游戏。"
                     )
             else:
                 raise
         
-        return success_response(data=result)
+        return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
         logger.error(f"参数错误: {str(e)}", exc_info=True)
-        return error_response(code=400, message=f"参数错误: {str(e)}")
-    except Exception as e:
-        logger.error(f"处理输入失败: {str(e)}", exc_info=True)
-        return error_response(code=500, message="服务器内部错误，请稍后重试")
+        raise HTTPException(status_code=400, detail=f"参数错误: {str(e)}")
 
 
-@router.get("/check-ending/{thread_id}", response_model=dict)
-async def check_ending(thread_id: str):
+@router.get("/check-ending/{thread_id}", response_model=CheckEndingApiResponse)
+async def check_ending(
+    thread_id: str,
+    game_service: GameService = Depends(get_game_service)
+):
     """检查是否满足结局条件"""
     try:
         result = game_service.check_ending(thread_id)
-        return success_response(data=result)
+        return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
-        return not_found_response(message=str(e))
-    except Exception as e:
-        return error_response(code=500, message=f"检查结局失败: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
 
 
-@router.post("/trigger-ending", response_model=dict)
+@router.post("/trigger-ending", response_model=TriggerEndingApiResponse)
 async def trigger_ending(
     request: TriggerEndingRequest,
     game_service: GameService = Depends(get_game_service)
@@ -165,9 +165,7 @@ async def trigger_ending(
     """触发结局"""
     try:
         result = game_service.trigger_ending(request.thread_id)
-        return success_response(data=result)
+        return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
-        return not_found_response(message=str(e))
-    except Exception as e:
-        return error_response(code=500, message=f"触发结局失败: {str(e)}")
+        raise HTTPException(status_code=404, detail=str(e))
 
