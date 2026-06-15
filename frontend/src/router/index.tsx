@@ -8,6 +8,9 @@ import CharacterSelection from '@/pages/CharacterSelection';
 import FirstMeetingSelection from '@/pages/FirstMeetingSelection';
 import Game from '@/pages/Game';
 import NotFound from '@/pages/NotFound';
+import Login from '@/pages/Login';
+import Register from '@/pages/Register';
+import { ProtectedRoute } from '@/components/AuthGuard';
 
 const routes = [
   {
@@ -22,6 +25,14 @@ const routes = [
       { path: 'game', element: <Game /> },
       { path: '*', element: <NotFound /> },
     ],
+  },
+  {
+    path: '/login',
+    element: <Login />,
+  },
+  {
+    path: '/register',
+    element: <Register />,
   },
 ];
 
