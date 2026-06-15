@@ -19,7 +19,7 @@
 | W4: 安全防护体系 | `w4-security-defense` | ⬜ 待开始 | — | — |
 | W5: API 响应标准化 | `w5-api-standardize` | ⬜ 待开始 | — | — |
 | W6: Agent 架构重设计 | `w6-agent-engine` | ⬜ 待开始 | — | — |
-| W7: 异步图片管线 | `w7-async-image` | ⬜ 待开始 | — | — |
+| W7: 异步图片管线 | `w7-async-image` | ✅ 已完成 | `cad4779` | 2026-06-15 |
 | W8: 会话与并发安全 | `w8-session-safety` | ✅ 已完成 | `aa41a07` | 2026-06-15 |
 | W9: 代码质量重构 | `w9-code-quality` | ⬜ 待开始 | — | — |
 | W10: 前端架构优化 | `w10-frontend-opt` | ⬜ 待开始 | — | — |
@@ -28,7 +28,7 @@
 | W13: WebSocket 流式 | `w13-websocket` | ⬜ 待开始 | — | — |
 | W14: 部署与运维 | `w14-devops` | ⬜ 待开始 | — | — |
 
-> 进度: 2/14 ✅ | 下一步: W2 W3 W4 W7 可并行启动（W8 已完成）
+> 进度: 3/14 ✅ | 下一步: W2 W3 W4 可并行启动（W8 已完成）
 
 ---
 
@@ -375,7 +375,9 @@ class DirectorAgent(BaseAgent):
 
 ---
 
-### 工作区 W7：异步图片处理管线（预生成池 + 后台渲染）
+### 工作区 W7：异步图片处理管线（预生成池 + 后台渲染） ✅ 已完成
+
+**分支**: `w7-async-image` | **提交**: `cad4779` | **工期**: 1 天 | **变更**: 5 files, +1389 lines
 
 **优先级**: 🟡 中 | **工期**: 1-2 周 | **风险**: 低
 
@@ -410,13 +412,14 @@ class DirectorAgent(BaseAgent):
 ```
 
 **交付物**:
-- [ ] `scene_images` 表 + migration
-- [ ] `ImagePoolService`：加权随机抽取 + 池管理
-- [ ] `BackgroundGenerator`：异步预生成（ThreadPoolExecutor）
-- [ ] `ImageCache`：LRU 50 张内存缓存
-- [ ] 管理员预热 API：`POST /admin/scenes/pre-generate`
-- [ ] 池统计 API：`GET /admin/scenes/pool-stats`
-- [ ] 场景切换时极速返回（命中缓存 < 50ms，池命中 < 200ms）
+- [x] `scene_images` 表 + migration（含质量分数、状态、元数据字段）
+- [x] `ImagePoolService`：加权随机抽取 + 池管理（MIN/MAX_POOL_SIZE 配置）
+- [x] `BackgroundGenerator`：异步预生成（ThreadPoolExecutor，2线程并发）
+- [x] `ImageCache`：LRU 50 张内存缓存（支持 TTL 过期清理）
+- [x] 管理员预热 API：`POST /admin/scenes/pre-generate`
+- [x] 池统计 API：`GET /admin/scenes/pool-stats`
+- [x] 额外 API：`GET /admin/scenes/random-image`、缓存管理、生成状态查询
+- [ ] 场景切换时极速返回（命中缓存 < 50ms，池命中 < 200ms）← 需要实际运行验证
 
 **与其它工作区的边界**:
 - W7 的 `scene_images` 迁移不与 W2/W4 冲突（独立 migration 文件）
