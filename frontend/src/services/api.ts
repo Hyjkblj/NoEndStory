@@ -48,23 +48,13 @@ const isTimeoutError = (error: unknown): boolean => {
   return false;
 };
 
-api.interceptors.request.use(
-  (config) => {
-    const token = localStorage.getItem('token');
-    if (token) config.headers.Authorization = `Bearer ${token}`;
-    return config;
-  },
-  (error) => Promise.reject(error)
-);
-
 api.interceptors.response.use(
   (response) => response.data,
   (error) => {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
       if (status === 401) {
-        localStorage.removeItem('token');
-        console.warn('Unauthorized request, token removed.');
+        console.warn('Unauthorized request.');
       } else if (status === 403) {
         console.error('Forbidden request.');
       } else if (status === 404) {

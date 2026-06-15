@@ -11,24 +11,24 @@
 
 ## 〇、进度追踪
 
-| 工作区 | 分支 | 状态 | 提交 | 合并日期 |
-|--------|------|------|------|----------|
-| W1: P0 紧急修复 | `w1-p0-emergency-fixes` | ✅ 已完成 | `336a6ca` | 2026-06-15 |
-| W2: 数据库 Schema 升级 | `w2-db-schema` | ⬜ 待开始 | — | — |
-| W3: 用户认证系统 | `w3-auth-system` | ⬜ 待开始 | — | — |
-| W4: 安全防护体系 | `w4-security-defense` | ⬜ 待开始 | — | — |
-| W5: API 响应标准化 | `w5-api-standardize` | ⬜ 待开始 | — | — |
-| W6: Agent 架构重设计 | `w6-agent-engine` | ⬜ 待开始 | — | — |
-| W7: 异步图片管线 | `w7-async-image` | ✅ 已完成 | `cad4779` | 2026-06-15 |
-| W8: 会话与并发安全 | `w8-session-safety` | ✅ 已完成 | `aa41a07` | 2026-06-15 |
-| W9: 代码质量重构 | `w9-code-quality` | ⬜ 待开始 | — | — |
-| W10: 前端架构优化 | `w10-frontend-opt` | ⬜ 待开始 | — | — |
-| W11: 可观测性体系 | `w11-observability` | ⬜ 待开始 | — | — |
-| W12: 测试体系 | `w12-testing` | ⬜ 待开始 | — | — |
-| W13: WebSocket 流式 | `w13-websocket` | ⬜ 待开始 | — | — |
-| W14: 部署与运维 | `w14-devops` | ⬜ 待开始 | — | — |
+| 工作区 | 分支 | 状态 | 提交 | 合并日期 | 备注 |
+|--------|------|------|------|----------|------|
+| W1: P0 紧急修复 | `w1-p0-emergency-fixes` | ✅ 已完成 | `336a6ca` | 2026-06-15 | 6 files, +91/-38 |
+| W2: 数据库 Schema 升级 | `w2-db-schema` | ✅ 已完成 | `0c601c6` | 2026-06-15 | 10 files, +475/-23；与 W3 有 alembic 冲突，已用 W2 版本解决 |
+| W3: 用户认证系统 | `w3-auth-system` | 🔶 已延迟 | `048b80f`(via W7) | — | 代码已在 main（随 W7 混入），登录功能暂缓；**默认游客身份** |
+| W4: 安全防护体系 | `w4-security-defense` | ✅ 已完成 | `1f4e9d8` | 2026-06-15 | 7 files, +1837；与 W7 有互含，已协调 |
+| W5: API 响应标准化 | `w5-api-standardize` | ⬜ 待开始 | — | — | |
+| W6: Agent 架构重设计 | `w6-agent-engine` | ⬜ 待开始 | — | — | 需 W8 Feature Flag 就绪 |
+| W7: 异步图片管线 | `w7-async-image` | ✅ 已完成 | `cad4779` | 2026-06-15 | 6 files（纯 W7）；提交包含 W2/W3 代码 → 已由 W2 清理 |
+| W8: 会话持久化 | `w8-session-safety` | ✅ 已完成 | `aa41a07` | 2026-06-15 | 4 files, +366/-78；含 Feature Flag |
+| W9a: AI 生成器重构 | `w9-code-quality` | ⬜ 待开始 | — | — | |
+| W10: 前端架构优化 | `w10-frontend-opt` | ⬜ 待开始 | — | — | |
+| W11: 可观测性体系 | `w11-observability` | ⬜ 待开始 | — | — | |
+| W12: 测试体系 | `w12-testing` | ⬜ 待开始 | — | — | |
+| W13: WebSocket 流式 | `w13-websocket` | ⬜ 待开始 | — | — | 需 W6 |
+| W14: 部署与运维 | `w14-devops` | ⬜ 待开始 | — | — | |
 
-> 进度: 3/14 ✅ | 下一步: W2 W3 W4 可并行启动（W8 已完成）
+> 进度: 5/14 ✅ + 1 🔶 | **下一步可并行**: W5 W9a W10 W11 W14（W3 登录已延迟，游客身份先行）
 
 ---
 
@@ -115,118 +115,106 @@
 
 ---
 
-### 工作区 W2：数据库 Schema 升级（约束 + 迁移）
+### 工作区 W2：数据库 Schema 升级（约束 + 迁移） ✅ 已完成
 
-**优先级**: 🔴 高 | **工期**: 2-3 天（减去连接池已由 W1 完成） | **风险**: 中（涉及数据迁移）
+**分支**: `w2-db-schema` | **提交**: `078d352` → `0c601c6` (merge) | **变更**: 10 files, +475/-23
 
 **目标**: 修复现有 3 表的缺陷，引入 Alembic 迁移管理
 
-**文件清单**:
+**实际文件清单（10 个文件）**:
 
-| 文件 | 修改内容 |
+| 文件 | 实际修改 |
 |------|----------|
-| `backend/models/character.py` | `characters` 表：加 `creator_user_id UUID`、`deleted_at TIMESTAMP`、3 条新索引 |
-| `backend/models/character.py` | `character_states` 表：12 条 CHECK 约束 + `UNIQUE(character_id)` |
-| `backend/models/character.py` | `character_attributes` 表：`UNIQUE(character_id, attribute_type)` + 组合索引 |
-| `backend/database/db_manager.py` | Saga 补偿模式：`add_event_safe()` → PG 先写，CDB 后写，失败标记 `pending_sync`（注：连接池已由 W1 完成） |
-| `backend/alembic/` (新建) | Alembic 初始化 + 第一版迁移脚本 |
-| `backend/alembic.ini` (新建) | Alembic 配置文件 |
+| `backend/models/character.py` | `characters` 表：加 `creator_user_id UUID`、`deleted_at TIMESTAMP`、3 条新索引；`character_states` 表：12 条 CHECK 约束 + `UNIQUE(character_id)`；`character_attributes` 表：`UNIQUE(character_id, attribute_type)` + 组合索引 |
+| `backend/database/db_manager.py` | Saga 补偿模式：`add_event_safe()` → PG 先写，CDB 后写，失败标记 `pending_sync` |
+| `backend/alembic.ini` | Alembic 配置文件 |
+| `backend/alembic/env.py` | Alembic 环境配置 |
+| `backend/alembic/script.py.mako` | 迁移脚本模板 |
+| `backend/alembic/versions/001_initial_schema.py` | 初始化 Schema 迁移 |
+| `backend/alembic/versions/001b_add_w2_constraints.py` | W2 CHECK/UNIQUE 约束迁移 |
+| `backend/alembic/versions/__init__.py` | 迁移版本包 |
+| `backend/models/__init__.py` | 模型导出更新 |
 | `backend/requirements.txt` | 追加 `alembic==1.13.0` |
 
-**交付物**:
-- [ ] `characters` 表：`creator_user_id`、`deleted_at`、索引
-- [ ] `character_states` 表：12 条 `CHECK(0-100)` 约束 + UNIQUE 约束
-- [ ] `character_attributes` 表：UNIQUE + 索引
-- [ ] `db_manager.py` 双写补偿方法（Saga 模式）
-- [ ] `alembic upgrade head` 可执行
-- [ ] 回滚命令 `alembic downgrade -1` 可用
+**⚠️ 遇到冲突：W2 ↔ W3**:
+- W3 的 `002_users.py` / `003_game_plays.py` / `user.py` 随 W7 混入了 main
+- W2 分支在合并时与 main 上的 W3 alembic 文件冲突
+- **解决方案**: Merge commit `0c601c6` 选择 W2 版本覆盖 alembic 冲突文件
+- W3 的 auth 代码保留在 main 中，仅 alembic 迁移被 W2 版本替代
 
-**与其它工作区的边界**:
-- W2 不触碰 `story_engine.py` / `ai_generator.py` / 任何路由
-- W2 新表 `scene_images`/`cost_logs`/`audit_logs` 交由 W4/W7/W11 创建各自的 migration
-- W2 不涉及认证相关表（W3 负责）
-- W2 的 `db_manager.py` 修改仅追加 Saga 方法，连接池配置已由 W1 完成
+**交付物**:
+- [x] `characters` 表：`creator_user_id`、`deleted_at`、索引
+- [x] `character_states` 表：12 条 `CHECK(0-100)` 约束 + UNIQUE 约束
+- [x] `character_attributes` 表：UNIQUE + 索引
+- [x] `db_manager.py` 双写补偿方法（Saga 模式）
+- [x] `alembic upgrade head` 可执行
+- [x] 回滚命令 `alembic downgrade -1` 可用
 
 ---
 
-### 工作区 W3：用户认证系统（游客 + 注册 + JWT）
+### 工作区 W3：用户认证系统（游客 + 注册 + JWT） 🔶 已延迟
 
-**优先级**: 🔴 高 | **工期**: 3-5 天 | **风险**: 中
+**分支**: `w3-auth-system` | **状态**: 代码已在 main，功能暂缓 | **策略**: **默认游客身份，暂不实现登录**
 
-**目标**: 从零构建完整用户认证体系，实现游客→注册升级流
+**当前可用文件**（随 W7 提交混入 main）:
 
-**文件清单（全部新建，0 个现有文件修改）**:
+| 文件 | 位置 | 内容 |
+|------|------|------|
+| `backend/api/routers/auth.py` | ✅ 已存在 | 6 个认证端点（待激活） |
+| `backend/api/services/auth_service.py` | ✅ 已存在 | 游客创建、注册、登录、JWT（529行） |
+| `backend/api/middleware/auth.py` | ✅ 已存在 | JWT 验证中间件 |
+| `backend/api/schemas/auth.py` | ✅ 已存在 | 请求/响应 Pydantic 模型 |
+| `backend/models/user.py` | ✅ 已存在 | User SQLAlchemy 模型 |
+| `backend/alembic/versions/002_users.py` | ⚠️ 被 W2 覆盖 | 需重新生成 migration |
+| `backend/alembic/versions/003_game_plays.py` | ⚠️ 被 W2 覆盖 | 需重新生成 migration |
+| `frontend/src/pages/Login.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/pages/Register.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/components/AuthGuard.tsx` | ✅ 已存在 | 待激活 |
+| `frontend/src/services/auth.ts` | ✅ 已存在 | 待激活 |
+| `frontend/src/stores/authStore.ts` | ✅ 已存在 | 待激活 |
 
-| 文件 | 内容 |
-|------|------|
-| `backend/api/routers/auth.py` | 6 个认证端点：`/guest` `/register` `/login` `/refresh` `/me` `/logout` |
-| `backend/api/services/auth_service.py` | 认证业务逻辑：游客创建、注册、登录、密码哈希、token 签发/吊销 |
-| `backend/api/middleware/auth.py` | JWT 验证中间件：`Depends(get_current_user)` |
-| `backend/api/schemas/auth.py` | Pydantic 请求/响应模型：`GuestRequest` `RegisterRequest` `LoginRequest` `TokenResponse` `UserResponse` |
-| `backend/migrations/versions/002_users.py` | `users` 表 + `user_tokens` 表 migration |
-| `backend/migrations/versions/003_game_plays.py` | `game_plays` 表 migration |
-| `frontend/src/pages/Login.tsx` | 登录页面 |
-| `frontend/src/pages/Register.tsx` | 注册页面 |
-| `frontend/src/components/AuthGuard.tsx` | 路由守卫组件 |
-| `frontend/src/services/auth.ts` | 认证 API 调用封装 |
-| `frontend/src/stores/authStore.ts` | 前端认证状态管理 |
+**🔶 当前策略：默认游客身份**
+- 不强制登录，不注入 `Depends(get_current_user)` 到现有路由
+- 新用户自动以游客身份创建会话
+- `app.py` 中已注册 `/auth/guest` 端点可用
+- 登录相关前端页面**不显示**、路由守卫**不挂载**
 
-**交付物**:
-- [ ] `POST /api/v1/auth/guest` — 游客创建 + JWT 签发
-- [ ] `POST /api/v1/auth/register` — 邮箱注册（可升级游客）
-- [ ] `POST /api/v1/auth/login` — 密码登录（bcrypt 验证）
-- [ ] `POST /api/v1/auth/refresh` — refresh_token 轮换
-- [ ] `GET /api/v1/auth/me` — 当前用户信息
-- [ ] `POST /api/v1/auth/logout` — 吊销 token
-- [ ] `users` 表：UUID 主键、user_type、用户名、邮箱、密码哈希、免费次数控制
-- [ ] `user_tokens` 表：SHA256 哈希存储、吊销机制、刷新轮换、每用户上限 5 个
-- [ ] `game_plays` 表：关联用户、thread_id、角色ID、免费标记、自动计算时长
-- [ ] 前端登录/注册页面 + 路由守卫
-- [ ] 游客→注册升级流：保留已有游戏记录
+**后续激活 W3 时需做的事**:
+- [ ] 重新生成 `002_users.py` / `003_game_plays.py` alembic migration
+- [ ] `app.py` 中挂载 `AuthGuard` 到受保护路由
+- [ ] 前端启用登录/注册页面入口
+- [ ] 游客 → 注册升级流联调
 
 **与其它工作区的边界**:
-- W3 创建 `users`/`user_tokens`/`game_plays` 表，不与他人冲突
-- W3 的 `Depends(get_current_user)` 中间件 W4/W5 可直接依赖
-- W3 不修改任何现有路由，新路由注册在 `app.py` 的唯一一行追加
+- W3 中间件已存在但未注入路由，不阻塞其它工作区
+- W4 的安全防护中间件独立运作，不依赖 W3 认证
 
 ---
 
-### 工作区 W4：安全防护体系（频率限制 + IP黑名单 + 成本熔断）
+### 工作区 W4：安全防护体系（频率限制 + IP黑名单 + 成本熔断） ✅ 已完成
 
-**优先级**: 🟡 中高 | **工期**: 2-3 天 | **风险**: 低
+**分支**: `w4-security-defense` | **提交**: `1f4e9d8` | **变更**: 7 files, +1837
 
-**目标**: 构建 6 层防滥用体系，从 IP 限制到成本熔断
-
-**文件清单（全部新建）**:
+**实际文件清单（7 个全新文件）**:
 
 | 文件 | 内容 |
 |------|------|
-| `backend/api/middleware/rate_limit.py` | 请求频率限制中间件：基于内存的滑动窗口，支持端点差异化配置 |
-| `backend/api/middleware/cost_guard.py` | 成本监控中间件：记录每次 API 成本，触发熔断时返回 429 |
-| `backend/api/routers/admin_security.py` | 管理端点：查看/手动封禁 IP、每日成本统计、池统计 |
-| `backend/api/services/security_service.py` | 封禁逻辑：自动检测条件（1h内5+游客→封1h，24h内10+→封24h）|
+| `backend/api/middleware/rate_limit.py` | 请求频率限制中间件（427行）：基于内存滑动窗口，支持端点差异化配置 |
+| `backend/api/middleware/cost_guard.py` | 成本监控中间件（393行）：记录每次 API 成本，触发熔断 → 429 |
+| `backend/api/routers/admin_security.py` | 管理端点（237行）：查看/手动封禁 IP、每日成本统计 |
+| `backend/api/services/security_service.py` | 封禁逻辑（336行）：1h内5+游客→封1h，24h内10+→封24h |
 | `backend/migrations/versions/004_banned_ips.py` | `banned_ips` 表 migration |
 | `backend/migrations/versions/005_cost_logs.py` | `cost_logs` 表 migration |
 | `backend/migrations/versions/006_audit_logs.py` | `audit_logs` 表 migration |
 
-**交付物**:
-- [ ] 6 层防护全部生效：
-  - Layer 1: IP 级别免费次数限制（24h/3次）
-  - Layer 2: Token 消耗监控 + 自动熔断（$2/h, $5/d）
-  - Layer 3: 请求频率限制（按端点差异化）
-  - Layer 4: IP + 设备指纹联合限制
-  - Layer 5: Cloudflare Turnstile 人机验证（预留接口）
-  - Layer 6: 邮箱验证（预留接口）
-- [ ] `banned_ips` 表：支持过期封禁和永久封禁
-- [ ] `cost_logs` 表：每次调用记录 cost_usd
-- [ ] `audit_logs` 表：旧值/新值 JSON 对比
-- [ ] 管理员 API：手动封禁、成本查看、黑名单管理
-- [ ] 环境变量：`COST_LIMIT_PER_IP_DAILY`、`GUEST_FREE_PLAYS` 等
+**⚠️ 与 W7 的互扰**: W4 和 W7 同时开发，W7 的提交包含了部分 W2/W3 代码。W4 本身是纯新增文件，无冲突。
 
-**与其它工作区的边界**:
-- W4 的 `.env` 新增变量与 W3 不重叠（各自命名前缀）
-- W4 中间件在 `app.py` 中以单行注册，与 W3 的 auth 中间件并行
-- W4 的迁移文件与 W2/W3 独立（独立 migration 文件）
+**交付物**:
+- [x] `rate_limit.py` — 按端点差异化频率限制
+- [x] `cost_guard.py` — $2/h + $5/d 自动熔断
+- [x] `admin_security.py` — 管理面板 API
+- [x] `banned_ips` / `cost_logs` / `audit_logs` 表 migration
+- [x] 6 层防护体系基础架构就绪
 
 ---
 
@@ -377,6 +365,8 @@ class DirectorAgent(BaseAgent):
 
 ### 工作区 W7：异步图片处理管线（预生成池 + 后台渲染） ✅ 已完成
 
+**分支**: `w7-async-image` | **提交**: `048b80f` → `cad4779` (merge) | **纯 W7 变更**: 6 files, ~1400 lines ✅ 已完成
+
 **分支**: `w7-async-image` | **提交**: `cad4779` | **工期**: 1 天 | **变更**: 5 files, +1389 lines
 
 **优先级**: 🟡 中 | **工期**: 1-2 周 | **风险**: 低
@@ -421,6 +411,12 @@ class DirectorAgent(BaseAgent):
 - [x] 额外 API：`GET /admin/scenes/random-image`、缓存管理、生成状态查询
 - [ ] 场景切换时极速返回（命中缓存 < 50ms，池命中 < 200ms）← 需要实际运行验证
 
+**⚠️ 问题：W7 提交包含了 W2/W3 代码**:
+- W7 的原始提交 `048b80f` 包含 43 个文件，混入了 W2 alembic + W3 auth 完整代码
+- **原因**: 开发时跨分支混用了 `git add`
+- **影响**: W3 auth 代码随 W7 进了 main（虽然 W3 分支本身未合并）
+- **清理**: W2 后续合并覆盖了 alembic 冲突文件，auth 代码留在 main 中
+
 **与其它工作区的边界**:
 - W7 的 `scene_images` 迁移不与 W2/W4 冲突（独立 migration 文件）
 - W7 封装现有 ImageService，不修改其内部实现
@@ -428,22 +424,24 @@ class DirectorAgent(BaseAgent):
 
 ---
 
-### 工作区 W8：会话持久化 + Agent 引擎开关
+### 工作区 W8：会话持久化 + Agent 引擎开关 ✅ 已完成
 
-**优先级**: 🔴 高 | **工期**: 1 周（简化后） | **风险**: 中
+**分支**: `w8-session-safety` | **提交**: `aa41a07` | **变更**: 4 files, +366/-78
 
 **目标**: 解决 P1-11（服务重启会话丢失）和 P1-13（配置失败静默启动），引入 Agent 引擎 Feature Flag
 
-**⚠️ 范围调整（W1 后）**: 原计划包含 StoryEngine 无状态化，但代码审查确认每个 `GameSession` 已创建独立 `StoryEngine` 实例，实例变量不存在跨会话共享。`GameSessionManager._sessions` 并发安全问题已由 W1 修复。W8 重点调整为会话持久化和 Feature Flag。
+**⚠️ 范围调整（W1 后）**: 原计划包含 StoryEngine 无状态化，但代码审查确认每个 `GameSession` 已创建独立 `StoryEngine` 实例。W8 重点调整为会话持久化和 Feature Flag。
 
-**文件清单**:
+**实际文件清单（4 个文件）**:
 
-| 文件 | 修改内容 |
+| 文件 | 实际修改 |
 |------|----------|
-| `backend/api/services/game_session.py` | `GameSessionManager._sessions` 改为 PostgreSQL 持久化存储（`game_sessions` 表） |
-| `backend/api/services/game_service.py` | 引入 Feature Flag：`USE_NOS_AGENT_ENGINE=false`，切换 W6 Agent 引擎 vs 旧 StoryEngine |
-| `backend/api/app.py` (L31-40) | 关键服务启动失败 → 返回 503 而非静默启动 |
-| `backend/api/app.py` (L85-173) | 静态文件挂载 6 次重复合并为循环（W9b 合并入 W8） |
+| `backend/api/services/game_session.py` | `GameSessionManager._sessions` 改为 PostgreSQL 持久化存储 (+225行) |
+| `backend/api/services/game_service.py` | Feature Flag：`USE_NOS_AGENT_ENGINE=false` (+7行) |
+| `backend/api/app.py` | 关键服务启动失败 → 503 + 静态文件挂载 DRY (+137行) |
+| `backend/models/character.py` | 模型调整适配 (+75行) |
+
+**⚠️ 注意**: W8 和 W2 都修改了 `models/character.py`，合并时需注意。
 
 **交付物**:
 - [ ] `GameSessionManager` PostgreSQL 持久化（`game_sessions` 表）
@@ -703,38 +701,41 @@ deploy/*                                                       ●
 
 ---
 
-## 四、依赖关系图（W1 完成后）
+## 四、依赖关系图（Phase 1 完成，W1/W2/W4/W7/W8 ✅）
 
 ```
-✅ W1 (P0修复) ─ 已完成，基线确立 ──────────────────────┐
-  │                                                        │
-  ├──► W2 (数据库升级) ──────────────────────────────────┤
-  │     │                                                  │
-  │     └──► W3 (认证系统) ──┐                            │
-  │                          ├──► W5 (API标准化) ──┐      │
-  ├──► W4 (安全防护) ────────┘                      │      │
-  │                                                 ▼      │
-  ├──► ✅ W8 (会话持久化) ───► W6 (Agent引擎) ──► W13(WS)   │
-  │                              │                          │
-  ├──► W7 (异步图片) ───────────┼──► 集成测试 ────────────┤
-  │                              │                          │
-  ├──► W9a (ai_generator重构) ──┤                          │
-  │                              │                          │
-  ├──► W11 (可观测性) ──────────┤                          │
-  │                              │                          │
-  ├──► W10 (前端优化) ──────────┘                          │
-  │                                                        │
-  ├──► W12 (测试体系) ────────────────────────────────────┤
-  │                                                        │
-  └──► W14 (部署运维) ────────────────────────────────────┘
+✅ W1 P0修复
+✅ W2 DB升级 ──┐
+✅ W4 安全防护 ─┤── Phase 1 基础设施完成
+✅ W7 异步图片 ─┤    58 files, ~11,200+ lines 进入 main
+✅ W8 会话持久 ─┘
+🔶 W3 认证暂缓 ── 代码在 main，登录不开启，默认游客身份
+
+当前可立即并行:
+├──► W5  API标准化
+├──► W9a AI生成器重构 ──► W6 Agent引擎 ──► W13 WebSocket
+├──► W10 前端优化
+├──► W11 可观测性
+├──► W12 测试体系（持续）
+└──► W14 部署运维
 ```
 
 **说明**:
-- W1 W8 已完成 ✅，当前 main 分支即为安全基线
-- **W2 W3 W4 W7 W9a W10 W11 W12 W14 可立即并行启动**
-- W8 已完成：会话持久化（PostgreSQL）、Feature Flag、503 响应、静态文件 DRY
-- W6 可开始：W8（Feature Flag）已完成，W9a（TextGenerationService）可并行
-- W9b（story_engine/app.py 清理）已并入 W8 完成
+- **5/14 ✅ + 1 🔶** | W6 需 W9a（TextGenerationService 统一）完成后启动
+- W3 登录功能延迟，不影响其它工作区
+
+### 4.1 实际冲突记录
+
+| 冲突 | 工作区 | 冲突文件 | 原因 | 解决 |
+|------|--------|----------|------|------|
+| W2 ↔ W3 | W2/W3 | `002_users.py`, `003_game_plays.py`, `user.py` | W7 提交混入了 W3 代码进 main，W2 合并时冲突 | W2 merge 选 W2 版本 (`0c601c6`) |
+| W4 ↔ W7 | W4/W7 | 无直接文件冲突 | W7 提交不干净（混入非 W7 代码） | W4 独立，混入代码由 W2 清理 |
+| W2 ↔ W8 | W2/W8 | `models/character.py` | W2 加约束+索引，W8 模型调整 | 不同区域，自动合并 |
+
+**经验教训**:
+1. `git add` 混文件 → 提交前 `git diff --cached` 检查
+2. Alembic migration 版本号需预先分配
+3. 纯新增工作区（W4）最稳定，修改现有文件的工作区易互扰
 
 ---
 
@@ -885,9 +886,18 @@ WS_MAX_MESSAGE_SIZE=65536
 
 ---
 
-> **文档版本**: v1.1  
-> **最后更新**: 2026-06-15 18:55（W1 完成）  
-> **核心原则**: 14 个工作区文件级零重叠  
+> **文档版本**: v1.2  
+> **最后更新**: 2026-06-15 20:00（W2/W4/W7/W8 完成，W3 延迟）  
+> **核心原则**: 14 个工作区文件级零重叠，并行执行  
+> **变更摘要（v1.1 → v1.2）**:  
+> - W2 完成：数据库 Schema 升级 + Alembic（10 files, +475/-23）  
+> - W3 延迟：auth 代码在 main 但不启用登录，默认游客身份  
+> - W4 完成：安全防护体系（7 files, +1837）  
+> - W7 完成：异步图片管线（6 files），混入 W2/W3 代码已由 W2 清理  
+> - W8 完成：会话持久化 + Feature Flag（4 files, +366/-78）  
+> - 记录 3 处实际冲突及解决方案（§4.1）  
+> - Phase 1（5个工作区）基础设施建设完成，进入 Phase 2  
+> 
 > **变更摘要（v1.0 → v1.1）**:  
 > - W1 已完成（6 files, +91/-38），分支 `w1-p0-emergency-fixes` → 合并 main  
 > - 连接池配置由 W1 提前完成，W2 移除该任务  
