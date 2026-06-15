@@ -1,12 +1,14 @@
 """FastAPI应用主文件"""
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import characters, game, vector_db_admin, tts
+from api.routers import characters, game, vector_db_admin, tts, admin_stats
 from database.db_manager import DatabaseManager
 from api.exceptions import ServiceException
-from api.middleware.error_handler import service_exception_handler, general_exception_handler
+from api.middleware.error_handler import service_exception_handler, general_exception_handler, http_exception_handler
+from api.middleware.request_logger import RequestLoggingMiddleware
+from monitoring.token_tracker import install_token_tracking, get_token_tracker
 from utils.logger import setup_logger
 import uvicorn
 import os
@@ -23,6 +25,7 @@ app = FastAPI(
 )
 
 # 注册异常处理器
+app.add_exception_handler(HTTPException, http_exception_handler)
 app.add_exception_handler(ServiceException, service_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
@@ -42,6 +45,13 @@ async def startup_event():
         logger.error(f"数据库初始化失败: {e}", exc_info=True)
         _startup_failed = True
         # 数据库是关键服务，失败时标记为不可用
+    
+    # W11: 安装 Token 追踪（monkey-patch LLMService）
+    try:
+        install_token_tracking()
+        logger.info("Token 追踪已安装")
+    except Exception as e:
+        logger.warning(f"Token 追踪安装失败（不影响服务）: {e}")
 
 # 全局变量标记启动是否失败
 _startup_failed = False
@@ -79,6 +89,9 @@ app.add_middleware(
     allow_headers=allowed_headers,
 )
 
+# W11: 请求日志中间件（记录所有 API 调用的耗时、状态码等）
+app.add_middleware(RequestLoggingMiddleware)
+
 # W8: 启动失败时返回503的中间件
 @app.middleware("http")
 async def check_startup_status(request: Request, call_next):
@@ -107,6 +120,7 @@ app.include_router(characters.router, prefix="/api")
 app.include_router(game.router, prefix="/api")
 app.include_router(vector_db_admin.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
+app.include_router(admin_stats.router, prefix="/api")
 
 # 配置静态文件服务（用于提供本地保存的图片）- W8: 合并为循环，消除重复代码
 backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -172,11 +186,21 @@ except Exception as e:
 
 @app.get("/health")
 async def check_server_health():
-    """健康检查"""
-    return JSONResponse(
-        status_code=200,
-        content={"status": "healthy", "message": "服务正常运行"}
-    )
+    """健康检查（W11: 增强版 — 设置 HEALTH_FULL_CHECK=true 启用深度检查）"""
+    full_check = os.getenv("HEALTH_FULL_CHECK", "false").lower() in ("true", "1", "yes")
+    
+    if not full_check:
+        return JSONResponse(
+            status_code=200,
+            content={"status": "healthy", "message": "服务正常运行"}
+        )
+    
+    # 增强健康检查：检查数据库、向量数据库、LLM 提供商
+    from monitoring.health import get_health_checker
+    checker = get_health_checker()
+    result = checker.full_check()
+    status_code = 200 if result["status"] != "unhealthy" else 503
+    return JSONResponse(status_code=status_code, content=result)
 
 
 @app.get("/")
