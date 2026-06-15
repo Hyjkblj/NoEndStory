@@ -1,11 +1,14 @@
 import AppRouter from './router';
 import { App as AntdApp } from 'antd';
+import { AuthProvider } from '@/stores/authStore';
 import './App.css';
 
 function App() {
   return (
     <AntdApp>
-      <AppRouter />
+      <AuthProvider>
+        <AppRouter />
+      </AuthProvider>
     </AntdApp>
   );
 }
