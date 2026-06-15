@@ -5,8 +5,8 @@ import re
 import time
 from typing import Dict, List, Optional, Any
 from data.scenes import (
-    SCENES, 
-    MAJOR_SCENES, 
+    SCENES,
+    MAJOR_SCENES,
     SUB_SCENES,
     get_sub_scenes_by_major_scene,
     get_major_scene_by_sub_scene,
@@ -15,7 +15,10 @@ from data.scenes import (
 from game.event_generator import EventGenerator
 from game.ai_generator import AIGenerator
 from database.db_manager import DatabaseManager
+from utils.logger import get_logger
 import config
+
+logger = get_logger(__name__)
 
 
 # 模块级 AIGenerator 单例，避免每次 LLM 调用都新建实例链（P0-1）
@@ -107,9 +110,7 @@ class StoryEngine:
                     time.sleep(wait_time)
                     continue
                 else:
-                    print(f"[错误] 文本生成失败: {error_msg}")
-                    import traceback
-                    print(traceback.format_exc())
+                    logger.error(f"文本生成失败: {error_msg}", exc_info=True)
                     return None
         
         return None
@@ -314,15 +315,11 @@ class StoryEngine:
                             else:
                                 print(f"[场景切换] 未找到角色图片，跳过合成")
                         except Exception as e:
-                            print(f"[警告] 图片合成过程出错: {e}")
-                            import traceback
-                            print(traceback.format_exc())
+                            logger.warning(f"图片合成过程出错: {e}", exc_info=True)
                     else:
                         print(f"[场景切换] 场景图片生成失败或未启用")
             except Exception as e:
-                print(f"[警告] 场景切换时生成图片失败: {e}")
-                import traceback
-                print(traceback.format_exc())
+                logger.warning(f"场景切换时生成图片失败: {e}", exc_info=True)
         
         event_id = f"middle_event_{event_number}"
         
@@ -460,8 +457,7 @@ class StoryEngine:
 事件描述："""
         
         try:
-            from game.ai_generator import AIGenerator
-            ai_gen = AIGenerator()
+            ai_gen = _get_text_gen()
             if ai_gen.enabled:
                 response = self._call_generation_with_retry(
                     model=None,  # 不再需要，使用AIGenerator的统一接口
@@ -471,14 +467,14 @@ class StoryEngine:
                     max_retries=3,
                     retry_delay=1.0
                 )
-                
+
                 if response:
                     context = response.output.text.strip()
                     # 清理可能的引号
                     context = context.strip('"').strip("'").strip()
                     return context
         except Exception as e:
-            print(f"[警告] AI生成事件上下文失败: {e}")
+            logger.warning(f"AI生成事件上下文失败: {e}", exc_info=True)
         
         # 回退到规则生成
         return f"在{scene_name}，剧情继续发展..."
@@ -520,8 +516,7 @@ class StoryEngine:
         
         # 使用AI从历史事件中提取场景关键词
         try:
-            from game.ai_generator import AIGenerator
-            ai_gen = AIGenerator()
+            ai_gen = _get_text_gen()
             if ai_gen.enabled:
                 # 获取当前大场景的关键词
                 major_scene_keyword = get_major_scene_keyword(current_major_scene)
@@ -592,9 +587,7 @@ class StoryEngine:
                     else:
                         print(f"[场景推演] AI返回的场景ID无效: {inferred_scene}，使用备选方案")
         except Exception as e:
-            print(f"[警告] AI推演场景失败: {e}")
-            import traceback
-            print(traceback.format_exc())
+            logger.warning(f"AI推演场景失败: {e}", exc_info=True)
         
         # 备选方案1：从历史事件文本中直接匹配场景关键词
         matched_scene = self._match_scene_from_text(history_text, current_major_scene)
@@ -800,8 +793,7 @@ class StoryEngine:
         # 使用AI判断是否应该继续对话
         # 基于当前对话历史、故事背景、事件上下文来判断
         try:
-            from game.ai_generator import AIGenerator
-            ai_gen = AIGenerator()
+            ai_gen = _get_text_gen()
             if ai_gen.enabled:
                 # 获取角色信息
                 character = self.db_manager.get_character(character_id)

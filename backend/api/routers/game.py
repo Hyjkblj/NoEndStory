@@ -71,23 +71,26 @@ async def process_input(
         elif user_input.lower().startswith("option:"):
             raise HTTPException(status_code=400, detail="无效的选项格式，应为 option:<number>")
 
-        def _process_with_session_lock(target_thread_id: str, input_text: str, input_option_id):
+        async def _process_with_session_lock(target_thread_id: str, input_text: str, input_option_id):
             target_session = game_service.session_manager.get_session(target_thread_id)
             if target_session and hasattr(target_session, "lock"):
-                with target_session.lock:
-                    return game_service.process_input(
+                target_session.lock.acquire()
+                try:
+                    return await game_service.process_input(
                         thread_id=target_thread_id,
                         user_input=input_text,
                         option_id=input_option_id
                     )
-            return game_service.process_input(
+                finally:
+                    target_session.lock.release()
+            return await game_service.process_input(
                 thread_id=target_thread_id,
                 user_input=input_text,
                 option_id=input_option_id
             )
-        
+
         try:
-            result = _process_with_session_lock(
+            result = await _process_with_session_lock(
                 target_thread_id=request.thread_id,
                 input_text=user_input,
                 input_option_id=option_id

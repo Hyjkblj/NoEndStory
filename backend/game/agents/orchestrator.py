@@ -1,4 +1,5 @@
 """AgentOrchestrator — 简单顺序状态机，串联所有 Agent"""
+import threading
 import time
 from typing import Dict, Any, Optional
 from .base import BaseAgent
@@ -22,6 +23,8 @@ class AgentOrchestrator:
     User Input → Director → Emotion/World/Event → Consistency → Dialogue → Output
                   │              │                    │
                   └── 决策方向    └── 状态更新          └── 校验门
+
+    支持多会话并发：每个 thread_id 拥有独立的 AgentState。
     """
 
     def __init__(
@@ -50,8 +53,15 @@ class AgentOrchestrator:
         # 记忆管理器
         self.memory = MemoryManager(vector_db=vector_db)
 
-        # 当前会话状态
-        self.state: Optional[AgentState] = None
+        # 多会话状态隔离：thread_id → AgentState
+        self._states: Dict[str, AgentState] = {}
+        self._lock = threading.Lock()
+
+    @property
+    def state(self) -> Optional[AgentState]:
+        """向后兼容：返回任意一个活跃状态（仅用于调试/单会话场景）"""
+        with self._lock:
+            return next(iter(self._states.values()), None)
 
     async def init_session(
         self,
@@ -63,7 +73,7 @@ class AgentOrchestrator:
         initial_states: Dict[str, float] = None,
     ) -> AgentState:
         """初始化新会话"""
-        self.state = AgentState(
+        state = AgentState(
             thread_id=thread_id,
             character_id=character_id,
             character_name=character_name,
@@ -74,22 +84,34 @@ class AgentOrchestrator:
         # 加载初始情绪状态
         if initial_states:
             for key, value in initial_states.items():
-                if hasattr(self.state.emotion, key):
-                    setattr(self.state.emotion, key, float(value))
+                if hasattr(state.emotion, key):
+                    setattr(state.emotion, key, float(value))
 
-        self.memory.clear()
+        with self._lock:
+            self._states[thread_id] = state
+
         logger.info(f"会话初始化: thread_id={thread_id}, character={character_name}")
-        return self.state
+        return state
 
-    async def process_input(self, user_input: str) -> Dict[str, Any]:
+    async def process_input(self, user_input: str, thread_id: str = None) -> Dict[str, Any]:
         """处理玩家输入 → 返回完整场景输出
 
         流程：Director → World → Emotion → Event → Dialogue → Consistency
-        """
-        if not self.state:
-            raise RuntimeError("未初始化会话，请先调用 init_session()")
 
-        state = self.state
+        Args:
+            user_input: 玩家输入文本
+            thread_id: 会话ID（多会话隔离必需）
+        """
+        if thread_id is None:
+            # 向后兼容：单会话模式
+            state = self.state
+            if not state:
+                raise RuntimeError("未初始化会话，请先调用 init_session()")
+        else:
+            with self._lock:
+                state = self._states.get(thread_id)
+            if not state:
+                raise RuntimeError(f"会话 {thread_id} 未初始化，请先调用 init_session()")
         state.last_player_input = user_input
         state.advance_round()
         state.add_to_history("player", user_input)
@@ -97,7 +119,7 @@ class AgentOrchestrator:
         # 1. Director: 决定剧情走向
         director_result = await self.director.think(state)
         if director_result.get("action") == "end_game":
-            return await self._build_ending_output()
+            return await self._build_ending_output(state)
 
         # 2. World: 推进世界状态
         world_result = await self.world.think(state)
@@ -115,6 +137,7 @@ class AgentOrchestrator:
         # 5. Dialogue: 生成角色台词
         dialogue_result = await self.dialogue.think(state)
         character_dialogue = dialogue_result.get("character_dialogue", "")
+        state.output_dialogue = character_dialogue
         state.add_to_history("character", character_dialogue)
 
         # 6. Consistency: 输出前校验
@@ -152,10 +175,11 @@ class AgentOrchestrator:
         logger.info(f"输入处理完成: round={state.round_count}, phase={state.phase.value}")
         return output
 
-    async def _build_ending_output(self) -> Dict[str, Any]:
+    async def _build_ending_output(self, state: AgentState = None) -> Dict[str, Any]:
         """构建结局输出"""
-        state = self.state
-        ending_text = self._generate_ending_text()
+        if state is None:
+            state = self.state
+        ending_text = self._generate_ending_text(state)
         state.add_to_history("character", ending_text)
 
         return {
@@ -178,10 +202,12 @@ class AgentOrchestrator:
             "emotion_tags": self._get_emotion_tags(state),
         }
 
-    def _generate_ending_text(self) -> str:
+    def _generate_ending_text(self, state: AgentState = None) -> str:
         """生成结局文本"""
-        name = self.state.character_name or "角色"
-        emotion = self.state.emotion
+        if state is None:
+            state = self.state
+        name = state.character_name or "角色"
+        emotion = state.emotion
         if emotion.favorability >= 70:
             return f"{name}: 谢谢你...我永远不会忘记今天的。"
         elif emotion.favorability >= 40:

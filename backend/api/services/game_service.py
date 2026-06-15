@@ -1,5 +1,6 @@
 """游戏服务"""
 from typing import Dict, Any, Optional
+import asyncio
 import json
 import threading
 import os
@@ -508,19 +509,19 @@ class GameService:
         except Exception as e:
             logger.error(f"保存对话轮次失败: {e}", exc_info=True)
     
-    def process_input(
-        self, 
-        thread_id: str, 
-        user_input: str, 
+    async def process_input(
+        self,
+        thread_id: str,
+        user_input: str,
         option_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """处理玩家输入
-        
+
         W6: 当 USE_NOS_AGENT_ENGINE=true 时使用 Agent 引擎
         """
         # W6: NOS Agent 引擎路径
         if USE_NOS_AGENT_ENGINE:
-            return self._process_with_nos_engine(thread_id, user_input)
+            return await self._process_with_nos_engine(thread_id, user_input)
 
         session = self.session_manager.get_session(thread_id)
         if not session:
@@ -930,7 +931,6 @@ class GameService:
         
         然后这个函数将替代原有的 StoryEngine 流程。
         """
-        import asyncio
         orchestrator = _get_agent_orchestrator()
         if not orchestrator:
             logger.warning("Agent 引擎未初始化，回退到 StoryEngine")
@@ -941,7 +941,8 @@ class GameService:
             raise RuntimeError("无法处理输入：Agent 引擎和 StoryEngine 均不可用")
 
         # 如果 orchestrator 尚未初始化当前会话
-        if not orchestrator.state or orchestrator.state.thread_id != thread_id:
+        session_state = orchestrator._states.get(thread_id) if hasattr(orchestrator, '_states') else orchestrator.state
+        if not session_state or (hasattr(session_state, 'thread_id') and session_state.thread_id != thread_id):
             session = self.session_manager.get_session(thread_id)
             if session:
                 character_id = session.character_id
@@ -959,7 +960,7 @@ class GameService:
 
         # 处理输入
         try:
-            result = await orchestrator.process_input(user_input)
+            result = await orchestrator.process_input(user_input, thread_id=thread_id)
         except Exception as e:
             logger.error(f"Agent 引擎处理失败: {e}", exc_info=True)
             raise
@@ -993,10 +994,51 @@ class GameService:
             "engine": "nos_agent",
         }
 
-    def _process_with_story_engine(self, session):
-        """使用原有 StoryEngine 处理（回退方案）"""
-        # 这里是原有的处理逻辑
-        pass
+    def _process_with_story_engine(self, session: GameSession) -> Dict[str, Any]:
+        """使用原有 StoryEngine 处理（回退方案）
+
+        当 NOS Agent 引擎初始化失败时，降级到旧引擎继续运行。
+        """
+        character_id = session.character_id
+        dialogue_data = session.story_engine.get_next_dialogue_round(character_id)
+        session.current_dialogue_round = dialogue_data
+        session.story_engine.record_character_dialogue(dialogue_data['character_dialogue'])
+
+        states = session.db_manager.get_character_states(character_id)
+        current_states = {
+            'favorability': states.favorability,
+            'trust': states.trust,
+            'hostility': states.hostility,
+            'dependence': states.dependence,
+            'emotion': states.emotion,
+            'stress': states.stress,
+            'anxiety': states.anxiety,
+            'happiness': states.happiness,
+            'sadness': states.sadness,
+            'confidence': states.confidence,
+            'initiative': states.initiative,
+            'caution': states.caution,
+        } if states else None
+
+        return {
+            'character_dialogue': dialogue_data['character_dialogue'],
+            'player_options': dialogue_data['player_options'],
+            'scene': session.story_engine.current_event.get('scene') if session.story_engine.current_event else 'classroom',
+            'scene_image_url': None,
+            'current_states': current_states,
+            'state_changes': {},
+            'phase': 'unknown',
+            'elapsed_minutes': 0,
+            'weather': 'clear',
+            'current_time': 'morning',
+            'round': len(session.story_engine.dialogue_history) // 2,
+            'is_game_finished': session.story_engine.is_game_finished(),
+            'event_type': None,
+            'event_description': None,
+            'consistency': {},
+            'emotion_tags': '',
+            'engine': 'story_engine_fallback',
+        }
 
     def _get_scene_image(self, scene_id: str) -> Optional[str]:
         """获取场景图片URL（复用图片池）"""

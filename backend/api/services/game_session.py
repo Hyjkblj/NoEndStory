@@ -13,6 +13,32 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 模块级单例：所有会话共享同一个 DBManager 和 VectorDatabase 实例，
+# 避免每个会话创建独立连接池（原实现 5 个并发会话 = 300 连接）。
+_shared_db_manager = None
+_shared_vector_db = None
+_shared_lock = threading.Lock()
+
+
+def _get_shared_db_manager() -> DatabaseManager:
+    """获取共享的 DatabaseManager 单例"""
+    global _shared_db_manager
+    if _shared_db_manager is None:
+        with _shared_lock:
+            if _shared_db_manager is None:
+                _shared_db_manager = DatabaseManager()
+    return _shared_db_manager
+
+
+def _get_shared_vector_db() -> VectorDatabase:
+    """获取共享的 VectorDatabase 单例"""
+    global _shared_vector_db
+    if _shared_vector_db is None:
+        with _shared_lock:
+            if _shared_vector_db is None:
+                _shared_vector_db = VectorDatabase()
+    return _shared_vector_db
+
 # 会话过期时间（小时）
 SESSION_EXPIRE_HOURS = 24
 
@@ -25,12 +51,10 @@ class GameSession:
         self.character_id = character_id
         self.game_mode = game_mode
         
-        # 初始化游戏组件（添加日志）
+        # 初始化游戏组件（使用共享单例，避免每个会话创建独立连接池）
         logger.info(f"正在初始化会话组件 (thread_id: {thread_id})...")
-        logger.debug("初始化数据库管理器...")
-        self.db_manager = DatabaseManager()
-        logger.debug("初始化向量数据库...")
-        self.vector_db = VectorDatabase()
+        self.db_manager = _get_shared_db_manager()
+        self.vector_db = _get_shared_vector_db()
         logger.debug("初始化事件生成器...")
         self.event_generator = EventGenerator(self.vector_db, self.db_manager)
         logger.debug("初始化故事引擎...")
@@ -109,7 +133,7 @@ class GameSessionManager:
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super(GameSessionManager, cls).__new__(cls)
-            cls._instance._db_manager = DatabaseManager()
+            cls._instance._db_manager = _get_shared_db_manager()
             cls._instance._load_sessions_from_db()
         return cls._instance
     
@@ -279,19 +303,20 @@ class GameSessionManager:
                 expired = db_session.query(GameSessionModel).filter(
                     GameSessionModel.expires_at < now
                 ).all()
-                
+
                 expired_count = len(expired)
-                for session in expired:
-                    # 从内存缓存中删除
-                    if session.thread_id in self._sessions:
-                        del self._sessions[session.thread_id]
-                
+                # 从内存缓存中删除（持锁保护 _sessions 字典）
+                with self._lock:
+                    for session in expired:
+                        if session.thread_id in self._sessions:
+                            del self._sessions[session.thread_id]
+
                 # 从数据库删除
                 db_session.query(GameSessionModel).filter(
                     GameSessionModel.expires_at < now
                 ).delete()
                 db_session.commit()
-                
+
                 if expired_count > 0:
                     logger.info(f"清理了 {expired_count} 个过期会话")
         except Exception as e:

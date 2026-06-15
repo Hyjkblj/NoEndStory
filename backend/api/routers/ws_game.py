@@ -104,7 +104,7 @@ async def _process_via_agent(thread_id: str, user_input: str) -> dict:
         from api.services.game_service import _get_agent_orchestrator
         orch = _get_agent_orchestrator()
         if orch:
-            return await orch.process_input(user_input)
+            return await orch.process_input(user_input, thread_id=thread_id)
 
     # 回退：返回简单响应
     return {

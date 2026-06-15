@@ -42,79 +42,73 @@ class ImagePoolService:
     
     def get_random_image(self, scene_id: str) -> Optional[Dict[str, Any]]:
         """从场景图片池中随机抽取一张图片
-        
+
         使用加权随机抽取，权重基于质量分数。
-        
+
         Args:
             scene_id: 场景ID
-            
+
         Returns:
             图片信息字典，如果没有可用图片返回None
         """
         try:
-            # 查询该场景的所有活跃图片
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 images = session.query(SceneImage).filter(
                     SceneImage.scene_id == scene_id,
                     SceneImage.status == 'active',
                     SceneImage.quality_score >= MIN_QUALITY_SCORE
                 ).all()
-                
+
                 if not images:
                     logger.warning(f"场景 {scene_id} 没有可用的图片")
                     return None
-                
+
                 # 加权随机抽取
                 weights = [img.quality_score for img in images]
                 selected_image = random.choices(images, weights=weights, k=1)[0]
-                
+
                 logger.debug(f"从场景 {scene_id} 的 {len(images)} 张图片中抽取: {selected_image.id}")
-                
+
                 return selected_image.to_dict()
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"从图片池抽取图片失败: {e}", exc_info=True)
             return None
     
     def get_pool_stats(self, scene_id: Optional[str] = None) -> Dict[str, Any]:
         """获取图片池统计信息
-        
+
         Args:
             scene_id: 场景ID（可选，如果不提供则返回所有场景的统计）
-            
+
         Returns:
             统计信息字典
         """
         try:
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 if scene_id:
                     # 单个场景的统计
                     total = session.query(SceneImage).filter(
                         SceneImage.scene_id == scene_id
                     ).count()
-                    
+
                     active = session.query(SceneImage).filter(
                         SceneImage.scene_id == scene_id,
                         SceneImage.status == 'active'
                     ).count()
-                    
+
                     high_quality = session.query(SceneImage).filter(
                         SceneImage.scene_id == scene_id,
                         SceneImage.status == 'active',
                         SceneImage.quality_score >= MIN_QUALITY_SCORE
                     ).count()
-                    
+
                     avg_score = session.query(SceneImage).filter(
                         SceneImage.scene_id == scene_id,
                         SceneImage.status == 'active'
                     ).with_entities(
                         func.avg(SceneImage.quality_score)
                     ).scalar() or 0.0
-                    
+
                     return {
                         'scene_id': scene_id,
                         'total_images': total,
@@ -126,8 +120,6 @@ class ImagePoolService:
                     }
                 else:
                     # 所有场景的统计
-                    from sqlalchemy import func
-                    
                     stats = session.query(
                         SceneImage.scene_id,
                         func.count(SceneImage.id).label('total'),
@@ -138,7 +130,7 @@ class ImagePoolService:
                         ).label('high_quality'),
                         func.avg(SceneImage.quality_score).filter(SceneImage.status == 'active').label('avg_score')
                     ).group_by(SceneImage.scene_id).all()
-                    
+
                     result = []
                     for stat in stats:
                         result.append({
@@ -150,26 +142,23 @@ class ImagePoolService:
                             'pool_status': 'healthy' if stat.high_quality >= MIN_POOL_SIZE else 'low',
                             'needs_generation': stat.high_quality < MIN_POOL_SIZE
                         })
-                    
+
                     return {
                         'scenes': result,
                         'total_scenes': len(result),
                         'scenes_needing_generation': sum(1 for s in result if s['needs_generation'])
                     }
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"获取图片池统计失败: {e}", exc_info=True)
             return {}
     
-    def add_image_to_pool(self, scene_id: str, image_url: str, 
+    def add_image_to_pool(self, scene_id: str, image_url: str,
                           image_path: Optional[str] = None,
                           quality_score: float = 3.0,
                           prompt_used: Optional[str] = None,
                           metadata: Optional[Dict] = None) -> Optional[SceneImage]:
         """添加图片到池中
-        
+
         Args:
             scene_id: 场景ID
             image_url: 图片URL
@@ -177,16 +166,15 @@ class ImagePoolService:
             quality_score: 质量分数（0-5）
             prompt_used: 使用的prompt（可选）
             metadata: 扩展元数据（可选）
-            
+
         Returns:
             创建的SceneImage对象，如果失败返回None
         """
         try:
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 # 检查池大小，如果超过最大值则清理低分图片
                 self._cleanup_pool_if_needed(session, scene_id)
-                
+
                 # 创建新的图片记录
                 scene_image = SceneImage(
                     scene_id=scene_id,
@@ -195,92 +183,69 @@ class ImagePoolService:
                     quality_score=quality_score,
                     status='active',
                     prompt_used=prompt_used,
-                    metadata=metadata,
+                    image_metadata=metadata,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow()
                 )
-                
+
                 session.add(scene_image)
-                session.commit()
-                
+
                 logger.info(f"添加图片到池: scene_id={scene_id}, quality={quality_score}")
-                
+
                 return scene_image
-            except Exception as e:
-                session.rollback()
-                raise e
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"添加图片到池失败: {e}", exc_info=True)
             return None
     
     def update_image_quality(self, image_id: int, quality_score: float) -> bool:
         """更新图片质量分数
-        
+
         Args:
             image_id: 图片ID
             quality_score: 新的质量分数（0-5）
-            
+
         Returns:
             是否更新成功
         """
         try:
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 image = session.query(SceneImage).filter(SceneImage.id == image_id).first()
                 if not image:
                     logger.warning(f"图片不存在: {image_id}")
                     return False
-                
+
                 image.quality_score = quality_score
                 image.updated_at = datetime.utcnow()
-                session.commit()
-                
+
                 logger.debug(f"更新图片质量分数: {image_id} -> {quality_score}")
-                
+
                 return True
-            except Exception as e:
-                session.rollback()
-                raise e
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"更新图片质量分数失败: {e}", exc_info=True)
             return False
     
     def deactivate_image(self, image_id: int) -> bool:
         """停用图片
-        
+
         Args:
             image_id: 图片ID
-            
+
         Returns:
             是否停用成功
         """
         try:
-            session = self.db_manager.get_session()
-            try:
+            with self.db_manager.get_session() as session:
                 image = session.query(SceneImage).filter(SceneImage.id == image_id).first()
                 if not image:
                     logger.warning(f"图片不存在: {image_id}")
                     return False
-                
+
                 image.status = 'inactive'
                 image.updated_at = datetime.utcnow()
-                session.commit()
-                
+
                 logger.debug(f"停用图片: {image_id}")
-                
+
                 return True
-            except Exception as e:
-                session.rollback()
-                raise e
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"停用图片失败: {e}", exc_info=True)
             return False
@@ -323,15 +288,12 @@ class ImagePoolService:
     
     def get_scenes_needing_generation(self) -> List[str]:
         """获取需要生成图片的场景列表
-        
+
         Returns:
             需要生成图片的场景ID列表
         """
         try:
-            session = self.db_manager.get_session()
-            try:
-                from sqlalchemy import func
-                
+            with self.db_manager.get_session() as session:
                 # 查询所有场景的高质量图片数量
                 stats = session.query(
                     SceneImage.scene_id,
@@ -340,17 +302,14 @@ class ImagePoolService:
                         SceneImage.quality_score >= MIN_QUALITY_SCORE
                     ).label('high_quality_count')
                 ).group_by(SceneImage.scene_id).all()
-                
+
                 # 找出图片数量不足的场景
                 scenes_needing_generation = []
                 for stat in stats:
                     if stat.high_quality_count < MIN_POOL_SIZE:
                         scenes_needing_generation.append(stat.scene_id)
-                
+
                 return scenes_needing_generation
-            finally:
-                session.close()
-                
         except Exception as e:
             logger.error(f"获取需要生成图片的场景失败: {e}", exc_info=True)
             return []
