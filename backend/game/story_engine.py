@@ -13,8 +13,21 @@ from data.scenes import (
     get_major_scene_keyword
 )
 from game.event_generator import EventGenerator
+from game.ai_generator import AIGenerator
 from database.db_manager import DatabaseManager
 import config
+
+
+# 模块级 AIGenerator 单例，避免每次 LLM 调用都新建实例链（P0-1）
+_text_gen = None
+
+
+def _get_text_gen():
+    """获取 AIGenerator 单例"""
+    global _text_gen
+    if _text_gen is None:
+        _text_gen = AIGenerator()
+    return _text_gen
 
 
 class StoryEngine:
@@ -53,9 +66,7 @@ class StoryEngine:
         Returns:
             响应对象（包含output.text属性），如果失败返回None
         """
-        from game.ai_generator import AIGenerator
-        
-        ai_gen = AIGenerator()
+        ai_gen = _get_text_gen()
         if not ai_gen.enabled:
             return None
         

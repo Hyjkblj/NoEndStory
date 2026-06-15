@@ -39,8 +39,9 @@ class GameSession:
 
 
 class GameSessionManager:
-    """游戏会话管理器（单例）"""
+    """游戏会话管理器（单例，线程安全）"""
     _instance = None
+    _lock = threading.RLock()
     _sessions: Dict[str, GameSession] = {}
     
     def __new__(cls):
@@ -60,19 +61,23 @@ class GameSessionManager:
             user_id = str(uuid.uuid4())
         
         session = GameSession(thread_id, user_id, character_id, game_mode)
-        self._sessions[thread_id] = session
+        with self._lock:
+            self._sessions[thread_id] = session
         return session
     
     def get_session(self, thread_id: str) -> Optional[GameSession]:
-        """获取游戏会话"""
-        return self._sessions.get(thread_id)
+        """获取游戏会话（线程安全）"""
+        with self._lock:
+            return self._sessions.get(thread_id)
     
     def delete_session(self, thread_id: str):
-        """删除游戏会话"""
-        if thread_id in self._sessions:
-            del self._sessions[thread_id]
+        """删除游戏会话（线程安全）"""
+        with self._lock:
+            if thread_id in self._sessions:
+                del self._sessions[thread_id]
     
     def get_all_sessions(self) -> Dict[str, GameSession]:
-        """获取所有会话"""
-        return self._sessions.copy()
+        """获取所有会话（线程安全）"""
+        with self._lock:
+            return self._sessions.copy()
 

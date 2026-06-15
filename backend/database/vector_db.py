@@ -49,9 +49,11 @@ class VectorDatabase:
                 metadata={"description": "存储剧情事件内容", "embedding_model": config.EMBEDDING_MODEL}
             )
         except Exception as e:
-            # 如果出现数据库兼容性问题，删除旧数据库并重新创建
-            print(f"[警告] 向量数据库初始化失败: {e}")
-            print("[信息] 正在重置向量数据库...")
+            # 分级异常处理，避免生产环境自动删除全部向量数据（P0-4）
+            from utils.logger import get_logger
+            _vdb_logger = get_logger(__name__)
+            
+            error_msg = str(e).lower()
             
             # 先关闭可能存在的客户端连接
             try:
@@ -60,15 +62,39 @@ class VectorDatabase:
             except:
                 pass
             
-            # 强制垃圾回收，释放文件句柄
             gc.collect()
             time.sleep(0.5)
             
-            # 重置数据库
-            self._reset_database()
-            
-            # 等待文件系统操作完成
-            time.sleep(0.5)
+            if "version" in error_msg or "schema" in error_msg or "migration" in error_msg:
+                # 版本不兼容 → 备份旧数据 → 创建新库
+                _vdb_logger.warning(f"向量数据库版本不兼容，尝试备份重建: {e}")
+                try:
+                    backup_path = config.VECTOR_DB_PATH + "_backup_" + str(int(time.time()))
+                    if os.path.exists(config.VECTOR_DB_PATH):
+                        os.rename(config.VECTOR_DB_PATH, backup_path)
+                        _vdb_logger.info(f"旧向量数据库已备份到: {backup_path}")
+                    os.makedirs(config.VECTOR_DB_PATH, exist_ok=True)
+                except Exception as backup_err:
+                    _vdb_logger.error(f"备份向量数据库失败: {backup_err}")
+                    raise RuntimeError(
+                        f"向量数据库版本不兼容，且备份失败: {backup_err}\n"
+                        f"请手动处理: {config.VECTOR_DB_PATH}"
+                    )
+                self._reset_database()
+                _vdb_logger.info("向量数据库已备份重建")
+            elif "locked" in error_msg or "permission" in error_msg:
+                # 文件锁定或权限不足 → 拒绝启动
+                raise RuntimeError(
+                    f"向量数据库文件被占用或权限不足: {e}\n"
+                    f"请关闭其他进程后重试，或检查目录权限: {config.VECTOR_DB_PATH}"
+                )
+            else:
+                # 未知错误 → 拒绝启动，要求人工介入
+                raise RuntimeError(
+                    f"向量数据库初始化失败: {e}\n"
+                    f"为保护数据安全，请手动排查后重启\n"
+                    f"数据目录: {config.VECTOR_DB_PATH}"
+                )
             
             # 重新初始化
             try:
@@ -84,12 +110,13 @@ class VectorDatabase:
                     embedding_function=self.embedding_function,
                     metadata={"description": "存储剧情事件内容", "embedding_model": config.EMBEDDING_MODEL}
                 )
-                print(f"[信息] 向量数据库已重置，使用embedding模型: {config.EMBEDDING_MODEL}")
+                _vdb_logger.info(f"向量数据库已重建，使用embedding模型: {config.EMBEDDING_MODEL}")
             except Exception as e2:
-                print(f"[错误] 重新初始化失败: {e2}")
-                print(f"[提示] 请关闭所有Python进程，然后手动删除目录: {config.VECTOR_DB_PATH}")
-                print(f"[提示] 或者运行修复脚本: python fix_vector_db.py")
-                raise
+                _vdb_logger.error(f"向量数据库重建失败: {e2}")
+                raise RuntimeError(
+                    f"向量数据库重建失败: {e2}\n"
+                    f"请手动检查: {config.VECTOR_DB_PATH}"
+                )
     
     def _get_embedding_function(self):
         """根据配置获取embedding函数"""

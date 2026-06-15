@@ -1,5 +1,6 @@
 """PostgreSQL数据库管理"""
 from sqlalchemy import create_engine
+from sqlalchemy.engine import URL
 from sqlalchemy.orm import sessionmaker, Session
 from contextlib import contextmanager
 from models.character import Base, Character, CharacterAttribute, CharacterState
@@ -10,10 +11,25 @@ class DatabaseManager:
     """数据库管理器"""
     
     def __init__(self):
+        # 使用 SQLAlchemy URL 构建器，自动处理密码中的特殊字符（P0-6）
+        url = URL.create(
+            drivername="postgresql",
+            username=config.DB_CONFIG['user'],
+            password=config.DB_CONFIG['password'],
+            host=config.DB_CONFIG['host'],
+            port=config.DB_CONFIG['port'],
+            database=config.DB_CONFIG['database'],
+        )
         self.engine = create_engine(
-            f"postgresql://{config.DB_CONFIG['user']}:{config.DB_CONFIG['password']}"
-            f"@{config.DB_CONFIG['host']}:{config.DB_CONFIG['port']}/{config.DB_CONFIG['database']}",
-            pool_pre_ping=True  # 自动重连
+            url,
+            pool_pre_ping=True,  # 自动重连
+            pool_size=20,        # 常驻连接数（P1 优化）
+            max_overflow=40,     # 溢出连接数
+            pool_recycle=3600,   # 1小时回收连接
+            connect_args={
+                "connect_timeout": 10,
+                "application_name": "noendstory",
+            }
         )
         self.SessionLocal = sessionmaker(bind=self.engine, expire_on_commit=False)
     

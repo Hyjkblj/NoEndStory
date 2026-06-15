@@ -403,10 +403,8 @@ async def remove_character_background(
     except ValueError:
         return error_response(code=400, message="无效的角色ID")
     except Exception as e:
-        import traceback
-        error_trace = traceback.format_exc()
         logger.error(f"选择图片失败: {str(e)}", exc_info=True)
-        return error_response(code=500, message=f"选择图片失败: {str(e)}", error={"traceback": error_trace})
+        return error_response(code=500, message="服务器内部错误，请稍后重试")
 
 
 @router.post("/initialize-story", response_model=dict)
@@ -442,7 +440,5 @@ async def initialize_story(
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
         logger.error(f"初始化故事失败: {str(e)}", exc_info=True)
-        import traceback
-        error_trace = traceback.format_exc()
-        return error_response(code=500, message=f"初始化故事失败: {str(e)}", error={"traceback": error_trace})
+        return error_response(code=500, message="服务器内部错误，请稍后重试")
 

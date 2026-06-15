@@ -142,9 +142,7 @@ async def process_input(
         return error_response(code=400, message=f"参数错误: {str(e)}")
     except Exception as e:
         logger.error(f"处理输入失败: {str(e)}", exc_info=True)
-        import traceback
-        error_trace = traceback.format_exc()
-        return error_response(code=500, message=f"处理输入失败: {str(e)}", error={"traceback": error_trace})
+        return error_response(code=500, message="服务器内部错误，请稍后重试")
 
 
 @router.get("/check-ending/{thread_id}", response_model=dict)
