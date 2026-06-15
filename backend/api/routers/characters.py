@@ -3,12 +3,22 @@ from fastapi import APIRouter, HTTPException, Depends
 from typing import List
 from api.schemas import (
     CreateCharacterRequest,
-    CharacterResponse,
-    CharacterImagesResponse,
+    CharacterData,
+    CreateCharacterApiResponse,
     InitializeStoryRequest,
-    RemoveBackgroundRequest
+    InitializeStoryData,
+    InitializeStoryApiResponse,
+    RemoveBackgroundRequest,
+    RemoveBackgroundData,
+    RemoveBackgroundApiResponse,
+    SceneListData,
+    SceneListApiResponse,
+    OpeningEventsData,
+    OpeningEventsApiResponse,
+    CharacterImagesData,
+    CharacterImagesApiResponse,
+    CharacterApiResponse,
 )
-from api.response import success_response, error_response, not_found_response
 from api.services.character_service import CharacterService
 from api.services.game_service import GameService
 from api.dependencies import get_character_service, get_game_service, get_image_service
@@ -20,7 +30,7 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/characters", tags=["角色管理"])
 
 
-@router.post("/create", response_model=dict)
+@router.post("/create", response_model=CreateCharacterApiResponse)
 async def create_character(
     request: CreateCharacterRequest,
     character_service: CharacterService = Depends(get_character_service)
@@ -82,15 +92,14 @@ async def create_character(
         # 验证character_id是否有效
         if not character_id or character_id <= 0:
             logger.error(f"创建角色失败: 返回的character_id无效: {character_id}")
-            return error_response(
-                code=500,
-                message=f"创建角色失败: 角色ID无效 ({character_id})"
+            raise HTTPException(
+                status_code=500,
+                detail=f"创建角色失败: 角色ID无效 ({character_id})"
             )
         
         logger.info(f"角色创建成功: character_id={character_id}")
         
         # 生成角色组图（如果服务已启用）
-        # 获取user_id和image_type（用于文件命名）
         user_id = request_data.get('user_id')
         image_type = request_data.get('image_type', 'portrait')
         image_urls = None
@@ -98,7 +107,7 @@ async def create_character(
             logger.info("开始调用生图服务（火山引擎 Seedream 组图 x3）...")
             image_urls = character_service.generate_character_image(
                 request_data, character_id, user_id, image_type,
-                generate_group=True, group_count=3  # 生成3张图片供前端三选一
+                generate_group=True, group_count=3
             )
             if image_urls:
                 logger.info(f"角色组图生成成功: 共 {len(image_urls)} 张图片")
@@ -112,32 +121,25 @@ async def create_character(
         # 获取角色信息
         character_info = character_service.get_character(character_id)
         
-        # 确保character_id在响应中（即使get_character已经返回了）
+        # 确保character_id在响应中
         if 'character_id' not in character_info or not character_info.get('character_id'):
             character_info['character_id'] = str(character_id)
             logger.debug(f"补充character_id到响应: {character_id}")
         
-        # 添加图片URL列表到响应（即使为空也要添加，确保前端能获取到）
+        # 添加图片URL列表到响应
         character_info['image_urls'] = image_urls if image_urls else []
         
         logger.info(f"创建角色响应: character_id={character_info.get('character_id')}, name={character_info.get('name')}, image_urls数量={len(character_info.get('image_urls', []))}")
         
-        return success_response(data=character_info)
+        return {"code": 200, "message": "ok", "data": character_info}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"创建角色失败: {e}", exc_info=True)
-        return error_response(
-            code=500,
-            message=f"创建角色失败: {str(e)}",
-            error={
-                "type": type(e).__name__,
-                "details": {
-                    "message": str(e)
-                }
-            }
-        )
+        raise HTTPException(status_code=500, detail=f"创建角色失败: {str(e)}")
 
 
-@router.get("/scenes", response_model=dict)
+@router.get("/scenes", response_model=SceneListApiResponse)
 async def get_scenes():
     """获取可用大场景列表（用于初遇场景选择）
     
@@ -155,7 +157,7 @@ async def get_scenes():
             logger.debug(f"大场景ID列表: {list(MAJOR_SCENES.keys())}")
         except Exception as import_error:
             logger.error(f"导入场景数据失败: {import_error}", exc_info=True)
-            return error_response(code=500, message=f"导入场景数据失败: {str(import_error)}")
+            raise HTTPException(status_code=500, detail=f"导入场景数据失败: {str(import_error)}")
         
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
@@ -164,27 +166,21 @@ async def get_scenes():
             scene_images_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
         
         # 获取所有场景图片文件，按大场景ID索引
-        # 格式：{major_scene_id}_{场景名称}.{ext}，例如：school_学校.jpeg
-        scene_images_by_id = {}  # 按major_scene_id索引
+        scene_images_by_id = {}
         
         if os.path.exists(scene_images_dir):
             image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
             all_files = os.listdir(scene_images_dir)
             
             for filename in all_files:
-                # 检查是否是图片文件
                 filename_lower = filename.lower()
                 if any(filename_lower.endswith(ext) for ext in image_extensions):
                     name_without_ext = os.path.splitext(filename)[0]
-                    
-                    # 尝试匹配格式：major_scene_id_场景名称
                     parts = name_without_ext.split('_', 1)
                     
                     if len(parts) == 2:
-                        # 格式：{major_scene_id}_{场景名称}.{ext}
                         major_scene_id = parts[0]
                         scene_name_from_file = parts[1]
-                        # URL编码文件名，确保中文文件名能正确访问
                         from urllib.parse import quote
                         encoded_filename = quote(filename, safe='')
                         scene_images_by_id[major_scene_id] = {
@@ -203,24 +199,18 @@ async def get_scenes():
             scene_name = major_scene_info.get('name', major_scene_id)
             scene_description = major_scene_info.get('description', f'在{scene_name}中初次相遇')
             
-            # 查找对应的图片
             image_url = None
             if major_scene_id in scene_images_by_id:
                 image_url = scene_images_by_id[major_scene_id]['url']
-            # 只在没有找到图片时输出警告（避免日志过多）
-            # else:
-            #     print(f"[警告] 大场景 {major_scene_id} 没有找到对应的图片文件")
             
-            # 获取初遇事件列表（用于后端随机选择）
             opening_events = major_scene_info.get('opening_events', [])
             
-            # 构建场景数据，确保 imageUrl 为字符串或 None（JSON序列化时 None 会变成 null）
             scene_data = {
-                'id': major_scene_id,  # 大场景ID，用于传递给 initialize_story
+                'id': major_scene_id,
                 'name': scene_name,
                 'description': scene_description,
-                'imageUrl': image_url if image_url else None,  # 大场景图片URL，None 会被序列化为 null
-                'openingEventsCount': len(opening_events)  # 该大场景下的初遇事件数量（前端显示用）
+                'imageUrl': image_url if image_url else None,
+                'openingEventsCount': len(opening_events)
             }
             major_scenes_list.append(scene_data)
         
@@ -233,13 +223,15 @@ async def get_scenes():
             logger.warning("场景列表为空！")
             logger.warning(f"MAJOR_SCENES 数量: {len(MAJOR_SCENES)}")
         
-        return success_response(data={'scenes': major_scenes_list})
+        return {"code": 200, "message": "ok", "data": {'scenes': major_scenes_list}}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取场景列表失败: {e}", exc_info=True)
-        return error_response(code=500, message=f"获取场景列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取场景列表失败: {str(e)}")
 
 
-@router.get("/scenes/{major_scene_id}/opening-events", response_model=dict)
+@router.get("/scenes/{major_scene_id}/opening-events", response_model=OpeningEventsApiResponse)
 async def get_opening_events(major_scene_id: str):
     """获取指定大场景下的所有初遇事件列表（用于用户选择）
     
@@ -252,39 +244,38 @@ async def get_opening_events(major_scene_id: str):
     try:
         from data.scenes import MAJOR_SCENES
         
-        # 获取大场景信息
         major_scene = MAJOR_SCENES.get(major_scene_id)
         if not major_scene:
-            return error_response(code=404, message=f"大场景 {major_scene_id} 不存在")
+            raise HTTPException(status_code=404, detail=f"大场景 {major_scene_id} 不存在")
         
-        # 获取初遇事件列表
         opening_events = major_scene.get('opening_events', [])
         
         if not opening_events:
-            return error_response(code=404, message=f"大场景 {major_scene_id} 没有初遇事件")
+            raise HTTPException(status_code=404, detail=f"大场景 {major_scene_id} 没有初遇事件")
         
-        # 格式化返回数据
         events_list = []
         for event in opening_events:
             events_list.append({
                 'id': event.get('id'),
                 'title': event.get('title'),
                 'description': event.get('description'),
-                'sub_scene': event.get('sub_scene'),  # 对应的小场景ID
+                'sub_scene': event.get('sub_scene'),
             })
         
         logger.info(f"返回大场景 {major_scene_id} 的 {len(events_list)} 个初遇事件")
-        return success_response(data={
+        return {"code": 200, "message": "ok", "data": {
             'major_scene_id': major_scene_id,
             'major_scene_name': major_scene.get('name', major_scene_id),
             'events': events_list
-        })
+        }}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取初遇事件列表失败: {e}", exc_info=True)
-        return error_response(code=500, message=f"获取初遇事件列表失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取初遇事件列表失败: {str(e)}")
 
 
-@router.get("/{character_id}", response_model=dict)
+@router.get("/{character_id}", response_model=CharacterApiResponse)
 async def get_character(
     character_id: str,
     character_service: CharacterService = Depends(get_character_service)
@@ -293,40 +284,41 @@ async def get_character(
     try:
         character_id_int = int(character_id)
         character_info = character_service.get_character(character_id_int)
-        return success_response(data=character_info)
+        return {"code": 200, "message": "ok", "data": character_info}
     except ValueError:
-        return error_response(code=400, message="无效的角色ID")
+        raise HTTPException(status_code=400, detail="无效的角色ID")
     except Exception as e:
         if "不存在" in str(e):
-            return not_found_response(message="角色不存在")
-        return error_response(code=500, message=f"获取角色失败: {str(e)}")
+            raise HTTPException(status_code=404, detail="角色不存在")
+        raise HTTPException(status_code=500, detail=f"获取角色失败: {str(e)}")
 
 
-@router.get("/{character_id}/images", response_model=dict)
+@router.get("/{character_id}/images", response_model=CharacterImagesApiResponse)
 async def get_character_images(
     character_id: str,
     character_service: CharacterService = Depends(get_character_service)
 ):
     """获取角色图片列表"""
     try:
-        # 检查character_id是否有效
         if not character_id or character_id == 'undefined' or character_id == 'null':
-            return error_response(code=400, message="无效的角色ID: character_id不能为空或undefined")
+            raise HTTPException(status_code=400, detail="无效的角色ID: character_id不能为空或undefined")
         
         character_id_int = int(character_id)
         if character_id_int <= 0:
-            return error_response(code=400, message="无效的角色ID: 角色ID必须大于0")
+            raise HTTPException(status_code=400, detail="无效的角色ID: 角色ID必须大于0")
         
         images = character_service.get_character_images(character_id_int)
-        return success_response(data={"images": images})
+        return {"code": 200, "message": "ok", "data": {"images": images}}
     except ValueError:
-        return error_response(code=400, message=f"无效的角色ID: '{character_id}' 不是有效的数字")
+        raise HTTPException(status_code=400, detail=f"无效的角色ID: '{character_id}' 不是有效的数字")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"获取角色图片失败: {e}", exc_info=True)
-        return error_response(code=500, message=f"获取角色图片失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"获取角色图片失败: {str(e)}")
 
 
-@router.post("/{character_id}/remove-background", response_model=dict)
+@router.post("/{character_id}/remove-background", response_model=RemoveBackgroundApiResponse)
 async def remove_character_background(
     character_id: str,
     request: RemoveBackgroundRequest = RemoveBackgroundRequest(),
@@ -345,35 +337,30 @@ async def remove_character_background(
         request: 请求体，包含image_url（可选）、image_urls（所有图片URL列表）、selected_index（选中的索引）
     """
     try:
-        # 解析请求体
         image_url = request.image_url if request else None
         image_urls = request.image_urls if request else None
         selected_index = request.selected_index if request else None
         
         character_id_int = int(character_id)
         
-        # 如果没有提供image_url，获取角色最新图片
         if not image_url:
             images = character_service.get_character_images(character_id_int)
             if not images or len(images) == 0:
-                return error_response(code=404, message="角色没有图片")
-            # 使用最新图片（第一张）
+                raise HTTPException(status_code=404, detail="角色没有图片")
             image_url = images[0]
         
         logger.info(f"用户选择角色图片: {image_url}")
         
-        # 先处理透明背景（使用基于原文件名的命名逻辑）
         logger.info("开始处理透明背景...")
         transparent_path = image_service.remove_background_with_rembg(
             image_path=image_url,
             character_id=character_id_int,
-            rename_to_standard=False  # 使用基于原文件名的命名逻辑
+            rename_to_standard=False
         )
         
         if not transparent_path:
-            return error_response(code=500, message="背景去除失败")
+            raise HTTPException(status_code=500, detail="背景去除失败")
         
-        # 构建返回的URL（静态文件路径）
         import os
         from urllib.parse import quote
         filename = os.path.basename(transparent_path)
@@ -381,7 +368,6 @@ async def remove_character_background(
         
         logger.info(f"透明背景处理成功: {result_url}")
         
-        # 等待透明背景处理完成后，再删除未选中的图片
         deleted_count = 0
         if image_urls and selected_index is not None and len(image_urls) > 1:
             deleted_count = image_service.delete_unselected_character_images(
@@ -391,54 +377,55 @@ async def remove_character_background(
             )
             logger.info(f"已删除 {deleted_count} 张未选中的图片")
         
-        # 返回透明背景图片URL
         logger.info(f"返回透明背景图片URL: {result_url}")
-        return success_response(data={
-            "selected_image_url": image_url,  # 原始图片URL
-            "transparent_url": result_url,    # 透明背景图片URL
+        return {"code": 200, "message": "ok", "data": {
+            "selected_image_url": image_url,
+            "transparent_url": result_url,
             "local_path": transparent_path,
             "deleted_count": deleted_count
-        })
+        }}
         
     except ValueError:
-        return error_response(code=400, message="无效的角色ID")
+        raise HTTPException(status_code=400, detail="无效的角色ID")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"选择图片失败: {str(e)}", exc_info=True)
-        return error_response(code=500, message="服务器内部错误，请稍后重试")
+        raise HTTPException(status_code=500, detail="服务器内部错误，请稍后重试")
 
 
-@router.post("/initialize-story", response_model=dict)
+@router.post("/initialize-story", response_model=InitializeStoryApiResponse)
 async def initialize_story(
     request: InitializeStoryRequest,
     game_service: GameService = Depends(get_game_service)
 ):
     """初始化故事（触发初遇场景）"""
     try:
-        # 验证必填参数
         if not request.thread_id:
             logger.error("thread_id 为空")
-            return error_response(code=422, message="thread_id 是必填参数")
+            raise HTTPException(status_code=422, detail="thread_id 是必填参数")
         if not request.character_id:
             logger.error("character_id 为空")
-            return error_response(code=422, message="character_id 是必填参数")
+            raise HTTPException(status_code=422, detail="character_id 是必填参数")
         
         try:
             character_id = int(request.character_id)
         except (ValueError, TypeError) as e:
             logger.error(f"character_id 格式错误: {request.character_id}, 错误: {e}")
-            return error_response(code=422, message=f"character_id 必须是有效的整数: {request.character_id}")
+            raise HTTPException(status_code=422, detail=f"character_id 必须是有效的整数: {request.character_id}")
         
-        scene_id = request.scene_id or 'school'  # 默认使用school场景
-        opening_event_id = request.opening_event_id  # 用户选择的初遇事件ID（可选）
-        character_image_url = request.character_image_url  # 用户选择的角色图片URL
+        scene_id = request.scene_id or 'school'
+        opening_event_id = request.opening_event_id
+        character_image_url = request.character_image_url
         logger.info(f"初始化故事请求: thread_id={request.thread_id}, character_id={character_id}, scene_id={scene_id}, opening_event_id={opening_event_id}, character_image_url={character_image_url}")
         result = game_service.initialize_story(request.thread_id, character_id, scene_id, character_image_url, opening_event_id)
         logger.info("初始化故事成功")
-        return success_response(data=result)
+        return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
         logger.error(f"参数错误: {str(e)}", exc_info=True)
-        return error_response(code=400, message=f"参数错误: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"参数错误: {str(e)}")
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"初始化故事失败: {str(e)}", exc_info=True)
-        return error_response(code=500, message="服务器内部错误，请稍后重试")
-
+        raise HTTPException(status_code=500, detail="服务器内部错误，请稍后重试")

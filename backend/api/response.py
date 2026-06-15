@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from api.schemas import ApiResponse
 
 
-def success_response(data: Any = None, message: str = "success") -> JSONResponse:
+def success_response(data: Any = None, message: str = "ok") -> JSONResponse:
     """成功响应"""
     return JSONResponse(
         status_code=200,
