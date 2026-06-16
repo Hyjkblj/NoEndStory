@@ -13,6 +13,7 @@ import logging
 from typing import Optional, List, Dict
 
 from llm import LLMService, LLMException
+from llm.call_config import get_call_params
 from utils.logger import get_logger
 
 # 模块级 logger
@@ -262,8 +263,9 @@ class TextGenerationService:
 故事背景（必须包含player和{character_name}的名字）："""
         
         try:
-            result = self._call_text_generation(prompt, max_tokens=300, temperature=0.8,
-                                                call_type="story")
+            p = get_call_params("story")
+            result = self._call_text_generation(prompt, max_tokens=p.max_tokens,
+                                                temperature=p.temperature, call_type=p.call_type)
             if result:
                 return result
             else:
@@ -564,8 +566,9 @@ class TextGenerationService:
     def _call_llm_for_dialogue(self, prompt: str) -> Optional[str]:
         """调用 LLM 生成角色对话"""
         try:
-            return self._call_text_generation(prompt, max_tokens=100, temperature=0.9,
-                                                call_type="dialogue")
+            p = get_call_params("dialogue")
+            return self._call_text_generation(prompt, max_tokens=p.max_tokens,
+                                              temperature=p.temperature, call_type=p.call_type)
         except Exception as e:
             logger.error("LLM 对话生成异常: %s", e)
             return None
@@ -764,8 +767,9 @@ class TextGenerationService:
 玩家选项（直接输出文本，每行一个选项）："""
         
         try:
-            result = self._call_text_generation(prompt, max_tokens=150, temperature=0.9,
-                                                call_type="options")
+            p = get_call_params("options")
+            result = self._call_text_generation(prompt, max_tokens=p.max_tokens,
+                                                temperature=p.temperature, call_type=p.call_type)
             if result:
                 options_text = result.strip()
                 # 解析选项
@@ -1051,8 +1055,9 @@ class TextGenerationService:
         
         try:
             if self.enabled:
-                result = self._call_text_generation(supplement_prompt, max_tokens=100, temperature=0.9,
-                                                       call_type="supplement")
+                p = get_call_params("supplement")
+                result = self._call_text_generation(supplement_prompt, max_tokens=p.max_tokens,
+                                                    temperature=p.temperature, call_type=p.call_type)
                 if result:
                     supplement_text = result.strip()
                     supplement_options = self._parse_options(supplement_text)

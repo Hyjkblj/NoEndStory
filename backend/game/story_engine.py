@@ -53,16 +53,16 @@ class StoryEngine:
         self.current_scene = 'classroom'  # 当前场景（小场景ID，默认使用教室）
         self.previous_event_contexts = []  # 记录之前的事件上下文，避免重复
     
-    def _call_generation_with_retry(
-        self, 
-        model: str, 
-        prompt: str, 
-        max_tokens: int = 200, 
+    def _call_generation_with_retry_REMOVED(
+        self,
+        model: str,
+        prompt: str,
+        max_tokens: int = 200,
         temperature: float = 0.7,
         max_retries: int = 3,
         retry_delay: float = 1.0
     ) -> Optional[Any]:
-        """带重试机制的文本生成调用（支持火山引擎和通义千问）
+        """[已废弃] 重试逻辑统一由 LLMService.call_with_retry 处理
         
         Args:
             model: 模型名称（保留参数以兼容旧代码，实际使用AIGenerator的统一接口）
@@ -476,21 +476,15 @@ class StoryEngine:
 事件描述："""
         
         try:
+            from llm.call_config import get_call_params
             ai_gen = _get_text_gen()
             if ai_gen.enabled:
-                response = self._call_generation_with_retry(
-                    model=None,  # 不再需要，使用AIGenerator的统一接口
-                    prompt=prompt,
-                    max_tokens=100,  # 优化：从200降到100，减少生成时间
-                    temperature=0.7,  # 降低温度，让生成更稳定、更符合逻辑
-                    max_retries=3,
-                    retry_delay=1.0
+                p = get_call_params("event_context")
+                result = ai_gen._call_text_generation(
+                    prompt, max_tokens=p.max_tokens, temperature=p.temperature, call_type=p.call_type
                 )
-
-                if response:
-                    context = response.output.text.strip()
-                    # 清理可能的引号
-                    context = context.strip('"').strip("'").strip()
+                if result:
+                    context = result.strip().strip('"').strip("'")
                     return context
         except Exception as e:
             logger.warning(f"AI生成事件上下文失败: {e}", exc_info=True)
@@ -579,17 +573,14 @@ class StoryEngine:
 
 请只返回场景ID（如：library、classroom、cafeteria等），不要返回其他内容。如果无法确定，返回"random"让我随机选择。"""
                 
-                response = self._call_generation_with_retry(
-                    model=None,  # 不再需要，使用AIGenerator的统一接口
-                    prompt=prompt,
-                    max_tokens=50,
-                    temperature=0.5,  # 降低温度，让场景选择更准确、更符合逻辑
-                    max_retries=3,
-                    retry_delay=1.0
+                from llm.call_config import get_call_params
+                p = get_call_params("scene_inference")
+                result = ai_gen._call_text_generation(
+                    prompt, max_tokens=p.max_tokens, temperature=p.temperature, call_type=p.call_type
                 )
-                
-                if response:
-                    inferred_scene = response.output.text.strip()
+
+                if result:
+                    inferred_scene = result.strip()
                     # 清理可能的引号和其他字符
                     inferred_scene = inferred_scene.strip('"').strip("'").strip().strip('。').strip('，')
                     

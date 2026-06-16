@@ -1,5 +1,6 @@
 """Dialogue Agent — 调用 LLM 生成角色台词"""
 from typing import Dict, Any, Optional, Callable
+from llm.call_config import get_call_params
 from .base import BaseAgent
 from .state import AgentState
 
@@ -56,8 +57,9 @@ class DialogueAgent(BaseAgent):
         # 尝试流式生成
         dialogue_parts = []
         try:
+            p = get_call_params("dialogue")
             for chunk in self.text_gen.generate_dialogue_stream(
-                prompt, max_tokens=100, temperature=0.9
+                prompt, max_tokens=p.max_tokens, temperature=p.temperature
             ):
                 dialogue_parts.append(chunk)
                 if on_token:
@@ -110,8 +112,9 @@ class DialogueAgent(BaseAgent):
     def _generate_dialogue(self, prompt: str) -> str:
         """调用 LLM 生成对话"""
         try:
+            p = get_call_params("dialogue")
             result = self.text_gen._call_text_generation(
-                prompt, max_tokens=100, temperature=0.9, call_type="dialogue"
+                prompt, max_tokens=p.max_tokens, temperature=p.temperature, call_type=p.call_type
             )
             return result.strip() if result else ""
         except Exception:
