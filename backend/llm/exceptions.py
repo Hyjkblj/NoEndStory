@@ -29,3 +29,8 @@ class LLMTimeoutError(LLMException):
 class LLMConfigError(LLMException):
     """配置错误"""
     pass
+
+
+class LLMQuotaExceeded(LLMAccountError):
+    """Token 额度耗尽（per-IP 或全局日预算超限）"""
+    pass

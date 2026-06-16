@@ -2,19 +2,28 @@
 
 记录每次 LLM 调用的 input/output tokens 和成本。
 通过 monkey-patch LLMService.call_with_retry 自动拦截所有 LLM 调用。
+提供 per-IP 和全局 token 额度限制，防止恶意用户消耗过多 API 额度。
 """
 
 import time
 import threading
 from collections import defaultdict
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 import os
 
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
+
+# 上下文变量：当前请求的客户端 IP（由中间件设置）
+_caller_ip: ContextVar[str] = ContextVar("caller_ip", default="unknown")
+
+# 额度配置（环境变量）
+TOKEN_DAILY_PER_IP = int(os.getenv("TOKEN_DAILY_PER_IP", "50000"))
+TOKEN_DAILY_GLOBAL = int(os.getenv("TOKEN_DAILY_GLOBAL", "500000"))
 
 
 @dataclass
@@ -100,10 +109,10 @@ class TokenTracker:
         if self._initialized:
             return
         self._initialized = True
-        
+
         self._records: List[TokenRecord] = []
         self._lock = threading.Lock()
-        
+
         # 按小时的聚合数据：{hour_key: {"input": N, "output": N, "cost": N, "calls": N}}
         self._hourly_stats: Dict[str, Dict[str, float]] = defaultdict(
             lambda: {"input_tokens": 0, "output_tokens": 0, "cost": 0.0, "calls": 0, "errors": 0}
@@ -118,9 +127,14 @@ class TokenTracker:
                 lambda: {"input_tokens": 0, "output_tokens": 0, "cost": 0.0, "calls": 0}
             )
         )
-        
+
+        # Per-IP 每日 token 消耗：{"2026-06-15": {"1.2.3.4": 12345, ...}}
+        self._ip_daily_tokens: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        # 全局每日 token 消耗：{"2026-06-15": 123456}
+        self._global_daily_tokens: Dict[str, int] = defaultdict(int)
+
         self._started_at = datetime.now()
-        logger.info("TokenTracker 已初始化")
+        logger.info(f"TokenTracker 已初始化 (per-IP 限额: {TOKEN_DAILY_PER_IP}/天, 全局限额: {TOKEN_DAILY_GLOBAL}/天)")
     
     def record(
         self,
@@ -156,7 +170,11 @@ class TokenTracker:
             output_tokens = _estimate_tokens(response_text or "")
         
         cost = calculate_cost(model, input_tokens, output_tokens) if success else 0.0
-        
+
+        # 获取当前请求的客户端 IP
+        caller_ip = _caller_ip.get("unknown")
+        day_key = datetime.now().strftime("%Y-%m-%d")
+
         record = TokenRecord(
             timestamp=time.time(),
             provider=provider,
@@ -199,6 +217,11 @@ class TokenTracker:
             self._daily_by_type[day_key][call_type]["output_tokens"] += output_tokens
             self._daily_by_type[day_key][call_type]["cost"] += cost
             self._daily_by_type[day_key][call_type]["calls"] += 1
+
+            # 更新 per-IP 和全局 token 计数
+            total_tokens = input_tokens + output_tokens
+            self._ip_daily_tokens[day_key][caller_ip] += total_tokens
+            self._global_daily_tokens[day_key] += total_tokens
         
         logger.debug(
             f"Token 记录: provider={provider}, model={model}, type={call_type}, "
@@ -300,8 +323,56 @@ class TokenTracker:
             self._hourly_stats.clear()
             self._daily_stats.clear()
             self._daily_by_type.clear()
+            self._ip_daily_tokens.clear()
+            self._global_daily_tokens.clear()
             self._started_at = datetime.now()
             logger.info("TokenTracker 数据已重置")
+
+    def check_budget(self, ip: str = None) -> Tuple[bool, str]:
+        """检查当前 IP 和全局 token 预算是否允许一次 LLM 调用
+
+        Args:
+            ip: 客户端 IP。如果为 None，从上下文变量读取。
+
+        Returns:
+            (allowed, reason) — allowed=True 可以调用，False 表示超限
+        """
+        if ip is None:
+            ip = _caller_ip.get("unknown")
+        day_key = datetime.now().strftime("%Y-%m-%d")
+
+        with self._lock:
+            # 检查 per-IP 日限额
+            ip_tokens = self._ip_daily_tokens[day_key].get(ip, 0)
+            if ip_tokens >= TOKEN_DAILY_PER_IP:
+                return False, f"IP {ip} 今日已消耗 {ip_tokens} tokens，超过限额 {TOKEN_DAILY_PER_IP}"
+
+            # 检查全局日限额
+            global_tokens = self._global_daily_tokens.get(day_key, 0)
+            if global_tokens >= TOKEN_DAILY_GLOBAL:
+                return False, f"全局今日已消耗 {global_tokens} tokens，超过限额 {TOKEN_DAILY_GLOBAL}"
+
+        return True, ""
+
+    def get_ip_usage(self, ip: str = None, days: int = 7) -> List[Dict]:
+        """获取指定 IP 最近 N 天的 token 使用情况"""
+        if ip is None:
+            ip = _caller_ip.get("unknown")
+        with self._lock:
+            now = datetime.now()
+            result = []
+            for i in range(days):
+                t = now - timedelta(days=i)
+                key = t.strftime("%Y-%m-%d")
+                tokens = self._ip_daily_tokens.get(key, {}).get(ip, 0)
+                result.append({"date": key, "ip": ip, "tokens": tokens, "limit": TOKEN_DAILY_PER_IP})
+            result.reverse()
+            return result
+
+    @staticmethod
+    def set_caller_ip(ip: str):
+        """设置当前请求的客户端 IP（由中间件调用）"""
+        _caller_ip.set(ip)
 
 
 # 全局单例
@@ -324,17 +395,25 @@ def install_token_tracking():
         original_call_with_retry = LLMService.call_with_retry
         original_chat_completion = LLMService.chat_completion
         
-        async def tracked_call_with_retry(self, messages, max_tokens=None, 
+        async def tracked_call_with_retry(self, messages, max_tokens=None,
                                           temperature=None, max_retries=3,
                                           retry_delay=1.0, **kwargs):
-            """带 token 追踪的 call_with_retry"""
+            """带 token 追踪 + 额度检查的 call_with_retry"""
             from llm.providers.base import LLMResponse
+            from llm.exceptions import LLMQuotaExceeded
             tracker = get_token_tracker()
+
+            # 额度检查（调用前）
+            allowed, reason = tracker.check_budget()
+            if not allowed:
+                logger.warning(f"Token 额度超限，拒绝调用: {reason}")
+                raise LLMQuotaExceeded(reason)
+
             start = time.time()
             success = True
             error_msg = ""
             result = None
-            
+
             try:
                 result = original_call_with_retry(
                     self, messages=messages, max_tokens=max_tokens,
@@ -370,15 +449,23 @@ def install_token_tracking():
             return result
         
         def tracked_chat_completion(self, prompt, max_tokens=200, temperature=0.7,
-                                     system_message=None, use_retry=True, 
+                                     system_message=None, use_retry=True,
                                      call_type="unknown", **kwargs):
-            """带 token 追踪的 chat_completion"""
+            """带 token 追踪 + 额度检查的 chat_completion"""
+            from llm.exceptions import LLMQuotaExceeded
             tracker = get_token_tracker()
+
+            # 额度检查（调用前）
+            allowed, reason = tracker.check_budget()
+            if not allowed:
+                logger.warning(f"Token 额度超限，拒绝调用: {reason}")
+                raise LLMQuotaExceeded(reason)
+
             start = time.time()
             success = True
             error_msg = ""
             result_text = ""
-            
+
             try:
                 result_text = original_chat_completion(
                     self, prompt=prompt, max_tokens=max_tokens,

@@ -117,6 +117,19 @@ app.add_middleware(
     )
 )
 
+# Token 额度限制：设置当前请求的客户端 IP（供 TokenTracker 使用）
+@app.middleware("http")
+async def set_caller_ip_for_token_tracker(request: Request, call_next):
+    """将客户端 IP 传递给 TokenTracker，用于 per-IP token 额度限制"""
+    from monitoring.token_tracker import TokenTracker
+    client_ip = request.client.host if request.client else "unknown"
+    # 支持反向代理
+    forwarded = request.headers.get("x-forwarded-for")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    TokenTracker.set_caller_ip(client_ip)
+    return await call_next(request)
+
 # W8: 启动失败时返回503的中间件
 @app.middleware("http")
 async def check_startup_status(request: Request, call_next):
