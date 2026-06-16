@@ -1,5 +1,6 @@
 """图片生成服务（负责调用AI模型生成图片）"""
 from typing import Dict, Any, Optional, List
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
 import os
 
@@ -389,95 +390,70 @@ class ImageGenerationService:
             # 人物图片使用9:16竖屏比例（适合人物立绘）
             character_image_size = "1440x2560"  # 9:16竖屏比例，2K分辨率
             
-            # 如果生成组图，循环调用API生成多张不同变体的图片
+            # 如果生成组图，并行调用API生成多张不同变体的图片
             if generate_group and group_count > 1:
-                image_urls = []
-                
                 # 定义每张图片的变体描述（让3张图片有差异）
                 variant_descriptions = [
                     "正面全身像，微笑表情，自然站立姿势",
                     "正面全身像，温和表情，优雅姿态",
                     "正面半身像，自信表情，手部动作"
                 ]
-                
-                # 如果组图数量超过预定义的变体数量，循环使用
-                for i in range(group_count):
+
+                def _generate_single(i: int) -> Optional[str]:
+                    """生成单张图片（在线程池中执行）"""
                     variant_idx = i % len(variant_descriptions)
-                    variant_desc = variant_descriptions[variant_idx]
-                    
-                    # 为每张图片构建独特的prompt
-                    variant_prompt = f"{prompt}，{variant_desc}"
-                    
+                    variant_prompt = f"{prompt}，{variant_descriptions[variant_idx]}"
+
                     logger.debug(f"正在生成第 {i + 1}/{group_count} 张图片...")
-                    logger.debug(f"变体Prompt: {variant_prompt[:120]}...")
-                    
-                    # 构建请求体
                     payload = {
                         "model": config.VOLCENGINE_IMAGE_MODEL,
                         "prompt": variant_prompt,
                         "size": character_image_size,
                         "response_format": "url",
-                        "watermark": False,  # 不带水印
-                        "stream": False  # 非流式输出
+                        "watermark": False,
+                        "stream": False,
                     }
-                    
-                    # 发送请求
-                    response = requests.post(
-                        self.volcengine_api_url,
-                        headers=headers,
-                        json=payload,
-                        timeout=120  # 单张图片生成超时时间
-                    )
-                    
-                    # 检查HTTP状态码
-                    if response.status_code != 200:
-                        logger.warning(f"第 {i + 1} 张图片生成失败: HTTP {response.status_code}")
-                        logger.debug(f"响应内容: {response.text[:200]}")
-                        continue  # 继续生成下一张
-                    
-                    # 解析响应
-                    resp_data = response.json()
-                    
-                    # 检查是否有错误
+                    resp = requests.post(self.volcengine_api_url, headers=headers, json=payload, timeout=120)
+                    if resp.status_code != 200:
+                        logger.warning(f"第 {i + 1} 张图片生成失败: HTTP {resp.status_code}")
+                        return None
+
+                    resp_data = resp.json()
                     if 'error' in resp_data:
-                        error_info = resp_data['error']
-                        error_msg = error_info.get('message', '未知错误')
-                        logger.warning(f"第 {i + 1} 张图片生成失败: {error_msg}")
-                        continue  # 继续生成下一张
-                    
-                    # 提取图片URL
-                    if 'data' in resp_data and len(resp_data['data']) > 0:
-                        image_data = resp_data['data'][0]  # 每次调用只生成一张图片
-                        image_url = image_data.get('url')
-                        if image_url:
-                            logger.info(f"第 {i + 1} 张图片生成成功: {image_url}")
-                            
-                            # 保存图片到本地（如果启用且提供了存储服务）
-                            final_url = image_url  # 默认使用临时URL
-                            
-                            if config.IMAGE_SAVE_ENABLED and self.storage_service and character_id:
-                                logger.debug(f"开始保存第 {i + 1} 张图片到本地...")
-                                local_path = self.storage_service.save_image(
-                                    image_url, character_id, user_id, image_type,
-                                    image_index=i + 1  # 图片索引（1, 2, 3）
-                                )
-                                if local_path:
-                                    logger.info(f"第 {i + 1} 张图片已保存到本地: {local_path}")
-                                    # 构建静态文件URL（使用本地保存的文件）
-                                    final_url = get_static_url(local_path, 'characters')
-                                    logger.debug(f"使用本地静态文件URL: {final_url}")
-                                else:
-                                    logger.warning(f"第 {i + 1} 张图片保存失败: 返回路径为None，使用临时URL")
-                            elif not character_id:
-                                logger.debug(f"第 {i + 1} 张图片未保存: character_id为None，使用临时URL")
-                            
-                            image_urls.append(final_url)
-                        else:
-                            logger.warning(f"第 {i + 1} 张图片响应中未找到URL")
-                    else:
-                        logger.warning(f"第 {i + 1} 张图片响应中未找到data字段")
-                
-                # 检查是否成功生成了至少一张图片
+                        logger.warning(f"第 {i + 1} 张图片生成失败: {resp_data['error'].get('message', '')}")
+                        return None
+
+                    if 'data' not in resp_data or not resp_data['data']:
+                        return None
+
+                    image_url = resp_data['data'][0].get('url')
+                    if not image_url:
+                        return None
+
+                    # 保存到本地
+                    final_url = image_url
+                    if config.IMAGE_SAVE_ENABLED and self.storage_service and character_id:
+                        local_path = self.storage_service.save_image(
+                            image_url, character_id, user_id, image_type, image_index=i + 1
+                        )
+                        if local_path:
+                            final_url = get_static_url(local_path, 'characters')
+                    return final_url
+
+                # 并行生成（3 张同时请求，总耗时 = 最慢的 1 张，而非 3 张之和）
+                image_urls = []
+                with ThreadPoolExecutor(max_workers=group_count, thread_name_prefix="img_gen") as pool:
+                    futures = {pool.submit(_generate_single, i): i for i in range(group_count)}
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        try:
+                            url = future.result()
+                            if url:
+                                image_urls.append(url)
+                                logger.info(f"第 {idx + 1} 张图片生成成功")
+                        except Exception as e:
+                            logger.warning(f"第 {idx + 1} 张图片生成异常: {e}")
+
                 if image_urls:
                     logger.info(f"组图生成完成: 成功生成 {len(image_urls)}/{group_count} 张图片")
                     return image_urls

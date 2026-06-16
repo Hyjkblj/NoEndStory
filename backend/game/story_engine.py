@@ -3,6 +3,7 @@ import random
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Any
 from data.scenes import (
     SCENES,
@@ -248,20 +249,33 @@ class StoryEngine:
             )
             previous_docs = self._flatten_documents(previous_dialogues.get('documents', []))
         
-        # 2. 从历史事件中提取场景关键词，推演下一个场景
-        next_scene = self._infer_next_scene_from_history(
-            character_id=character_id,
-            previous_events=previous_docs,
-            current_scene=self.current_scene
-        )
-        
-        # 生成事件上下文（由AI基于历史事件生成，确保不重复且有连续性）
-        event_context = self._generate_event_context(
-            character_id=character_id,
-            event_number=event_number,
-            previous_events=previous_docs,
-            current_scene=next_scene
-        )
+        # 2. 并行推演场景 + 生成事件上下文（省 1-2 秒）
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="event_transition") as pool:
+            scene_future = pool.submit(
+                self._infer_next_scene_from_history,
+                character_id=character_id,
+                previous_events=previous_docs,
+                current_scene=self.current_scene,
+            )
+            # 上下文先用当前场景生成（85% 概率场景不变）
+            context_future = pool.submit(
+                self._generate_event_context,
+                character_id=character_id,
+                event_number=event_number,
+                previous_events=previous_docs,
+                current_scene=self.current_scene,
+            )
+            next_scene = scene_future.result()
+            event_context = context_future.result()
+
+        # 场景变了（15% 概率）→ 用新场景重新生成上下文
+        if next_scene != self.current_scene:
+            event_context = self._generate_event_context(
+                character_id=character_id,
+                event_number=event_number,
+                previous_events=previous_docs,
+                current_scene=next_scene,
+            )
         
         # 更新当前场景
         if next_scene != self.current_scene:
@@ -783,100 +797,33 @@ class StoryEngine:
         return dialogue_data
     
     def should_continue_dialogue(self, character_id: int) -> bool:
-        """判断是否应该继续对话（由AI决定，确保对话有头有尾）"""
+        """判断是否应该继续对话（规则化，零延迟）
+
+        策略：概率递增
+          Round 0-1: 必须继续（建立上下文）
+          Round 2: 20% 概率结束
+          Round 3: 50% 概率结束
+          Round 4: 80% 概率结束
+          Round 5: 强制结束
+        """
         current_rounds = len(self.dialogue_history) // 2
 
-        # 硬上限：最多5轮对话，直接结束
+        # Phase 1: 必须继续（建立上下文）
+        if current_rounds < self.min_dialogue_rounds:
+            logger.debug(f"[对话判断] 轮次 {current_rounds} < 最小 {self.min_dialogue_rounds}，继续")
+            return True
+
+        # Phase 2: 强制结束（硬上限）
         if current_rounds >= self.max_dialogue_rounds:
-            print(f"[对话判断] 达到最大轮次上限({self.max_dialogue_rounds})，强制结束对话")
+            logger.debug(f"[对话判断] 轮次 {current_rounds} >= 最大 {self.max_dialogue_rounds}，结束")
             return False
 
-        # 如果对话轮次少于最少轮数，必须继续对话
-        if len(self.dialogue_history) < self.min_dialogue_rounds:
-            return True
-        
-        # 使用AI判断是否应该继续对话
-        # 基于当前对话历史、故事背景、事件上下文来判断
-        try:
-            ai_gen = _get_text_gen()
-            if ai_gen.enabled:
-                # 获取角色信息
-                character = self.db_manager.get_character(character_id)
-                character_name = character.name if character else "角色"
-                
-                # 构建当前对话摘要
-                dialogue_summary = []
-                for item in self.dialogue_history[-6:]:  # 取最近3轮对话
-                    if item['type'] == 'character':
-                        dialogue_summary.append(f"{character_name}: {item['content']}")
-                    elif item['type'] == 'player':
-                        # 明确标注玩家发言，避免模型混淆角色与玩家语句
-                        content = item['content']
-                        # 如果包含player:前缀，去除它
-                        if content.startswith("player:") or content.startswith("player："):
-                            content = re.sub(r'^player[：:]\s*', '', content)
-                        dialogue_summary.append(f"玩家: {content}")
-                
-                dialogue_text = "\n".join(dialogue_summary)
-                
-                # 从向量数据库检索历史对话，用于判断
-                recent_events = self.event_generator.vector_db.search_similar_events(
-                    character_id=character_id,
-                    query="对话 交流 谈话",
-                    n_results=3
-                )
-                
-                history_context = ""
-                if recent_events.get('documents'):
-                    history_context = "\n历史事件对话参考：\n" + "\n".join([f"- {d[:150]}" for d in recent_events['documents'][:2]])
-                
-                prompt = f"""你是一个剧情游戏的对话判断助手。请判断当前事件的对话是否应该继续。
-
-【时间设定】故事发生在当下（现代），不要出现年代错位背景。
-
-【当前事件背景】：
-{self.current_event.get('story_background', '')[:200] if self.current_event else ''}
-
-【当前对话历史】：
-{dialogue_text}
-
-{history_context}
-
-【判断标准】：
-1. 如果对话刚刚开始（少于2轮），必须继续
-2. 如果对话已经完整地概述了当前事件，可以结束
-3. 如果对话已经为下一轮事件做好了铺垫（承上启下），可以结束
-4. 如果对话还在发展中，需要继续
-5. 对话必须有头有尾，不能突然中断
-6. 如果已经接近最大轮次（最多{self.max_dialogue_rounds}轮），优先收束对话
-
-请只返回"继续"或"结束"，不要返回其他内容。"""
-                
-                response = self._call_generation_with_retry(
-                    model=None,  # 不再需要，使用AIGenerator的统一接口
-                    prompt=prompt,
-                    max_tokens=20,
-                    temperature=0.3,
-                    max_retries=3,
-                    retry_delay=1.0
-                )
-                
-                if response:
-                    result = response.output.text.strip().lower()
-                    if "结束" in result or "stop" in result or "finish" in result:
-                        print(f"[对话判断] AI判断：对话应该结束（已完成{len(self.dialogue_history)//2}轮）")
-                        return False
-                    else:
-                        print(f"[对话判断] AI判断：对话应该继续（当前{len(self.dialogue_history)//2}轮）")
-                        return True
-        except Exception as e:
-            print(f"[警告] AI判断对话是否继续失败: {e}")
-            # 回退：如果对话轮次>=4，可以结束；否则继续
-            if len(self.dialogue_history) >= 8:  # 4轮对话
-                return False
-        
-        # 默认继续（保守策略）
-        return True
+        # Phase 3: 概率递增收束
+        wind_down_prob = {2: 0.2, 3: 0.5, 4: 0.8}
+        prob = wind_down_prob.get(current_rounds, 0.5)
+        should_end = random.random() < prob
+        logger.debug(f"[对话判断] 轮次 {current_rounds}，结束概率 {prob:.0%}，{'结束' if should_end else '继续'}")
+        return not should_end
     
     def save_dialogue_round_to_vector_db(self, character_id: int, dialogue_round: int, state_changes: dict = None):
         """将当前轮次的对话保存到向量数据库（重构版：支持四类文本存储）

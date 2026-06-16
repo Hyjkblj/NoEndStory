@@ -153,21 +153,24 @@ class AgentOrchestrator:
             except Exception as e:
                 logger.warning(f"获取场景图片失败: {e}")
 
+        # 5.5 TTS: 异步生成（不阻塞 pipeline，结果后续推送到客户端）
+        tts_future = None
         if self.tts_service and self.tts_service.enabled and character_dialogue:
             try:
                 emotion_params = self._emotion_to_tts_params(state.emotion)
-                tts_result = self.tts_service.generate_speech(
-                    text=character_dialogue,
-                    character_id=state.character_id,
-                    emotion_params=emotion_params,
+                loop = asyncio.get_running_loop()
+                tts_future = loop.run_in_executor(
+                    None,
+                    lambda: self.tts_service.generate_speech(
+                        text=character_dialogue,
+                        character_id=state.character_id,
+                        emotion_params=emotion_params,
+                    ),
                 )
-                if tts_result:
-                    state.output_audio_url = tts_result.get("audio_url", "")
-                    state.output_audio_duration = tts_result.get("duration", 0.0)
             except Exception as e:
-                logger.warning(f"TTS 生成失败: {e}")
+                logger.warning(f"TTS 提交失败: {e}")
 
-        # 6. Consistency: 输出前校验
+        # 6. Consistency: 输出前校验（与 TTS 并行执行）
         consistency_result = await self.consistency.think(state)
 
         # 保存事件摘要到记忆
@@ -178,6 +181,22 @@ class AgentOrchestrator:
             )
             state.event_history.append(state.pending_event)
 
+        # 等待 TTS 完成（如果还在运行）
+        audio_url = None
+        audio_duration = 0.0
+        if tts_future:
+            try:
+                tts_result = await asyncio.wait_for(tts_future, timeout=5.0)
+                if tts_result:
+                    audio_url = tts_result.get("audio_url", "")
+                    audio_duration = tts_result.get("duration", 0.0)
+                    state.output_audio_url = audio_url
+                    state.output_audio_duration = audio_duration
+            except asyncio.TimeoutError:
+                logger.warning("TTS 超时（5s），跳过语音")
+            except Exception as e:
+                logger.warning(f"TTS 等待失败: {e}")
+
         # 构建输出
         output = {
             "thread_id": state.thread_id,
@@ -185,8 +204,8 @@ class AgentOrchestrator:
             "player_options": state.output_options,
             "scene": state.output_scene,
             "scene_image_url": state.output_scene_image_url or None,
-            "audio_url": state.output_audio_url or None,
-            "audio_duration": state.output_audio_duration,
+            "audio_url": audio_url,
+            "audio_duration": audio_duration,
             "current_states": state.emotion.to_dict(),
             "state_changes": state.output_emotion_changes,
             "pad": emotion_result.get("pad", {}),
@@ -273,21 +292,24 @@ class AgentOrchestrator:
         character_dialogue = dialogue_result.get("character_dialogue", "")
 
         # 5.5 TTS
+        # 5.5 TTS: 异步生成
+        tts_future = None
         if self.tts_service and self.tts_service.enabled and character_dialogue:
             try:
                 emotion_params = self._emotion_to_tts_params(state.emotion)
-                tts_result = self.tts_service.generate_speech(
-                    text=character_dialogue,
-                    character_id=state.character_id,
-                    emotion_params=emotion_params,
+                loop = asyncio.get_running_loop()
+                tts_future = loop.run_in_executor(
+                    None,
+                    lambda: self.tts_service.generate_speech(
+                        text=character_dialogue,
+                        character_id=state.character_id,
+                        emotion_params=emotion_params,
+                    ),
                 )
-                if tts_result:
-                    state.output_audio_url = tts_result.get("audio_url", "")
-                    state.output_audio_duration = tts_result.get("duration", 0.0)
             except Exception as e:
-                logger.warning(f"TTS 生成失败: {e}")
+                logger.warning(f"TTS 提交失败: {e}")
 
-        # 6. Consistency
+        # 6. Consistency（与 TTS 并行）
         consistency_result = await self.consistency.think(state)
 
         # 保存事件摘要到记忆
@@ -298,14 +320,30 @@ class AgentOrchestrator:
             )
             state.event_history.append(state.pending_event)
 
+        # 等待 TTS 完成
+        audio_url = None
+        audio_duration = 0.0
+        if tts_future:
+            try:
+                tts_result = await asyncio.wait_for(tts_future, timeout=5.0)
+                if tts_result:
+                    audio_url = tts_result.get("audio_url", "")
+                    audio_duration = tts_result.get("duration", 0.0)
+                    state.output_audio_url = audio_url
+                    state.output_audio_duration = audio_duration
+            except asyncio.TimeoutError:
+                logger.warning("TTS 超时（5s），跳过语音")
+            except Exception as e:
+                logger.warning(f"TTS 等待失败: {e}")
+
         return {
             "thread_id": state.thread_id,
             "character_dialogue": character_dialogue,
             "player_options": state.output_options,
             "scene": state.output_scene,
             "scene_image_url": state.output_scene_image_url or None,
-            "audio_url": state.output_audio_url or None,
-            "audio_duration": state.output_audio_duration,
+            "audio_url": audio_url,
+            "audio_duration": audio_duration,
             "current_states": state.emotion.to_dict(),
             "state_changes": state.output_emotion_changes,
             "pad": emotion_result.get("pad", {}),
