@@ -133,4 +133,27 @@ export function setMainGameSave(save: MainGameSave): void {
   localStorage.setItem(KEYS.MAIN_SAVE, JSON.stringify(save));
 }
 
+/** 清除所有游戏存档数据 */
+export function clearAllGameData(): void {
+  // 清除 sessionStorage
+  sessionStorage.removeItem(KEYS.CHARACTER_DATA);
+  sessionStorage.removeItem(KEYS.CREATED_CHARACTER_ID);
+  sessionStorage.removeItem(KEYS.RESTORE_THREAD_ID);
+  sessionStorage.removeItem(KEYS.RESTORE_CHARACTER_ID);
+  sessionStorage.removeItem(KEYS.GAME_THREAD_ID);
+  sessionStorage.removeItem(KEYS.GAME_CHARACTER_ID);
+  sessionStorage.removeItem(KEYS.CURRENT_CHARACTER_ID);
+  sessionStorage.removeItem(KEYS.INITIAL_GAME_DATA);
+
+  // 清除 localStorage 中的存档
+  localStorage.removeItem(KEYS.MAIN_SAVE);
+  // 清除所有 gameSave_ 开头的存档
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith('gameSave_')) keysToRemove.push(key);
+  }
+  keysToRemove.forEach((key) => localStorage.removeItem(key));
+}
+
 export { KEYS as GAME_STORAGE_KEYS };

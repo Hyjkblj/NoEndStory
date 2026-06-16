@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Modal, App as AntdApp } from 'antd';
+import { Button, Modal, Switch, Slider, Select, Divider, App as AntdApp } from 'antd';
 import {
   PlayCircleOutlined,
   FileTextOutlined,
@@ -51,23 +51,31 @@ function FirstStep() {
     navigate(ROUTES.CHARACTER_SETTING);
   };
 
-  const handleSettings = () => {
-    Modal.info({
-      title: '游戏设置',
-      content: (
-        <div>
-          <p>设置功能开发中...</p>
-          <p>未来将包含：</p>
-          <ul>
-            <li>音量调节</li>
-            <li>画面设置</li>
-            <li>快捷键设置</li>
-            <li>语言选择</li>
-          </ul>
-        </div>
-      ),
-      okText: '确定',
-      width: 400,
+  // 设置状态
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(() => localStorage.getItem('tts_enabled') !== 'false');
+  const [ttsVolume, setTtsVolume] = useState(() => parseFloat(localStorage.getItem('tts_volume') || '0.8'));
+  const [textSpeed, setTextSpeed] = useState(() => localStorage.getItem('text_speed') || 'medium');
+
+  const handleSaveSettings = () => {
+    localStorage.setItem('tts_enabled', String(ttsEnabled));
+    localStorage.setItem('tts_volume', String(ttsVolume));
+    localStorage.setItem('text_speed', textSpeed);
+    setSettingsOpen(false);
+    message.success('设置已保存');
+  };
+
+  const handleClearSave = () => {
+    Modal.confirm({
+      title: '确认清除存档',
+      content: '此操作不可撤销，所有游戏进度将被删除。',
+      okText: '确认清除',
+      cancelText: '取消',
+      okType: 'danger',
+      onOk: () => {
+        gameStorage.clearAllGameData();
+        message.success('存档已清除');
+      },
     });
   };
 
@@ -208,7 +216,7 @@ function FirstStep() {
           type="default"
           size="large"
           icon={<SettingOutlined />}
-          onClick={handleSettings}
+          onClick={() => setSettingsOpen(true)}
           style={{
             fontSize: '16px',
             height: '50px',
@@ -271,6 +279,60 @@ function FirstStep() {
           退出
         </Button>
       </div>
+
+      {/* 设置弹窗 */}
+      <Modal
+        title="游戏设置"
+        open={settingsOpen}
+        onCancel={() => setSettingsOpen(false)}
+        onOk={handleSaveSettings}
+        okText="保存"
+        cancelText="取消"
+        width={420}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', padding: '8px 0' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>语音播放</span>
+            <Switch checked={ttsEnabled} onChange={setTtsEnabled} />
+          </div>
+
+          <div>
+            <div style={{ marginBottom: 8 }}>语音音量</div>
+            <Slider
+              min={0}
+              max={100}
+              value={Math.round(ttsVolume * 100)}
+              onChange={(v) => setTtsVolume(v / 100)}
+              disabled={!ttsEnabled}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>文字速度</span>
+            <Select
+              value={textSpeed}
+              onChange={setTextSpeed}
+              style={{ width: 140 }}
+              options={[
+                { value: 'fast', label: '快 (20ms/字)' },
+                { value: 'medium', label: '中 (30ms/字)' },
+                { value: 'slow', label: '慢 (50ms/字)' },
+              ]}
+            />
+          </div>
+
+          <Divider />
+
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>清除存档</span>
+            <Button danger onClick={handleClearSave}>清除所有存档</Button>
+          </div>
+
+          <div style={{ textAlign: 'right', color: 'rgba(0,0,0,0.35)', fontSize: 12 }}>
+            v1.0.0
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

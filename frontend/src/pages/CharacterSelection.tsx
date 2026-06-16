@@ -6,6 +6,7 @@ import LoadingScreen from '@/components/loading';
 import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
+import { logger } from '@/utils/logger';
 import './CharacterSelection.css';
 
 interface CharacterOption {
@@ -124,14 +125,14 @@ function CharacterSelection() {
       let characterOptions: CharacterOption[] = [];
 
       if (characterData) {
-        console.log('[角色选择] 解析的characterData:', characterData);
-        console.log('[角色选择] characterData.characterId:', characterData.characterId);
+        
+        
         
         // 优先使用createdCharacterId，其次使用characterData.characterId
         let createdCharacterId = createdCharacterIdStr || characterData.characterId;
         
-        console.log('[角色选择] 获取到的characterId:', createdCharacterId);
-        console.log('[角色选择] characterId类型:', typeof createdCharacterId);
+        
+        
         
         if (!createdCharacterId || createdCharacterId === 'undefined' || createdCharacterId === 'null' || String(createdCharacterId).trim() === '') {
           gameStorage.removeCharacterData();
@@ -184,8 +185,6 @@ function CharacterSelection() {
           if (character.imageUrls && character.imageUrls.length > 0) {
             // 使用第一张作为默认显示
             character.imageUrl = character.imageUrls[0];
-            console.log(`[角色选择] 角色 ${character.id} 使用组图URL列表，共 ${character.imageUrls.length} 张图片`);
-            console.log(`[角色选择] 图片URL列表:`, character.imageUrls);
           } else {
             // 如果没有组图，尝试从API获取（兼容旧逻辑）
             try {
@@ -247,7 +246,6 @@ function CharacterSelection() {
     }
     // 先切换步骤，确保进入音色选择界面
     setStep('voice');
-    console.log('[角色选择] 已选择图片，进入音色选择界面');
   };
 
   // 音色选择界面点击「确认」：去背、保存音色、跳转初遇
@@ -323,7 +321,6 @@ function CharacterSelection() {
                 voice_id: selectedVoice?.voice_id || ''
               };
               gameStorage.setCharacterData(characterData);
-              console.log('[角色选择] 已保存音色配置:', characterData.voiceConfig);
             }
           } catch (e) {
             console.warn('[角色选择] 保存音色配置失败:', e);
@@ -484,7 +481,6 @@ function CharacterSelection() {
                       alt={`${characters[0].name} - 选项 ${index + 1}`}
                       className="character-image"
                       onLoad={() => {
-                        console.log(`[角色选择] 图片 ${index + 1} 加载成功:`, imageUrl);
                       }}
                       onError={(e) => {
                         console.error(`[角色选择] 图片 ${index + 1} 加载失败:`, imageUrl);
@@ -536,7 +532,6 @@ function CharacterSelection() {
                       alt={character.name}
                       className="character-image"
                       onLoad={() => {
-                        console.log(`[角色选择] 角色 ${character.name} 图片加载成功:`, character.imageUrl);
                       }}
                       onError={(e) => {
                         console.error(`[角色选择] 角色 ${character.name} 图片加载失败:`, character.imageUrl);

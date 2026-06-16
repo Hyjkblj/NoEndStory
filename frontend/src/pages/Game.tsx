@@ -1,5 +1,7 @@
-import { useEffect } from 'react';
-import { Typography, Spin, App as AntdApp } from 'antd';
+import { useEffect, useState, useCallback } from 'react';
+import { Typography, Spin, Button, Modal, App as AntdApp } from 'antd';
+import { ArrowLeftOutlined, SoundOutlined, AudioMutedOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { processGameInput, initGame } from '@/services/api';
 import SceneTransition from '@/components/SceneTransition';
 import { GameSceneBackground, GameDialogue } from '@/components/Game';
@@ -7,18 +9,33 @@ import { SCENE_CONFIGS, getSceneImageUrl, buildSceneImageUrl, getSceneNameById }
 import * as gameStorage from '@/storage/gameStorage';
 import { getFallbackSceneImageUrls } from '@/utils/game';
 import { logger } from '@/utils/logger';
-import { useGameState, useGameInit, useGameTts } from '@/hooks';
+import { useGameState, useGameInit, useGameTts, useTtsControls } from '@/hooks';
 import type { PlayerOption } from '@/types/game';
+import { ROUTES } from '@/config/routes';
 import './Game.css';
 
 const { Text } = Typography;
 
+const LOADING_TIPS = [
+  '正在构思剧情...',
+  '角色正在思考...',
+  '整理对话中...',
+  '即将呈现...',
+];
+
 function Game() {
+  const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const state = useGameState();
   const { saveGameProgress, setCharacterImage } = useGameInit(state);
-  useGameTts(state.currentDialogue, state.characterId);
+  const { ttsEnabled, setTtsEnabled, ttsVolume, stopTts } = useTtsControls();
+  useGameTts(state.currentDialogue, state.characterId, { enabled: ttsEnabled, volume: ttsVolume });
   const { messages, threadId, characterId, scrollToBottom } = state;
+
+  // 退出确认
+  const [showExitConfirm, setShowExitConfirm] = useState(false);
+  // Loading 进度提示
+  const [tipIndex, setTipIndex] = useState(0);
 
   useEffect(() => {
     const characterData = gameStorage.getCharacterData();
@@ -31,6 +48,34 @@ function Game() {
       saveGameProgress(threadId, messages, characterId ?? undefined);
     }
   }, [messages, threadId, characterId, scrollToBottom, saveGameProgress]);
+
+  // Loading 提示轮播
+  useEffect(() => {
+    if (!state.loading) { setTipIndex(0); return; }
+    const timer = setInterval(() => {
+      setTipIndex((prev) => (prev + 1) % LOADING_TIPS.length);
+    }, 3000);
+    return () => clearInterval(timer);
+  }, [state.loading]);
+
+  // 键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape: 退出确认
+      if (e.key === 'Escape') {
+        setShowExitConfirm(true);
+        return;
+      }
+      // 数字键 1-3: 选择选项
+      if (state.loading) return;
+      const num = parseInt(e.key);
+      if (num >= 1 && num <= 3 && state.currentOptions.length >= num) {
+        handleOptionSelect(num - 1);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [state.loading, state.currentOptions]);
 
   const handleSceneChange = (newScene: string | null) => {
     if (!newScene) return;
@@ -87,7 +132,7 @@ function Game() {
     if (responseData.is_game_finished) message.info('游戏结束');
   };
 
-  const handleOptionSelect = async (optionId: number) => {
+  const handleOptionSelect = useCallback(async (optionId: number) => {
     if (state.loading || !state.threadId) return;
     const selectedOption = state.currentOptions[optionId];
     if (!selectedOption) return;
@@ -146,10 +191,53 @@ function Game() {
     } finally {
       state.setLoading(false);
     }
+  }, [state.loading, state.threadId, state.currentOptions, state.characterId]);
+
+  const handleExit = () => {
+    stopTts();
+    saveGameProgress(state.threadId!, messages, state.characterId ?? undefined);
+    setShowExitConfirm(false);
+    navigate(ROUTES.FIRST_STEP);
   };
+
+  // 获取角色名称
+  const characterName = gameStorage.getCharacterData()?.name || '角色';
 
   return (
     <div className="game-scene-container">
+      {/* 左上角：退出按钮 */}
+      <div className="game-top-left-controls">
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => setShowExitConfirm(true)}
+          className="game-control-btn"
+        />
+      </div>
+
+      {/* 右上角：音频控制 */}
+      <div className="game-top-right-controls">
+        <Button
+          type="text"
+          icon={ttsEnabled ? <SoundOutlined /> : <AudioMutedOutlined />}
+          onClick={() => setTtsEnabled(!ttsEnabled)}
+          className="game-control-btn"
+        />
+      </div>
+
+      {/* 退出确认弹窗 */}
+      <Modal
+        title="确认退出"
+        open={showExitConfirm}
+        onOk={handleExit}
+        onCancel={() => setShowExitConfirm(false)}
+        okText="保存并退出"
+        cancelText="继续游戏"
+      >
+        <p>退出将自动保存当前进度，下次可以继续。</p>
+      </Modal>
+
+      {/* 场景转场动画 */}
       {state.showTransition && (
         <SceneTransition
           sceneName={state.transitionSceneName}
@@ -157,16 +245,20 @@ function Game() {
           onComplete={() => state.setShowTransition(false)}
         />
       )}
+
+      {/* Loading 覆盖层 */}
       {state.loading && (
         <div className="game-loading-overlay">
           <div className="game-loading-content">
             <Spin size="large" />
             <div style={{ marginTop: '16px' }}>
-              <Text>思考中...</Text>
+              <Text>{LOADING_TIPS[tipIndex]}</Text>
             </div>
           </div>
         </div>
       )}
+
+      {/* 场景背景 */}
       <div className="game-scene-background">
         <GameSceneBackground
           shouldUseComposite={state.shouldUseComposite}
@@ -175,11 +267,16 @@ function Game() {
           characterImageUrl={state.characterImageUrl}
         />
       </div>
+
+      {/* 对话区域（含历史 + 打字机效果） */}
       <GameDialogue
         currentDialogue={state.currentDialogue}
         currentOptions={state.currentOptions}
         loading={state.loading}
         onOptionSelect={handleOptionSelect}
+        messages={messages}
+        characterName={characterName}
+        typeSpeed={30}
       />
     </div>
   );

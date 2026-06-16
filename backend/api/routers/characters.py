@@ -128,7 +128,12 @@ async def create_character(
         
         # 添加图片URL列表到响应
         character_info['image_urls'] = image_urls if image_urls else []
-        
+        # P1-7: 图片生成失败时明确告知用户
+        if not image_urls:
+            character_info['image_warning'] = '角色立绘生成失败，您可以稍后在角色设置中重新生成'
+        else:
+            character_info['image_warning'] = None
+
         logger.info(f"创建角色响应: character_id={character_info.get('character_id')}, name={character_info.get('name')}, image_urls数量={len(character_info.get('image_urls', []))}")
         
         return {"code": 200, "message": "ok", "data": character_info}
@@ -136,7 +141,7 @@ async def create_character(
         raise
     except Exception as e:
         logger.error(f"创建角色失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"创建角色失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="创建角色失败，请稍后重试")
 
 
 @router.get("/scenes", response_model=SceneListApiResponse)
