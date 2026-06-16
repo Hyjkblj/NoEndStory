@@ -7,6 +7,13 @@ interface SceneTransitionProps {
   onComplete: () => void;
 }
 
+const CHINESE_NUMS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
+
+function toChineseActNumber(n: number): string {
+  if (n >= 1 && n <= 10) return CHINESE_NUMS[n];
+  return String(n);
+}
+
 const SceneTransition: React.FC<SceneTransitionProps> = ({ sceneName, actNumber, onComplete }) => {
   const [isVisible, setIsVisible] = useState(true);
   const [showContent, setShowContent] = useState(false);
@@ -36,7 +43,7 @@ const SceneTransition: React.FC<SceneTransitionProps> = ({ sceneName, actNumber,
       <div className="scene-transition-container">
         {/* 幕数显示 */}
         <div className={`act-number ${showContent ? 'show' : ''}`}>
-          {actNumber === 1 ? '第一幕' : `第${actNumber}幕`}
+          第{toChineseActNumber(actNumber)}幕
         </div>
         
         {/* 场景名称 */}

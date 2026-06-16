@@ -124,7 +124,7 @@ async def process_input(
                         }
 
                     # 非选项输入可在新会话中继续处理
-                    result = _process_with_session_lock(
+                    result = await _process_with_session_lock(
                         target_thread_id=new_thread_id,
                         input_text=user_input,
                         input_option_id=option_id

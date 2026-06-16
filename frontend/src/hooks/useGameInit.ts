@@ -75,11 +75,11 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         const save = gameStorage.getGameSave(threadId);
         if (save?.messages?.length) {
           setMessages(save.messages);
-          message.success('Save loaded.');
+          message.success('存档已加载');
         }
       } catch (error: unknown) {
         logger.error('failed to load save:', error);
-        message.error('Failed to load save.');
+        message.error('加载存档失败');
       }
     },
     [setMessages, message]

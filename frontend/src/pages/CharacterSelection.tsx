@@ -515,7 +515,7 @@ function CharacterSelection() {
                   }}
                   disabled={loading}
                 >
-                  CHOICE
+                  选择
                 </Button>
               </div>
             ))}
@@ -567,7 +567,7 @@ function CharacterSelection() {
                   }}
                   disabled={loading}
                 >
-                  CHOICE
+                  选择
                 </Button>
               </div>
             ))}

@@ -46,7 +46,7 @@ const normalizeScene = (scene: unknown, index: number): SceneOption => {
 
   return {
     id: data.id || `scene-${index}`,
-    name: data.name || 'Unnamed Scene',
+    name: data.name || '未命名场景',
     description: data.description || '',
     imageUrl,
   };
@@ -56,7 +56,7 @@ function FirstMeetingSelection() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('Loading scenes...');
+  const [loadingMessage, setLoadingMessage] = useState('加载场景中...');
   const [currentSceneIndex, setCurrentSceneIndex] = useState(0);
   const [sceneOptions, setSceneOptions] = useState<SceneOption[]>([]);
 
@@ -66,12 +66,12 @@ function FirstMeetingSelection() {
   useEffect(() => {
     const loadScenes = async () => {
       setLoading(true);
-      setLoadingMessage('Loading scenes...');
+      setLoadingMessage('加载场景中...');
 
       try {
         const isHealthy = await checkServerHealth();
         if (!isHealthy) {
-          message.error('Backend is unavailable.');
+          message.error('服务暂不可用，请稍后重试');
           setSceneOptions([]);
           return;
         }
@@ -80,7 +80,7 @@ function FirstMeetingSelection() {
         const scenesData = Array.isArray(response?.scenes) ? response.scenes : [];
 
         if (scenesData.length === 0) {
-          message.warning('No scenes available.');
+          message.warning('暂无可选场景');
           setSceneOptions([]);
           return;
         }
@@ -89,12 +89,12 @@ function FirstMeetingSelection() {
         setSceneOptions(scenes);
       } catch (error: unknown) {
         const err = error as { response?: { data?: { message?: string } }; message?: string };
-        message.error(err.response?.data?.message || err.message || 'Failed to load scenes.');
+        message.error(err.response?.data?.message || err.message || '加载场景失败');
         setSceneOptions([
           {
             id: 'school',
-            name: 'School',
-            description: 'A lively campus scene.',
+            name: '学校',
+            description: '充满活力的校园场景',
           },
         ]);
       } finally {
@@ -142,20 +142,20 @@ function FirstMeetingSelection() {
   const handleSelectScene = async () => {
     const selectedScene = sceneOptions[currentSceneIndex];
     if (!selectedScene) {
-      message.error('No scene selected.');
+      message.error('请选择一个场景');
       return;
     }
 
     try {
       const isHealthy = await checkServerHealth();
       if (!isHealthy) {
-        message.error('Backend is unavailable.');
+        message.error('服务暂不可用，请稍后重试');
         return;
       }
 
       const characterData = gameStorage.getCharacterData();
       if (!characterData?.characterId) {
-        message.error('Character is missing, please create one first.');
+        message.error('请先创建角色');
         navigate(ROUTES.CHARACTER_SETTING);
         return;
       }
@@ -164,7 +164,7 @@ function FirstMeetingSelection() {
       gameStorage.setCharacterData({ ...characterData, selectedScene });
 
       setLoading(true);
-      setLoadingMessage('Initializing game...');
+      setLoadingMessage('正在初始化游戏...');
 
       const initResponse = await initGame({
         game_mode: 'solo',
@@ -172,9 +172,9 @@ function FirstMeetingSelection() {
       });
 
       const threadId = initResponse?.thread_id as string | undefined;
-      if (!threadId) throw new Error('Missing thread_id from initGame response.');
+      if (!threadId) throw new Error('初始化失败：未获取到会话ID');
 
-      setLoadingMessage('Preparing first scene...');
+      setLoadingMessage('正在准备初遇场景...');
 
       const characterImageUrl =
         characterData.selectedImageUrl || characterData.originalImageUrl || characterData.imageUrl;
@@ -199,9 +199,9 @@ function FirstMeetingSelection() {
       navigate(ROUTES.GAME);
     } catch (error: unknown) {
       const err = error as { message?: string; response?: { data?: { message?: string } } };
-      let errorMessage = 'Failed to select scene, please try again.';
+      let errorMessage = '选择场景失败，请重试';
       if (err.message?.includes('timeout')) {
-        errorMessage = 'Initialization timed out, please try again shortly.';
+        errorMessage = '初始化超时，请稍后重试';
       } else if (err.response?.data?.message) {
         errorMessage = err.response.data.message;
       }
@@ -219,8 +219,8 @@ function FirstMeetingSelection() {
       <div className="first-meeting-selection-container">
         <div className="first-meeting-content">
           <div style={{ textAlign: 'center', padding: '40px' }}>
-            <p>No scenes available.</p>
-            <Button onClick={() => navigate(ROUTES.CHARACTER_SETTING)}>Back To Character Setup</Button>
+            <p>暂无可选场景</p>
+            <Button onClick={() => navigate(ROUTES.CHARACTER_SETTING)}>返回角色创建</Button>
           </div>
         </div>
       </div>
@@ -238,7 +238,7 @@ function FirstMeetingSelection() {
 
       <div className="first-meeting-content">
         <div className="meeting-title-banner">
-          <span className="title-text">First Meeting</span>
+          <span className="title-text">初遇</span>
         </div>
 
         <div className="scene-display-area" onWheel={handleWheel}>
@@ -296,7 +296,7 @@ function FirstMeetingSelection() {
 
         <div className="scene-choice-button-container">
           <Button className="scene-choice-button" onClick={handleSelectScene} disabled={loading}>
-            Choose
+            选择
           </Button>
         </div>
       </div>

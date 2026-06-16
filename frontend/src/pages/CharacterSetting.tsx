@@ -472,7 +472,7 @@ function CharacterSetting() {
           <Button className="nav-arrow-button" icon={<LeftOutlined />} onClick={handleCategoryPrev} />
           <Button className="nav-arrow-button" icon={<RightOutlined />} onClick={handleCategoryNext} />
           <Button className="confirm-button" onClick={() => setIsModalVisible(true)}>
-            confirm
+            确认
           </Button>
         </div>
       </div>
