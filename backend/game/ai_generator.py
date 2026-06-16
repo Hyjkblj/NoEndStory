@@ -45,14 +45,16 @@ class TextGenerationService:
     # token set 缓存最大条目数
     _MAX_TOKEN_CACHE = 500
     
-    def __init__(self, provider: Optional[str] = None, db_manager=None):
+    def __init__(self, provider: Optional[str] = None, db_manager=None, vector_db=None):
         """初始化文本生成服务
-        
+
         Args:
             provider: 提供商名称（'openai', 'volcengine', 'dashscope', 'auto'），如果为None则自动检测
             db_manager: DatabaseManager 实例（依赖注入，可选）
+            vector_db: VectorDatabase 实例（用于 embedding 语义去重，可选）
         """
         self.db_manager = db_manager  # 依赖注入
+        self._vector_db = vector_db  # W9a: embedding 语义去重
         self._token_cache: Dict[str, set] = {}  # token set 计算结果缓存
         
         try:
@@ -97,6 +99,36 @@ class TextGenerationService:
         except LLMException as e:
             logger.warning("文本生成失败: %s", e)
             return None
+
+    def generate_dialogue_stream(
+        self,
+        prompt: str,
+        max_tokens: int = 200,
+        temperature: float = 0.7,
+        system_message: Optional[str] = None,
+    ):
+        """流式对话生成（逐 token yield）
+
+        Args:
+            prompt: 提示词
+            max_tokens: 最大 token 数
+            temperature: 温度参数
+            system_message: 可选系统消息
+
+        Yields:
+            每次一个文本片段
+
+        Raises:
+            LLMException: 调用失败时抛出（不吞异常，由调用方处理）
+        """
+        if not self.enabled or not self.llm_service:
+            return
+        yield from self.llm_service.stream_chat(
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            system_message=system_message,
+        )
     
     def generate_with_messages(
         self,
@@ -593,28 +625,47 @@ class TextGenerationService:
     # ---- 语义相似度计算 ----
     def _calculate_semantic_similarity(self, text1: str, text2: str) -> float:
         """计算两个文本的语义相似度
-        
-        优先使用 Jaccard 文本相似度（对中文短文本效果良好）。
-        当项目启用 embedding 服务后，可升级为向量余弦相似度。
-        
+
+        优先使用 embedding 向量余弦相似度（VectorDatabase + text2vec-chinese）。
+        降级到 Jaccard 文本相似度。
+
         Returns:
             0.0-1.0 的相似度分数
         """
-        # 当前使用 Jaccard 相似度 + n-gram 增强
-        # W6 Agent 引擎完成后可接入 LLM embedding API 升级为向量相似度
+        # 优先：embedding 余弦相似度
+        if self._vector_db and hasattr(self._vector_db, 'embedding_function'):
+            try:
+                embeddings = self._vector_db.embedding_function([text1, text2])
+                if embeddings and len(embeddings) == 2:
+                    return self._cosine_similarity(embeddings[0], embeddings[1])
+            except Exception as e:
+                logger.debug("embedding 相似度计算失败，降级到 Jaccard: %s", e)
+
+        # 降级：Jaccard 相似度
         tokens1 = self._tokenize_text(text1)
         tokens2 = self._tokenize_text(text2)
-        
+
         if not tokens1 or not tokens2:
             return 0.0
-        
+
         intersection = tokens1.intersection(tokens2)
         union = tokens1.union(tokens2)
-        
+
         if not union:
             return 0.0
-        
+
         return len(intersection) / len(union)
+
+    @staticmethod
+    def _cosine_similarity(vec_a, vec_b) -> float:
+        """计算两个向量的余弦相似度"""
+        import math
+        dot = sum(a * b for a, b in zip(vec_a, vec_b))
+        norm_a = math.sqrt(sum(a * a for a in vec_a))
+        norm_b = math.sqrt(sum(b * b for b in vec_b))
+        if norm_a == 0 or norm_b == 0:
+            return 0.0
+        return dot / (norm_a * norm_b)
     
     def generate_player_options(self, story_background: str, character_dialogue: str, 
                                 dialogue_round: int, previous_dialogues: List[str] = None,

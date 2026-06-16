@@ -1,8 +1,8 @@
 """OpenAI提供商适配器（使用OpenAI SDK）"""
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Generator
 from openai import OpenAI
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionChunk
 
 from .base import ProviderAdapter, LLMResponse
 from ..exceptions import LLMProviderError, LLMAccountError, LLMNetworkError, LLMTimeoutError
@@ -97,3 +97,36 @@ class OpenAIProvider(ProviderAdapter):
                 raise LLMNetworkError(f"OpenAI API网络错误: {error_msg}")
             else:
                 raise LLMProviderError(f"OpenAI API调用失败: {error_msg}")
+
+    def stream(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs
+    ) -> Generator[str, None, None]:
+        """OpenAI 原生流式调用（stream=True）"""
+        params = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        if max_tokens is not None:
+            params["max_tokens"] = max_tokens
+        if temperature is not None:
+            params["temperature"] = temperature
+        params.update(kwargs)
+
+        try:
+            stream = self.client.chat.completions.create(**params)
+            for chunk in stream:
+                if chunk.choices and chunk.choices[0].delta.content:
+                    yield chunk.choices[0].delta.content
+        except Exception as e:
+            error_msg = str(e)
+            if "401" in error_msg or "unauthorized" in error_msg.lower():
+                raise LLMAccountError(f"OpenAI API密钥无效: {error_msg}")
+            elif "429" in error_msg or "rate_limit" in error_msg.lower():
+                raise LLMProviderError(f"OpenAI API请求频率限制: {error_msg}")
+            else:
+                raise LLMProviderError(f"OpenAI API流式调用失败: {error_msg}")

@@ -1,6 +1,7 @@
 """WebSocket 游戏端点 — W13: 实时流式对话"""
 import json
 import asyncio
+import os
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from utils.logger import get_logger
 
@@ -18,9 +19,11 @@ async def ws_game_endpoint(websocket: WebSocket, thread_id: str):
 
     协议:
     - 客户端发送: {"type": "input", "content": "玩家输入文本"}
-    - 服务端返回: {"type": "dialogue", "content": "角色台词片段"}  (流式)
+    - 服务端返回: {"type": "dialogue_chunk", "content": "token片段"}  (流式)
+                  {"type": "dialogue_complete"}
                   {"type": "options", "options": [...]}
-                  {"type": "end", "summary": "结束信息"}
+                  {"type": "state", ...}
+                  {"type": "end", ...}
     """
     await websocket.accept()
     _active_connections[thread_id] = websocket
@@ -42,21 +45,8 @@ async def ws_game_endpoint(websocket: WebSocket, thread_id: str):
                 user_input = data.get("content", "")
                 logger.debug(f"WS接收: thread_id={thread_id}, input={user_input[:30]}...")
 
-                # 使用 Agent 引擎处理（同步调用在线程池）
                 try:
-                    from api.services.game_service import GameService
-                    result = await _process_via_agent(thread_id, user_input)
-
-                    # 逐段推送对话（模拟流式）
-                    dialogue = result.get("character_dialogue", "")
-                    if dialogue:
-                        # 分段发送，模拟逐 token 流式
-                        segments = _split_for_streaming(dialogue)
-                        for seg in segments:
-                            await websocket.send_json({"type": "dialogue_chunk", "content": seg})
-                            await asyncio.sleep(0.03)
-
-                        await websocket.send_json({"type": "dialogue_complete"})
+                    result = await _process_with_streaming(thread_id, user_input, websocket)
 
                     # 发送选项
                     options = result.get("player_options", [])
@@ -67,6 +57,9 @@ async def ws_game_endpoint(websocket: WebSocket, thread_id: str):
                         "type": "state",
                         "current_states": result.get("current_states", {}),
                         "scene": result.get("scene", ""),
+                        "scene_image_url": result.get("scene_image_url"),
+                        "audio_url": result.get("audio_url"),
+                        "audio_duration": result.get("audio_duration", 0.0),
                         "elapsed_minutes": result.get("elapsed_minutes", 0),
                     })
 
@@ -74,7 +67,7 @@ async def ws_game_endpoint(websocket: WebSocket, thread_id: str):
                     if result.get("is_game_finished"):
                         await websocket.send_json({
                             "type": "end",
-                            "summary": dialogue,
+                            "summary": result.get("character_dialogue", ""),
                             "emotion_tags": result.get("emotion_tags", ""),
                         })
                         break
@@ -97,32 +90,39 @@ async def ws_game_endpoint(websocket: WebSocket, thread_id: str):
         _active_connections.pop(thread_id, None)
 
 
-async def _process_via_agent(thread_id: str, user_input: str) -> dict:
-    """通过 Agent 引擎处理输入"""
-    import os
-    if os.getenv("USE_NOS_AGENT_ENGINE", "false").lower() == "true":
+async def _process_with_streaming(thread_id: str, user_input: str, websocket: WebSocket) -> dict:
+    """处理输入并通过 WebSocket 流式推送对话 token"""
+    use_agent = os.getenv("USE_NOS_AGENT_ENGINE", "false").lower() == "true"
+
+    if use_agent:
         from api.services.game_service import _get_agent_orchestrator
         orch = _get_agent_orchestrator()
         if orch:
-            return await orch.process_input(user_input, thread_id=thread_id)
+            # 定义 token 回调：每个 token 立即推送到客户端
+            async def on_token(chunk: str):
+                try:
+                    await websocket.send_json({"type": "dialogue_chunk", "content": chunk})
+                except Exception:
+                    pass  # 连接可能已断开
 
-    # 回退：返回简单响应
-    return {
-        "character_dialogue": "WebSocket模式已连接，即将支持。",
-        "player_options": [
-            {"id": 1, "text": "继续", "type": "continue"},
-            {"id": 2, "text": "换个话题", "type": "change_topic"},
-        ],
-        "scene": "classroom",
-        "current_states": {},
-        "elapsed_minutes": 0,
-        "is_game_finished": False,
-    }
+            result = await orch.process_input_stream(user_input, thread_id=thread_id, on_token=on_token)
 
+            # 流式完成，发送完成标记
+            await websocket.send_json({"type": "dialogue_complete"})
+            return result
 
-def _split_for_streaming(text: str, chunk_size: int = 3) -> list:
-    """将文本分割为流式片段"""
-    result = []
-    for i in range(0, len(text), chunk_size):
-        result.append(text[i:i + chunk_size])
+    # 回退：非 Agent 模式，使用 StoryEngine + 模拟流式
+    from api.services.game_service import GameService
+    from api.dependencies import get_game_service
+    game_service = get_game_service()
+    result = await game_service.process_input(thread_id, user_input)
+
+    # 模拟流式推送
+    dialogue = result.get("character_dialogue", "")
+    if dialogue:
+        for i in range(0, len(dialogue), 3):
+            await websocket.send_json({"type": "dialogue_chunk", "content": dialogue[i:i + 3]})
+            await asyncio.sleep(0.03)
+    await websocket.send_json({"type": "dialogue_complete"})
+
     return result

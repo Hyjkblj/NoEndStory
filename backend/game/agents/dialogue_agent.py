@@ -1,5 +1,5 @@
 """Dialogue Agent — 调用 LLM 生成角色台词"""
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from .base import BaseAgent
 from .state import AgentState
 
@@ -21,6 +21,55 @@ class DialogueAgent(BaseAgent):
         # 构建对话 prompt
         prompt = self._build_dialogue_prompt(state)
         dialogue = self._generate_dialogue(prompt)
+        options = self._generate_options(state, dialogue)
+
+        state.output_dialogue = dialogue
+        state.output_options = options
+
+        return {
+            "character_dialogue": dialogue,
+            "player_options": options,
+        }
+
+    async def think_stream(
+        self, state: AgentState, on_token: Callable[[str], None] = None
+    ) -> Dict[str, Any]:
+        """流式版本 think：逐 token 回调 + 最终返回完整结果
+
+        Args:
+            state: Agent 状态
+            on_token: 每收到一个 token 时的回调（同步函数）
+
+        Returns:
+            与 think() 相同的结果 dict
+        """
+        if not self.text_gen or not self.text_gen.enabled:
+            fallback = self._fallback_dialogue(state)
+            if on_token:
+                on_token(fallback)
+            state.output_dialogue = fallback
+            state.output_options = self._fallback_options()
+            return {"character_dialogue": fallback, "player_options": state.output_options}
+
+        prompt = self._build_dialogue_prompt(state)
+
+        # 尝试流式生成
+        dialogue_parts = []
+        try:
+            for chunk in self.text_gen.generate_dialogue_stream(
+                prompt, max_tokens=100, temperature=0.9
+            ):
+                dialogue_parts.append(chunk)
+                if on_token:
+                    on_token(chunk)
+        except Exception:
+            # 流式失败，降级到非流式
+            result = self._generate_dialogue(prompt)
+            if on_token:
+                on_token(result)
+            dialogue_parts = [result]
+
+        dialogue = "".join(dialogue_parts).strip()
         options = self._generate_options(state, dialogue)
 
         state.output_dialogue = dialogue

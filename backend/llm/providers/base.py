@@ -1,7 +1,7 @@
 """LLM提供商适配器基类"""
 
 from abc import ABC, abstractmethod
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator
 from dataclasses import dataclass
 
 
@@ -60,6 +60,30 @@ class ProviderAdapter(ABC):
         """
         pass
     
+    def stream(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs
+    ) -> Generator[str, None, None]:
+        """流式调用 LLM API（逐 token 返回）
+
+        默认实现：调用 call() 后一次性 yield 全文（兜底）。
+        子类应覆盖此方法以实现真正的 token 级流式。
+
+        Args:
+            messages: 消息列表
+            max_tokens: 最大 token 数
+            temperature: 温度参数
+            **kwargs: 其他参数
+
+        Yields:
+            每次一个文本片段（token 或 chunk）
+        """
+        response = self.call(messages=messages, max_tokens=max_tokens, temperature=temperature, **kwargs)
+        yield response.text
+
     def chat_completion(
         self,
         prompt: str,

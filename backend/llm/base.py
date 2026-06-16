@@ -1,6 +1,6 @@
 """LLM服务基类"""
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator
 import time
 from .config import LLMConfig
 from .exceptions import LLMException, LLMProviderError
@@ -190,6 +190,31 @@ class LLMService:
         
         return response.text
     
+    def stream_chat(
+        self,
+        prompt: str,
+        max_tokens: int = 200,
+        temperature: float = 0.7,
+        system_message: Optional[str] = None,
+        **kwargs
+    ) -> Generator[str, None, None]:
+        """流式单轮对话（逐 token 返回）
+
+        Args:
+            prompt: 用户提示词
+            max_tokens: 最大 token 数
+            temperature: 温度参数
+            system_message: 可选的系统消息
+
+        Yields:
+            每次一个文本片段
+        """
+        messages = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
+        yield from self.adapter.stream(messages=messages, max_tokens=max_tokens, temperature=temperature, **kwargs)
+
     def get_provider(self) -> str:
         """获取当前使用的提供商名称"""
         return self.provider_name

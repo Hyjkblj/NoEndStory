@@ -1,7 +1,8 @@
 """AgentOrchestrator — 简单顺序状态机，串联所有 Agent"""
+import asyncio
 import threading
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Callable
 from .base import BaseAgent
 from .state import AgentState, SessionPhase, WorldState, EmotionState
 from .director_agent import DirectorAgent
@@ -140,6 +141,32 @@ class AgentOrchestrator:
         state.output_dialogue = character_dialogue
         state.add_to_history("character", character_dialogue)
 
+        # 5.5 Image & TTS: 生成场景图片和语音（不阻塞主流程，失败静默降级）
+        if self.image_service:
+            try:
+                scene_image_path = self.image_service.get_latest_scene_image_path(state.output_scene)
+                if scene_image_path:
+                    from urllib.parse import quote
+                    import os
+                    filename = os.path.basename(scene_image_path)
+                    state.output_scene_image_url = f"/static/images/scenes/{quote(filename, safe='')}"
+            except Exception as e:
+                logger.warning(f"获取场景图片失败: {e}")
+
+        if self.tts_service and self.tts_service.enabled and character_dialogue:
+            try:
+                emotion_params = self._emotion_to_tts_params(state.emotion)
+                tts_result = self.tts_service.generate_speech(
+                    text=character_dialogue,
+                    character_id=state.character_id,
+                    emotion_params=emotion_params,
+                )
+                if tts_result:
+                    state.output_audio_url = tts_result.get("audio_url", "")
+                    state.output_audio_duration = tts_result.get("duration", 0.0)
+            except Exception as e:
+                logger.warning(f"TTS 生成失败: {e}")
+
         # 6. Consistency: 输出前校验
         consistency_result = await self.consistency.think(state)
 
@@ -157,6 +184,9 @@ class AgentOrchestrator:
             "character_dialogue": character_dialogue,
             "player_options": state.output_options,
             "scene": state.output_scene,
+            "scene_image_url": state.output_scene_image_url or None,
+            "audio_url": state.output_audio_url or None,
+            "audio_duration": state.output_audio_duration,
             "current_states": state.emotion.to_dict(),
             "state_changes": state.output_emotion_changes,
             "pad": emotion_result.get("pad", {}),
@@ -174,6 +204,122 @@ class AgentOrchestrator:
 
         logger.info(f"输入处理完成: round={state.round_count}, phase={state.phase.value}")
         return output
+
+    async def process_input_stream(
+        self, user_input: str, thread_id: str = None, on_token=None
+    ) -> Dict[str, Any]:
+        """流式版 process_input：对话部分逐 token 回调
+
+        Args:
+            user_input: 玩家输入
+            thread_id: 会话 ID
+            on_token: 每个 token 的回调（async callable: async def on_token(chunk: str)）
+
+        Returns:
+            与 process_input() 相同的完整结果 dict
+        """
+        if thread_id is None:
+            state = self.state
+            if not state:
+                raise RuntimeError("未初始化会话，请先调用 init_session()")
+        else:
+            with self._lock:
+                state = self._states.get(thread_id)
+            if not state:
+                raise RuntimeError(f"会话 {thread_id} 未初始化")
+
+        state.last_player_input = user_input
+        state.advance_round()
+        state.add_to_history("player", user_input)
+
+        # 1. Director
+        director_result = await self.director.think(state)
+        if director_result.get("action") == "end_game":
+            return await self._build_ending_output(state)
+
+        # 2. World
+        world_result = await self.world.think(state)
+        state.output_scene = world_result.get("scene", state.world.current_scene)
+
+        # 2.5 Image
+        if self.image_service:
+            try:
+                scene_image_path = self.image_service.get_latest_scene_image_path(state.output_scene)
+                if scene_image_path:
+                    from urllib.parse import quote
+                    import os
+                    filename = os.path.basename(scene_image_path)
+                    state.output_scene_image_url = f"/static/images/scenes/{quote(filename, safe='')}"
+            except Exception as e:
+                logger.warning(f"获取场景图片失败: {e}")
+
+        # 3. Emotion
+        emotion_result = await self.emotion.think(state)
+        state.output_emotion_changes = emotion_result.get("state_changes", {})
+
+        # 4. Event
+        event_result = await self.event.think(state)
+        if event_result.get("event"):
+            state.pending_event = event_result["event"]
+
+        # 5. Dialogue (流式)
+        sync_on_token = None
+        if on_token:
+            async def _sync_bridge(chunk):
+                await on_token(chunk)
+            sync_on_token = lambda chunk: asyncio.ensure_future(_sync_bridge(chunk))
+
+        dialogue_result = await self.dialogue.think_stream(state, on_token=sync_on_token)
+        character_dialogue = dialogue_result.get("character_dialogue", "")
+
+        # 5.5 TTS
+        if self.tts_service and self.tts_service.enabled and character_dialogue:
+            try:
+                emotion_params = self._emotion_to_tts_params(state.emotion)
+                tts_result = self.tts_service.generate_speech(
+                    text=character_dialogue,
+                    character_id=state.character_id,
+                    emotion_params=emotion_params,
+                )
+                if tts_result:
+                    state.output_audio_url = tts_result.get("audio_url", "")
+                    state.output_audio_duration = tts_result.get("duration", 0.0)
+            except Exception as e:
+                logger.warning(f"TTS 生成失败: {e}")
+
+        # 6. Consistency
+        consistency_result = await self.consistency.think(state)
+
+        # 保存事件摘要到记忆
+        if state.pending_event:
+            self.memory.add_event(
+                character_id=state.character_id,
+                event_summary=f"{state.pending_event.get('type')}: {state.pending_event.get('description')}",
+            )
+            state.event_history.append(state.pending_event)
+
+        return {
+            "thread_id": state.thread_id,
+            "character_dialogue": character_dialogue,
+            "player_options": state.output_options,
+            "scene": state.output_scene,
+            "scene_image_url": state.output_scene_image_url or None,
+            "audio_url": state.output_audio_url or None,
+            "audio_duration": state.output_audio_duration,
+            "current_states": state.emotion.to_dict(),
+            "state_changes": state.output_emotion_changes,
+            "pad": emotion_result.get("pad", {}),
+            "phase": state.phase.value,
+            "elapsed_minutes": round(state.world.elapsed_minutes, 1),
+            "weather": state.world.weather,
+            "current_time": state.world.current_time,
+            "round": state.round_count,
+            "consistency": consistency_result,
+            "is_game_finished": state.phase == SessionPhase.ENDING,
+            "event_type": state.pending_event.get("type") if state.pending_event else None,
+            "event_description": state.pending_event.get("description") if state.pending_event else None,
+            "emotion_tags": self._get_emotion_tags(state),
+        }
 
     async def _build_ending_output(self, state: AgentState = None) -> Dict[str, Any]:
         """构建结局输出"""
@@ -214,6 +360,19 @@ class AgentOrchestrator:
             return f"{name}: 今天就这样吧。再见。"
         else:
             return f"{name}: ...（转身离去，没有回头）"
+
+    @staticmethod
+    def _emotion_to_tts_params(emotion) -> Dict[str, float]:
+        """将 EmotionState 映射为 TTS emotion_params"""
+        # 情绪值越高 → 语速稍快、音量稍高
+        speed = 1.0 + (emotion.emotion - 50) * 0.004   # 0.8 ~ 1.2
+        volume = 1.0 + (emotion.happiness - 50) * 0.002  # 0.9 ~ 1.1
+        pitch = 1.0 + (emotion.stress - 50) * 0.003      # 0.85 ~ 1.15
+        return {
+            "speed": max(0.5, min(2.0, speed)),
+            "volume": max(0.5, min(2.0, volume)),
+            "pitch": max(0.5, min(2.0, pitch)),
+        }
 
     def _get_emotion_tags(self, state: AgentState) -> str:
         """获取情绪语义标签"""

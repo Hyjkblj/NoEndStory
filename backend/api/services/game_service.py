@@ -31,6 +31,7 @@ def _get_agent_orchestrator():
         from database.db_manager import DatabaseManager
         from database.vector_db import VectorDatabase
         from data.scenes import SCENES
+        from api.dependencies import get_image_service, get_tts_service
 
         text_gen = _get_text_gen()
         db = DatabaseManager()
@@ -42,8 +43,10 @@ def _get_agent_orchestrator():
             db_manager=db,
             vector_db=vdb,
             scenes_data=scenes_data,
+            image_service=get_image_service(),
+            tts_service=get_tts_service(),
         )
-        logger.info("NOS Agent 引擎已加载")
+        logger.info("NOS Agent 引擎已加载（含 ImageService + TTSService）")
     return _agent_orchestrator
 
 
@@ -965,20 +968,14 @@ class GameService:
             logger.error(f"Agent 引擎处理失败: {e}", exc_info=True)
             raise
 
-        # 场景图片
-        scene_image_url = None
-        try:
-            if self.image_service:
-                scene_image_url = self._get_scene_image(result.get("scene", "classroom"))
-        except Exception:
-            pass
-
         return {
             "thread_id": thread_id,
             "character_dialogue": result["character_dialogue"],
             "player_options": result["player_options"],
             "scene": result["scene"],
-            "scene_image_url": scene_image_url,
+            "scene_image_url": result.get("scene_image_url"),
+            "audio_url": result.get("audio_url"),
+            "audio_duration": result.get("audio_duration", 0.0),
             "current_states": result["current_states"],
             "state_changes": result.get("state_changes", {}),
             "phase": result["phase"],

@@ -1,6 +1,6 @@
 """火山引擎提供商适配器（兼容OpenAI SDK格式）"""
 
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Generator
 import json
 import requests
 
@@ -154,3 +154,59 @@ class VolcEngineProvider(ProviderAdapter):
             raise
         except Exception as e:
             raise LLMProviderError(f"火山引擎API调用异常: {e}")
+
+    def stream(
+        self,
+        messages: List[Dict[str, str]],
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        **kwargs
+    ) -> Generator[str, None, None]:
+        """火山引擎 SSE 流式调用"""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": True,
+        }
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if temperature is not None:
+            payload["temperature"] = temperature
+        payload.update(kwargs)
+
+        try:
+            with requests.post(self.api_url, headers=headers, json=payload, stream=True, timeout=120) as resp:
+                if resp.status_code != 200:
+                    raise LLMProviderError(f"火山引擎流式调用失败 ({resp.status_code}): {resp.text}")
+
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    decoded = line.decode("utf-8")
+                    if not decoded.startswith("data:"):
+                        continue
+                    data_str = decoded[5:].strip()
+                    if data_str == "[DONE]":
+                        break
+                    try:
+                        chunk = json.loads(data_str)
+                        choices = chunk.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            content = delta.get("content")
+                            if content:
+                                yield content
+                    except json.JSONDecodeError:
+                        continue
+        except requests.exceptions.Timeout:
+            raise LLMTimeoutError("火山引擎流式请求超时")
+        except requests.exceptions.ConnectionError as e:
+            raise LLMNetworkError(f"火山引擎流式网络错误: {e}")
+        except LLMProviderError:
+            raise
+        except Exception as e:
+            raise LLMProviderError(f"火山引擎流式调用异常: {e}")

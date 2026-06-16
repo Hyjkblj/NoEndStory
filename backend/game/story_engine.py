@@ -26,10 +26,15 @@ _text_gen = None
 
 
 def _get_text_gen():
-    """获取 AIGenerator 单例"""
+    """获取 AIGenerator 单例（自动注入 VectorDatabase 以启用 embedding 语义去重）"""
     global _text_gen
     if _text_gen is None:
-        _text_gen = AIGenerator()
+        try:
+            from database.vector_db import VectorDatabase
+            vdb = VectorDatabase()
+        except Exception:
+            vdb = None
+        _text_gen = AIGenerator(vector_db=vdb)
     return _text_gen
 
 

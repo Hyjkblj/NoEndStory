@@ -127,6 +127,9 @@ class AgentState:
     output_dialogue: str = ""
     output_options: List[Dict[str, Any]] = field(default_factory=list)
     output_scene: str = ""
+    output_scene_image_url: str = ""
+    output_audio_url: str = ""
+    output_audio_duration: float = 0.0
     output_emotion_changes: Dict[str, float] = field(default_factory=dict)
 
     def advance_round(self) -> None:
