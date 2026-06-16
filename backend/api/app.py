@@ -3,11 +3,13 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from api.routers import characters, game, vector_db_admin, tts, admin_stats, ws_game
+from api.routers import characters, game, vector_db_admin, tts, admin_stats, ws_game, admin_security
 from database.db_manager import DatabaseManager
 from api.exceptions import ServiceException
 from api.middleware.error_handler import service_exception_handler, general_exception_handler, http_exception_handler
 from api.middleware.request_logger import RequestLoggingMiddleware
+from api.middleware.rate_limit import create_rate_limit_middleware
+from api.middleware.cost_guard import create_cost_guard_middleware
 from monitoring.token_tracker import install_token_tracking, get_token_tracker
 from utils.logger import setup_logger
 import uvicorn
@@ -44,7 +46,8 @@ async def startup_event():
     except Exception as e:
         logger.error(f"数据库初始化失败: {e}", exc_info=True)
         _startup_failed = True
-        # 数据库是关键服务，失败时标记为不可用
+        # 数据库是关键服务，失败时标记为不可用并阻止应用启动
+        raise RuntimeError(f"关键服务启动失败: {e}") from e
     
     # W11: 安装 Token 追踪（monkey-patch LLMService）
     try:
@@ -92,6 +95,28 @@ app.add_middleware(
 # W11: 请求日志中间件（记录所有 API 调用的耗时、状态码等）
 app.add_middleware(RequestLoggingMiddleware)
 
+# W4: 安全防护中间件（频率限制 + 成本熔断）
+# 注意：FastAPI 中间件按注册的逆序执行，先注册的后执行
+# 执行顺序：Request → RequestLogging → CostGuard → RateLimit → Route Handler
+_excluded_paths = ["/health", "/docs", "/openapi.json", "/static", "/admin"]
+
+app.add_middleware(
+    create_rate_limit_middleware(
+        default_max_requests=int(os.getenv('RATE_LIMIT_DEFAULT_MAX', '100')),
+        default_window_seconds=int(os.getenv('RATE_LIMIT_WINDOW_SECONDS', '3600')),
+        guest_max_plays_per_day=int(os.getenv('GUEST_FREE_PLAYS', '3')),
+        excluded_paths=_excluded_paths,
+    )
+)
+
+app.add_middleware(
+    create_cost_guard_middleware(
+        hourly_limit=float(os.getenv('COST_LIMIT_PER_IP_HOURLY', '2.0')),
+        daily_limit=float(os.getenv('COST_LIMIT_PER_IP_DAILY', '5.0')),
+        excluded_paths=_excluded_paths,
+    )
+)
+
 # W8: 启动失败时返回503的中间件
 @app.middleware("http")
 async def check_startup_status(request: Request, call_next):
@@ -121,6 +146,7 @@ app.include_router(game.router, prefix="/api")
 app.include_router(vector_db_admin.router, prefix="/api")
 app.include_router(tts.router, prefix="/api")
 app.include_router(admin_stats.router, prefix="/api")
+app.include_router(admin_security.router)
 app.include_router(ws_game.router)
 
 # 配置静态文件服务（用于提供本地保存的图片）- W8: 合并为循环，消除重复代码

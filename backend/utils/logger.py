@@ -16,6 +16,8 @@ _DEFAULT_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 # 默认日志格式
 _DEFAULT_FORMAT = '[%(asctime)s] [%(levelname)-7s] [%(name)s] %(message)s'
 _DEFAULT_DATEFMT = '%Y-%m-%d %H:%M:%S'
+# W11: 日志输出格式（环境变量 LOG_FORMAT=json 启用 JSON 格式，默认 plain）
+_DEFAULT_USE_JSON = os.getenv('LOG_FORMAT', 'plain').lower() == 'json'
 
 # 模块级缓存：已配置的 logger 名称集合
 _configured_loggers: set = set()
@@ -24,42 +26,43 @@ _configured_loggers: set = set()
 def setup_logger(
     name: str,
     level: Optional[str] = None,
-    use_json: bool = False
+    use_json: Optional[bool] = None
 ) -> logging.Logger:
     """设置结构化日志
-    
+
     Args:
         name: 日志器名称（通常是 __name__）
         level: 日志级别（DEBUG/INFO/WARNING/ERROR），如果为None则从环境变量 LOG_LEVEL 读取
-        use_json: 是否使用JSON格式（生产环境推荐）
-        
+        use_json: 是否使用JSON格式。None 时从环境变量 LOG_FORMAT=json 启用（生产环境推荐）
+
     Returns:
         配置好的Logger实例
     """
     logger = logging.getLogger(name)
-    
+
     # 如果已经配置过，直接返回（避免重复添加 handler）
     if name in _configured_loggers:
         return logger
-    
+
     # 确定日志级别
     if level is None:
         resolved_level = _DEFAULT_LEVEL
     else:
         resolved_level = level.upper()
-    
+
     numeric_level = getattr(logging, resolved_level, logging.INFO)
     logger.setLevel(numeric_level)
-    
+
     # 防止传播到 root logger 造成重复输出
     logger.propagate = False
-    
+
     # 控制台输出
     console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(numeric_level)
-    
-    # 选择格式化器
-    if use_json and JSON_LOGGER_AVAILABLE:
+
+    # 选择格式化器：显式 use_json > 环境变量 LOG_FORMAT
+    resolved_json = use_json if use_json is not None else _DEFAULT_USE_JSON
+    if resolved_json and JSON_LOGGER_AVAILABLE:
         formatter = jsonlogger.JsonFormatter(
             '%(asctime)s %(name)s %(levelname)s %(message)s',
             datefmt=_DEFAULT_DATEFMT
@@ -69,12 +72,12 @@ def setup_logger(
             _DEFAULT_FORMAT,
             datefmt=_DEFAULT_DATEFMT
         )
-    
+
     console_handler.setFormatter(formatter)
     logger.addHandler(console_handler)
-    
+
     _configured_loggers.add(name)
-    
+
     return logger
 
 
