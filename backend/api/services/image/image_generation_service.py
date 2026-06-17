@@ -34,17 +34,17 @@ except ImportError:
 
 class ImageGenerationService:
     """图片生成服务（负责调用AI模型生成图片）
-    
+
     职责：
     - 生成角色图片prompt
     - 生成场景图片prompt
-    - 调用AI模型生成图片（火山引擎、DashScope）
+    - 调用AI模型生成图片（火山引擎、DashScope、VectorEngine）
     - 支持组图生成（角色图片）
     """
-    
+
     def __init__(self, storage_service=None):
         """初始化图片生成服务
-        
+
         Args:
             storage_service: 图片存储服务实例（用于保存生成的图片）
         """
@@ -52,28 +52,41 @@ class ImageGenerationService:
         self.provider = None
         self.volcengine_api_url = None
         self.storage_service = storage_service
-        
-        # 优先检查火山引擎Seedream API
-        volcengine_key = config.VOLCENGINE_ARK_API_KEY.strip() if config.VOLCENGINE_ARK_API_KEY else ''
-        
-        if REQUESTS_AVAILABLE and volcengine_key:
-            # 根据region构建API端点
-            region_map = {
-                'cn-beijing': 'ark.cn-beijing.volces.com',
-                'cn-north-1': 'ark.cn-beijing.volces.com',
-            }
-            host = region_map.get(config.VOLCENGINE_REGION, 'ark.cn-beijing.volces.com')
-            self.volcengine_api_url = f"https://{host}/api/v3/images/generations"
+
+        # 优先检查VectorEngine API（gpt-image-2）
+        vectorengine_key = config.VECTORENGINE_API_KEY.strip() if config.VECTORENGINE_API_KEY else ''
+
+        if REQUESTS_AVAILABLE and vectorengine_key:
+            base_url = config.VECTORENGINE_BASE_URL.rstrip('/')
+            self.vectorengine_api_url = f"{base_url}/v1/images/generations"
             self.enabled = True
-            self.provider = 'volcengine'
-            logger.info(f"图片生成服务已启用 - 使用服务: 火山引擎Seedream (VolcEngine)")
-            logger.debug(f"API端点: {self.volcengine_api_url}")
-            logger.debug(f"模型: {config.VOLCENGINE_IMAGE_MODEL}")
-        elif not REQUESTS_AVAILABLE:
-            logger.warning("requests未安装，火山引擎图片生成功能不可用")
-        elif not volcengine_key:
-            logger.warning("未配置VOLCENGINE_ARK_API_KEY或值为空，火山引擎图片生成功能不可用")
-        
+            self.provider = 'vectorengine'
+            logger.info(f"图片生成服务已启用 - 使用服务: VectorEngine ({config.VECTORENGINE_IMAGE_MODEL})")
+            logger.debug(f"API端点: {self.vectorengine_api_url}")
+            logger.debug(f"模型: {config.VECTORENGINE_IMAGE_MODEL}")
+
+        # 如果VectorEngine不可用，检查火山引擎Seedream API
+        if not self.enabled:
+            volcengine_key = config.VOLCENGINE_ARK_API_KEY.strip() if config.VOLCENGINE_ARK_API_KEY else ''
+
+            if REQUESTS_AVAILABLE and volcengine_key:
+                # 根据region构建API端点
+                region_map = {
+                    'cn-beijing': 'ark.cn-beijing.volces.com',
+                    'cn-north-1': 'ark.cn-beijing.volces.com',
+                }
+                host = region_map.get(config.VOLCENGINE_REGION, 'ark.cn-beijing.volces.com')
+                self.volcengine_api_url = f"https://{host}/api/v3/images/generations"
+                self.enabled = True
+                self.provider = 'volcengine'
+                logger.info(f"图片生成服务已启用 - 使用服务: 火山引擎Seedream (VolcEngine)")
+                logger.debug(f"API端点: {self.volcengine_api_url}")
+                logger.debug(f"模型: {config.VOLCENGINE_IMAGE_MODEL}")
+            elif not REQUESTS_AVAILABLE:
+                logger.warning("requests未安装，火山引擎图片生成功能不可用")
+            elif not volcengine_key:
+                logger.warning("未配置VOLCENGINE_ARK_API_KEY或值为空，火山引擎图片生成功能不可用")
+
         # 如果火山引擎不可用，检查通义万相
         if not self.enabled:
             if DASHSCOPE_AVAILABLE and config.DASHSCOPE_API_KEY:
@@ -86,7 +99,7 @@ class ImageGenerationService:
                     logger.warning("dashscope未安装，通义万相图片生成功能不可用")
                 elif not config.DASHSCOPE_API_KEY:
                     logger.warning("未配置DASHSCOPE_API_KEY，通义万相图片生成功能不可用")
-        
+
         if not self.enabled:
             logger.warning("所有图片生成服务均不可用，请配置至少一个服务")
     
@@ -280,7 +293,10 @@ class ImageGenerationService:
             return None
         
         try:
-            if self.provider == 'volcengine':
+            if self.provider == 'vectorengine':
+                # 使用VectorEngine gpt-image-2生成图片（支持组图）
+                return self._generate_with_vectorengine(prompt, character_id, user_id, image_type, generate_group, group_count)
+            elif self.provider == 'volcengine':
                 # 使用火山引擎生成图片（支持组图）
                 return self._generate_with_volcengine(prompt, character_id, user_id, image_type, generate_group, group_count)
             elif self.provider == 'dashscope':
@@ -344,7 +360,10 @@ class ImageGenerationService:
         scene_name_for_naming = scene_data.get('scene_name', '')
         
         try:
-            if self.provider == 'volcengine':
+            if self.provider == 'vectorengine':
+                # 使用VectorEngine生成场景图片
+                return self._generate_scene_with_vectorengine(prompt, scene_id_for_naming, scene_name_for_naming, user_id)
+            elif self.provider == 'volcengine':
                 # 使用火山引擎生成场景图片
                 return self._generate_scene_with_volcengine(prompt, scene_id_for_naming, scene_name_for_naming, user_id)
             elif self.provider == 'dashscope':
@@ -529,6 +548,290 @@ class ImageGenerationService:
             logger.error(f"火山引擎图片生成异常: {e}", exc_info=True)
             return None
     
+    def _generate_with_vectorengine(self, prompt: str, character_id: Optional[int] = None,
+                                     user_id: Optional[str] = None, image_type: str = 'portrait',
+                                     generate_group: bool = True, group_count: int = 3) -> Optional[List[str]]:
+        """使用VectorEngine gpt-image-2 API生成图片（支持组图）
+
+        Args:
+            prompt: 图片生成prompt
+            character_id: 角色ID（可选）
+            user_id: 玩家ID（可选，用于文件命名）
+            image_type: 图片类型（portrait=立绘, avatar=头像）
+            generate_group: 是否生成组图（默认：True）
+            group_count: 组图数量（默认：3）
+
+        Returns:
+            图片URL列表，如果失败返回None
+        """
+        try:
+            if generate_group:
+                logger.info(f"正在使用VectorEngine {config.VECTORENGINE_IMAGE_MODEL}生成角色组图 (角色ID: {character_id}, 数量: {group_count})")
+            else:
+                logger.info(f"正在使用VectorEngine {config.VECTORENGINE_IMAGE_MODEL}生成角色图片 (角色ID: {character_id})")
+            logger.debug(f"基础Prompt: {prompt[:100]}...")
+
+            # 构建请求头
+            headers = {
+                "Authorization": f"Bearer {config.VECTORENGINE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            # 人物图片使用1024x1536竖屏比例（适合人物立绘）
+            character_image_size = "1024x1536"
+
+            # 如果生成组图，并行调用API生成多张不同变体的图片
+            if generate_group and group_count > 1:
+                # 定义每张图片的变体描述（让3张图片有差异）
+                variant_descriptions = [
+                    "正面全身像，微笑表情，自然站立姿势",
+                    "正面全身像，温和表情，优雅姿态",
+                    "正面半身像，自信表情，手部动作"
+                ]
+
+                def _generate_single(i: int) -> Optional[str]:
+                    """生成单张图片（在线程池中执行）"""
+                    variant_idx = i % len(variant_descriptions)
+                    variant_prompt = f"{prompt}，{variant_descriptions[variant_idx]}"
+
+                    logger.debug(f"正在生成第 {i + 1}/{group_count} 张图片...")
+                    payload = {
+                        "model": config.VECTORENGINE_IMAGE_MODEL,
+                        "prompt": variant_prompt,
+                        "size": character_image_size,
+                        "n": 1,
+                        "response_format": "url",
+                    }
+                    resp = requests.post(self.vectorengine_api_url, headers=headers, json=payload, timeout=180)
+                    if resp.status_code != 200:
+                        logger.warning(f"第 {i + 1} 张图片生成失败: HTTP {resp.status_code}, {resp.text[:200]}")
+                        return None
+
+                    resp_data = resp.json()
+                    if 'error' in resp_data:
+                        logger.warning(f"第 {i + 1} 张图片生成失败: {resp_data['error'].get('message', '')}")
+                        return None
+
+                    if 'data' not in resp_data or not resp_data['data']:
+                        return None
+
+                    # 支持 url 或 b64_json 格式
+                    image_data = resp_data['data'][0]
+                    image_url = image_data.get('url')
+                    if not image_url and image_data.get('b64_json'):
+                        # 如果返回base64，需要保存为文件
+                        import base64
+                        b64_data = image_data['b64_json']
+                        if self.storage_service and character_id:
+                            image_bytes = base64.b64decode(b64_data)
+                            local_path = self.storage_service.save_image_bytes(
+                                image_bytes, character_id, user_id, image_type, image_index=i + 1
+                            )
+                            if local_path:
+                                image_url = get_static_url(local_path, 'characters')
+                        if not image_url:
+                            return None
+
+                    # 保存到本地
+                    final_url = image_url
+                    if config.IMAGE_SAVE_ENABLED and self.storage_service and character_id:
+                        local_path = self.storage_service.save_image(
+                            image_url, character_id, user_id, image_type, image_index=i + 1
+                        )
+                        if local_path:
+                            final_url = get_static_url(local_path, 'characters')
+                    return final_url
+
+                # 并行生成
+                image_urls = []
+                with ThreadPoolExecutor(max_workers=group_count, thread_name_prefix="img_gen") as pool:
+                    futures = {pool.submit(_generate_single, i): i for i in range(group_count)}
+                    for future in as_completed(futures):
+                        idx = futures[future]
+                        try:
+                            url = future.result()
+                            if url:
+                                image_urls.append(url)
+                                logger.info(f"第 {idx + 1} 张图片生成成功")
+                        except Exception as e:
+                            logger.warning(f"第 {idx + 1} 张图片生成异常: {e}")
+
+                if image_urls:
+                    logger.info(f"组图生成完成: 成功生成 {len(image_urls)}/{group_count} 张图片")
+                    return image_urls
+                else:
+                    logger.warning("组图生成失败: 未能生成任何图片")
+                    return None
+            else:
+                # 单张图片生成
+                payload = {
+                    "model": config.VECTORENGINE_IMAGE_MODEL,
+                    "prompt": prompt,
+                    "size": character_image_size,
+                    "n": 1,
+                    "response_format": "url",
+                }
+
+                response = requests.post(
+                    self.vectorengine_api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=180
+                )
+
+                if response.status_code != 200:
+                    logger.warning(f"VectorEngine API请求失败: HTTP {response.status_code}")
+                    logger.debug(f"响应内容: {response.text[:200]}")
+                    return None
+
+                resp_data = response.json()
+
+                if 'error' in resp_data:
+                    error_info = resp_data['error']
+                    error_msg = error_info.get('message', '未知错误')
+                    logger.warning(f"VectorEngine图片生成失败: {error_msg}")
+                    return None
+
+                if 'data' in resp_data and len(resp_data['data']) > 0:
+                    image_data = resp_data['data'][0]
+                    image_url = image_data.get('url')
+
+                    # 支持b64_json格式
+                    if not image_url and image_data.get('b64_json'):
+                        import base64
+                        b64_data = image_data['b64_json']
+                        if self.storage_service and character_id:
+                            image_bytes = base64.b64decode(b64_data)
+                            local_path = self.storage_service.save_image_bytes(
+                                image_bytes, character_id, user_id, image_type
+                            )
+                            if local_path:
+                                image_url = get_static_url(local_path, 'characters')
+
+                    if image_url:
+                        logger.info(f"图片生成成功")
+
+                        final_url = image_url
+                        if config.IMAGE_SAVE_ENABLED and self.storage_service and character_id:
+                            local_path = self.storage_service.save_image(
+                                image_url, character_id, user_id, image_type
+                            )
+                            if local_path:
+                                logger.info(f"图片已保存到本地: {local_path}")
+                                final_url = get_static_url(local_path, 'characters')
+
+                        return [final_url]
+                    else:
+                        logger.warning(f"响应中未找到图片URL: {resp_data}")
+                        return None
+                else:
+                    logger.warning(f"响应中未找到data字段或data为空: {resp_data}")
+                    return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"VectorEngine API请求异常: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"VectorEngine图片生成异常: {e}", exc_info=True)
+            return None
+
+    def _generate_scene_with_vectorengine(self, prompt: str, scene_id: str, scene_name: str,
+                                          user_id: Optional[str] = None) -> Optional[str]:
+        """使用VectorEngine生成场景图片
+
+        Args:
+            prompt: 场景图片生成prompt
+            scene_id: 场景ID（用于文件命名）
+            scene_name: 场景名称（用于文件命名）
+            user_id: 玩家ID（可选）
+
+        Returns:
+            图片URL，如果失败返回None
+        """
+        try:
+            logger.info(f"正在使用VectorEngine {config.VECTORENGINE_IMAGE_MODEL}生成场景图片 (场景ID: {scene_id})")
+            logger.debug(f"Prompt: {prompt[:100]}...")
+
+            # 构建请求头
+            headers = {
+                "Authorization": f"Bearer {config.VECTORENGINE_API_KEY}",
+                "Content-Type": "application/json"
+            }
+
+            # 场景图片使用1792x1024比例（16:9）
+            scene_image_size = "1792x1024"
+
+            payload = {
+                "model": config.VECTORENGINE_IMAGE_MODEL,
+                "prompt": prompt,
+                "size": scene_image_size,
+                "n": 1,
+                "response_format": "url",
+            }
+
+            response = requests.post(
+                self.vectorengine_api_url,
+                headers=headers,
+                json=payload,
+                timeout=180
+            )
+
+            if response.status_code != 200:
+                logger.warning(f"VectorEngine API请求失败: HTTP {response.status_code}")
+                logger.debug(f"响应内容: {response.text[:200]}")
+                return None
+
+            resp_data = response.json()
+
+            if 'error' in resp_data:
+                error_info = resp_data['error']
+                error_msg = error_info.get('message', '未知错误')
+                logger.warning(f"VectorEngine场景图片生成失败: {error_msg}")
+                return None
+
+            if 'data' in resp_data and len(resp_data['data']) > 0:
+                image_data = resp_data['data'][0]
+                image_url = image_data.get('url')
+
+                # 支持b64_json格式
+                if not image_url and image_data.get('b64_json'):
+                    import base64
+                    b64_data = image_data['b64_json']
+                    if self.storage_service:
+                        image_bytes = base64.b64decode(b64_data)
+                        local_path = self.storage_service.save_image_bytes(
+                            image_bytes, None, user_id, 'scene', scene_id=scene_id, scene_name=scene_name
+                        )
+                        if local_path:
+                            image_url = get_static_url(local_path, 'scenes')
+
+                if image_url:
+                    logger.info(f"场景图片生成成功")
+
+                    # 保存图片到本地
+                    if config.IMAGE_SAVE_ENABLED and self.storage_service:
+                        local_path = self.storage_service.save_image(
+                            image_url, None, user_id, 'scene',
+                            scene_id, scene_name
+                        )
+                        if local_path:
+                            logger.info(f"场景图片已保存到本地: {local_path}")
+
+                    return image_url
+                else:
+                    logger.warning(f"响应中未找到图片URL: {resp_data}")
+                    return None
+            else:
+                logger.warning(f"响应中未找到data字段或data为空: {resp_data}")
+                return None
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"VectorEngine API请求异常: {e}", exc_info=True)
+            return None
+        except Exception as e:
+            logger.error(f"VectorEngine场景图片生成异常: {e}", exc_info=True)
+            return None
+
     def _generate_with_dashscope(self, prompt: str, character_id: Optional[int] = None,
                                  user_id: Optional[str] = None, image_type: str = 'portrait') -> Optional[str]:
         """使用通义万相生成图片
