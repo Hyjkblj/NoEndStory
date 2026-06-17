@@ -336,6 +336,73 @@
   font-size: 12px;
 }
 
+/* ======== 结局覆盖层 ======== */
+.game-ending-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2000;
+  animation: fadeIn 1s ease-in;
+}
+
+.game-ending-card {
+  text-align: center;
+  padding: 48px 64px;
+  background: rgba(255, 228, 181, 0.95);
+  border-radius: 16px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  max-width: 500px;
+}
+
+.ending-title {
+  font-size: 32px;
+  font-weight: bold;
+  color: #654321;
+  margin: 16px 0;
+  letter-spacing: 4px;
+}
+
+.ending-subtitle {
+  font-size: 16px;
+  color: rgba(101, 67, 33, 0.6);
+  margin: 8px 0 32px;
+}
+
+.ending-divider {
+  width: 80px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #8b4513, transparent);
+  margin: 12px auto;
+}
+
+.ending-actions {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+}
+
+.ending-actions .ant-btn-primary {
+  background: linear-gradient(135deg, #ffd700, #ffb347);
+  border: 2px solid #ff8c00;
+  font-weight: bold;
+}
+
+.ending-actions .ant-btn-default {
+  border: 2px solid rgba(139, 69, 19, 0.5);
+  color: #654321;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 /* ======== 选项快捷键提示 ======== */
 .game-option-button {
   position: relative;

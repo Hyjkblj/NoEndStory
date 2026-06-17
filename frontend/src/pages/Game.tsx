@@ -36,6 +36,9 @@ function Game() {
   const [showExitConfirm, setShowExitConfirm] = useState(false);
   // Loading 进度提示
   const [tipIndex, setTipIndex] = useState(0);
+  // 游戏结束状态
+  const [gameFinished, setGameFinished] = useState(false);
+  const [endingTitle, setEndingTitle] = useState('故事落幕');
 
   useEffect(() => {
     const characterData = gameStorage.getCharacterData();
@@ -66,8 +69,9 @@ function Game() {
         setShowExitConfirm(true);
         return;
       }
+      // 游戏结束或加载中时禁用选项快捷键
+      if (state.loading || gameFinished) return;
       // 数字键 1-3: 选择选项
-      if (state.loading) return;
       const num = parseInt(e.key);
       if (num >= 1 && num <= 3 && state.currentOptions.length >= num) {
         handleOptionSelect(num - 1);
@@ -75,7 +79,7 @@ function Game() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [state.loading, state.currentOptions]);
+  }, [state.loading, state.currentOptions, gameFinished]);
 
   const handleSceneChange = (newScene: string | null) => {
     if (!newScene) return;
@@ -129,11 +133,17 @@ function Game() {
     }
     if (Array.isArray(responseData.player_options)) state.setCurrentOptions(responseData.player_options);
     else state.setCurrentOptions([]);
-    if (responseData.is_game_finished) message.info('游戏结束');
+    // 结局处理：标记结束状态，清空选项
+    if (responseData.is_game_finished) {
+      setGameFinished(true);
+      state.setCurrentOptions([]);
+      const title = responseData.event_title || '故事落幕';
+      setEndingTitle(title);
+    }
   };
 
   const handleOptionSelect = useCallback(async (optionId: number) => {
-    if (state.loading || !state.threadId) return;
+    if (state.loading || !state.threadId || gameFinished) return;
     const selectedOption = state.currentOptions[optionId];
     if (!selectedOption) return;
 
@@ -278,6 +288,40 @@ function Game() {
         characterName={characterName}
         typeSpeed={30}
       />
+
+      {/* 结局覆盖层 */}
+      {gameFinished && (
+        <div className="game-ending-overlay">
+          <div className="game-ending-card">
+            <div className="ending-divider" />
+            <h1 className="ending-title">{endingTitle}</h1>
+            <div className="ending-divider" />
+            <p className="ending-subtitle">感谢你的陪伴</p>
+            <div className="ending-actions">
+              <Button
+                type="primary"
+                size="large"
+                onClick={() => {
+                  stopTts();
+                  gameStorage.clearAllGameData();
+                  navigate(ROUTES.CHARACTER_SETTING);
+                }}
+              >
+                再来一局
+              </Button>
+              <Button
+                size="large"
+                onClick={() => {
+                  stopTts();
+                  navigate(ROUTES.FIRST_STEP);
+                }}
+              >
+                返回菜单
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

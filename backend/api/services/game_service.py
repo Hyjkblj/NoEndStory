@@ -531,10 +531,14 @@ class GameService:
             # 会话不存在，尝试从请求中获取character_id重新创建
             # 注意：这里需要前端传递character_id，或者从其他地方恢复
             raise ValueError(f"Thread {thread_id} not found. 会话可能已过期，请重新初始化游戏。")
-        
+
         if not session.is_initialized:
             raise ValueError("Game not initialized. Call initialize_story first.")
-        
+
+        # 结局守卫：游戏已结束时拒绝处理新输入
+        if getattr(session, 'is_game_finished', False):
+            raise ValueError("游戏已结束，无法继续操作。请开始新的故事。")
+
         character_id = session.character_id
         
         # 如果提供了option_id，使用选项；否则使用user_input作为自由输入
@@ -725,7 +729,7 @@ class GameService:
             
             # 检查游戏是否结束
             if session.story_engine.is_game_finished():
-                # 获取结尾事件
+                # 获取结尾事件（只生成台词，不生成选项）
                 try:
                     ending_event = session.story_engine.get_ending_event(character_id)
                     dialogue_data = session.story_engine.get_next_dialogue_round(character_id)
@@ -734,10 +738,10 @@ class GameService:
                 except Exception as e:
                     logger.error(f"获取结尾事件对话失败: {e}", exc_info=True)
                     raise
-                
+
                 # 输出详细信息到控制台
                 self._print_dialogue_info(character_id, ending_event, dialogue_data)
-                
+
                 # 更新状态值
                 states = session.db_manager.get_character_states(character_id)
                 if states:
@@ -757,14 +761,17 @@ class GameService:
                     }
                 else:
                     current_states = None
-                
+
+                # 标记会话为已结束（拒绝后续输入）
+                session.is_game_finished = True
+
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
-                    'player_options': dialogue_data['player_options'],
+                    'player_options': [],  # 结局不生成选项
                     'story_background': ending_event.get('story_background'),
                     'event_title': ending_event.get('title', '结局'),
                     'scene': ending_event.get('scene'),
-                    'current_states': current_states,  # 更新状态值
+                    'current_states': current_states,
                     'is_game_finished': True
                 })
             else:

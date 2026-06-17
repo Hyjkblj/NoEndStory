@@ -63,6 +63,7 @@ class GameSession:
         
         # 游戏状态
         self.is_initialized = False
+        self.is_game_finished = False  # 结局标记，拒绝后续输入
         self.current_dialogue_round = None  # 当前对话轮次数据
         # 单会话串行锁，避免同一 thread 并发处理输入导致轮次错位
         self.lock = threading.RLock()
@@ -73,6 +74,7 @@ class GameSession:
             'thread_id': self.thread_id,
             'user_id': self.user_id,
             'character_id': self.character_id,
+            'is_game_finished': self.is_game_finished,
             'game_mode': self.game_mode,
             'is_initialized': self.is_initialized,
             'current_scene': getattr(self.story_engine, 'current_scene', None),
@@ -90,7 +92,7 @@ class GameSession:
                 'dialogue_history': getattr(self.story_engine, 'dialogue_history', []),
                 'event_history': getattr(self.story_engine, 'event_history', []),
                 'game_start_time': getattr(self.story_engine, 'game_start_time', None),
-                'event_count': getattr(self.story_engine, 'event_count', 0),
+                'current_event_count': getattr(self.story_engine, 'current_event_count', 0),
             }
             return state
         except Exception as e:
@@ -109,6 +111,7 @@ class GameSession:
         
         # 恢复游戏状态
         session.is_initialized = data.get('is_initialized', False)
+        session.is_game_finished = data.get('is_game_finished', False)
         session.current_dialogue_round = data.get('current_dialogue_round')
         
         # 恢复 StoryEngine 状态
@@ -119,7 +122,10 @@ class GameSession:
             session.story_engine.dialogue_history = story_state.get('dialogue_history', [])
             session.story_engine.event_history = story_state.get('event_history', [])
             session.story_engine.game_start_time = story_state.get('game_start_time')
-            session.story_engine.event_count = story_state.get('event_count', 0)
+            # 兼容旧数据：优先读 current_event_count，降级读 event_count
+            session.story_engine.current_event_count = story_state.get(
+                'current_event_count', story_state.get('event_count', 0)
+            )
         
         return session
 
