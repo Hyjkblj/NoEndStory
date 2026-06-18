@@ -20,11 +20,12 @@ except ImportError:
 
 logger = get_logger(__name__)
 
-# 引擎选择（优先级: NOS Agent > Dynamic Script > ScriptEngine V2 > Legacy）
+# 引擎选择（优先级: ScriptEngine V2 > NOS Agent > Dynamic Script > Legacy）
+# ScriptEngine V2 是新默认引擎，除非显式禁用
+USE_SCRIPT_ENGINE_V2 = os.getenv('USE_SCRIPT_ENGINE_V2', 'true').lower() == 'true'
+# 旧引擎标志，仅在 ScriptEngine V2 禁用时生效
 USE_NOS_AGENT_ENGINE = os.getenv('USE_NOS_AGENT_ENGINE', 'false').lower() == 'true'
 USE_DYNAMIC_SCRIPT = os.getenv('USE_DYNAMIC_SCRIPT', 'false').lower() == 'true'
-# ScriptEngine V2 是新的默认引擎
-USE_SCRIPT_ENGINE_V2 = os.getenv('USE_SCRIPT_ENGINE_V2', 'true').lower() == 'true'
 
 # 引擎实例（延迟加载）
 _dynamic_script_controller = None
@@ -196,7 +197,7 @@ class GameService:
         logger.info(f"initialize_story 被调用: thread_id={thread_id}, character_id={character_id}, scene_id={scene_id}")
 
         # ScriptEngine V2 路径：通过 process_input 触发初始化
-        if USE_SCRIPT_ENGINE_V2 and not USE_NOS_AGENT_ENGINE and not USE_DYNAMIC_SCRIPT:
+        if USE_SCRIPT_ENGINE_V2:
             orchestrator = _get_script_engine_v2_orchestrator()
             if orchestrator:
                 # V2 的初始化在第一次 process_input 时自动完成
@@ -655,19 +656,19 @@ class GameService:
     ) -> Dict[str, Any]:
         """处理玩家输入
 
-        引擎优先级: NOS Agent > Dynamic Script > ScriptEngine V2 > Legacy
+        引擎优先级: ScriptEngine V2 > NOS Agent > Dynamic Script > Legacy
         """
-        # NOS Agent 引擎路径
+        # ScriptEngine V2 路径（新默认，最高优先级）
+        if USE_SCRIPT_ENGINE_V2:
+            return await self._process_with_script_engine_v2(thread_id, user_input, option_id)
+
+        # NOS Agent 引擎路径（旧版，需显式启用）
         if USE_NOS_AGENT_ENGINE:
             return await self._process_with_nos_engine(thread_id, user_input)
 
-        # 动态剧本系统路径
+        # 动态剧本系统路径（旧版，需显式启用）
         if USE_DYNAMIC_SCRIPT:
             return await self._process_with_dynamic_script(thread_id, user_input, option_id)
-
-        # ScriptEngine V2 路径（新默认）
-        if USE_SCRIPT_ENGINE_V2:
-            return await self._process_with_script_engine_v2(thread_id, user_input, option_id)
 
         session = self.session_manager.get_session(thread_id)
         if not session:
