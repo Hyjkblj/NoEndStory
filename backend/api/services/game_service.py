@@ -11,12 +11,24 @@ from api.services.image_service import ImageService
 from data.scenes import SCENES, SUB_SCENES
 from utils.logger import get_logger
 
+# TTS 情感引擎
+try:
+    from services.tts_emotion_engine import calculate_tts_params, extract_personality_keywords
+    TTS_EMOTION_AVAILABLE = True
+except ImportError:
+    TTS_EMOTION_AVAILABLE = False
+
 logger = get_logger(__name__)
 
-# W8: Feature Flag - Agent 引擎开关
-# 当设置为 true 时，使用新的 NOS Agent 引擎（W6 实现）
-# 当设置为 false 时，使用旧的 StoryEngine
+# W8: Feature Flag - 引擎选择
+# USE_NOS_AGENT_ENGINE: 使用 NOS Agent 引擎
+# USE_DYNAMIC_SCRIPT: 使用动态剧本系统（PAD 空间 + 叙事锚点）
+# 优先级: NOS Agent > Dynamic Script > Legacy StoryEngine
 USE_NOS_AGENT_ENGINE = os.getenv('USE_NOS_AGENT_ENGINE', 'false').lower() == 'true'
+USE_DYNAMIC_SCRIPT = os.getenv('USE_DYNAMIC_SCRIPT', 'false').lower() == 'true'
+
+# 动态剧本系统（延迟加载）
+_dynamic_script_controller = None
 
 # W6: Lazy import — 只在启用 Agent 引擎时加载
 _agent_orchestrator = None
@@ -50,9 +62,51 @@ def _get_agent_orchestrator():
     return _agent_orchestrator
 
 
+def _get_dynamic_script_controller():
+    """获取动态剧本控制器单例（延迟加载）"""
+    global _dynamic_script_controller
+    if _dynamic_script_controller is None and USE_DYNAMIC_SCRIPT:
+        from game.script_engine.game_controller import GameController
+        from game.ai_generator import _get_text_gen
+        text_gen = _get_text_gen()
+        _dynamic_script_controller = GameController(llm_service=text_gen)
+        logger.info("动态剧本系统已加载")
+    return _dynamic_script_controller
+
+
 class GameService:
     """游戏服务"""
-    
+
+    def _compute_tts_emotion(self, character_id: int, emotion_state) -> Optional[Dict]:
+        """计算 TTS 情感参数（Legacy 引擎使用）
+
+        Args:
+            character_id: 角色 ID
+            emotion_state: 当前情绪状态对象
+
+        Returns:
+            TTS 参数字典，或 None
+        """
+        if not TTS_EMOTION_AVAILABLE:
+            return None
+        try:
+            # 获取角色性格关键词
+            character = self.character_service.get_character(character_id) if self.character_service else None
+            personality_data = character.get('personality', {}) if character else {}
+            personality_keywords = extract_personality_keywords(personality_data)
+
+            # 计算 TTS 参数
+            tts_params = calculate_tts_params(emotion_state, personality_keywords)
+            return {
+                "emotion": tts_params.emotion,
+                "speed": tts_params.speed_ratio,
+                "pitch": tts_params.pitch_ratio,
+                "volume": tts_params.volume_ratio,
+            }
+        except Exception as e:
+            logger.warning(f"TTS 情感计算失败: {e}")
+            return None
+
     def __init__(
         self,
         character_service: Optional[CharacterService] = None,
@@ -520,11 +574,15 @@ class GameService:
     ) -> Dict[str, Any]:
         """处理玩家输入
 
-        W6: 当 USE_NOS_AGENT_ENGINE=true 时使用 Agent 引擎
+        引擎优先级: NOS Agent > Dynamic Script > Legacy StoryEngine
         """
-        # W6: NOS Agent 引擎路径
+        # NOS Agent 引擎路径
         if USE_NOS_AGENT_ENGINE:
             return await self._process_with_nos_engine(thread_id, user_input)
+
+        # 动态剧本系统路径
+        if USE_DYNAMIC_SCRIPT:
+            return await self._process_with_dynamic_script(thread_id, user_input, option_id)
 
         session = self.session_manager.get_session(thread_id)
         if not session:
@@ -710,6 +768,9 @@ class GameService:
                 except Exception as e:
                     logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
             
+            # 计算 TTS 情感参数
+            tts_emotion = self._compute_tts_emotion(character_id, states)
+
             response_data.update({
                 'character_dialogue': dialogue_data['character_dialogue'],
                 'player_options': dialogue_data['player_options'],
@@ -718,6 +779,7 @@ class GameService:
                 'scene': current_scene,
                 'scene_image_url': scene_image_url,  # 场景图片URL（用于前端显示）
                 'current_states': current_states,  # 更新状态值
+                'tts_emotion': tts_emotion,  # TTS 情感参数
             })
         else:
             # 当前事件对话结束，保存事件并进入下一个事件
@@ -765,6 +827,9 @@ class GameService:
                 # 标记会话为已结束（拒绝后续输入）
                 session.is_game_finished = True
 
+                # 计算 TTS 情感参数
+                tts_emotion = self._compute_tts_emotion(character_id, states)
+
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
                     'player_options': [],  # 结局不生成选项
@@ -772,7 +837,8 @@ class GameService:
                     'event_title': ending_event.get('title', '结局'),
                     'scene': ending_event.get('scene'),
                     'current_states': current_states,
-                    'is_game_finished': True
+                    'is_game_finished': True,
+                    'tts_emotion': tts_emotion,  # TTS 情感参数
                 })
             else:
                 # 获取下一个事件
@@ -917,6 +983,9 @@ class GameService:
                     else:
                         validated_composite_url = composite_image_url
                 
+                # 计算 TTS 情感参数
+                tts_emotion = self._compute_tts_emotion(character_id, states)
+
                 response_data.update({
                     'character_dialogue': dialogue_data['character_dialogue'],
                     'player_options': dialogue_data['player_options'],
@@ -926,7 +995,8 @@ class GameService:
                     'scene_image_url': scene_image_url,  # 场景图片URL（用于前端显示）
                     'current_states': current_states,  # 更新状态值
                     'composite_image_url': validated_composite_url,  # 合成后的游戏场景图片（已验证）
-                    'is_event_finished': True
+                    'is_event_finished': True,
+                    'tts_emotion': tts_emotion,  # TTS 情感参数
                 })
         
         return response_data
@@ -1215,4 +1285,84 @@ class GameService:
             'character_dialogue': dialogue_data['character_dialogue'],
             'player_options': dialogue_data['player_options']
         }
+
+    # ==================== 动态剧本系统处理 ====================
+
+    async def _process_with_dynamic_script(
+        self, thread_id: str, user_input: str, option_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """使用动态剧本系统处理玩家输入
+
+        当 USE_DYNAMIC_SCRIPT=true 时使用此路径。
+        """
+        controller = _get_dynamic_script_controller()
+        if not controller:
+            logger.warning("动态剧本系统未初始化，回退到 StoryEngine")
+            session = self.session_manager.get_session(thread_id)
+            if session:
+                with session.lock:
+                    return self._process_with_story_engine(session)
+            raise ValueError("动态剧本系统未初始化且会话不存在")
+
+        # 获取或创建游戏状态
+        session = self.session_manager.get_session(thread_id)
+        if not session:
+            raise ValueError(f"Thread {thread_id} not found")
+
+        # 从 session 中获取或初始化动态剧本状态
+        if not hasattr(session, '_dynamic_state') or session._dynamic_state is None:
+            # 初始化动态剧本
+            character = self.character_service.get_character(session.character_id) if self.character_service else {}
+            character_name = character.get('name', '角色') if character else '角色'
+            personality_data = character.get('personality', {}) if character else {}
+            personality_keywords = extract_personality_keywords(personality_data) if TTS_EMOTION_AVAILABLE else []
+
+            # 获取开场事件池
+            from data.scenes import MAJOR_SCENES
+            scene_data = MAJOR_SCENES.get(session.story_engine.current_scene if hasattr(session.story_engine, 'current_scene') else 'school', {})
+            opening_events_pool = scene_data.get('opening_events', [])
+
+            session._dynamic_state = controller.initialize_game(
+                thread_id=thread_id,
+                character_id=session.character_id,
+                character_name=character_name,
+                character_personality=personality_keywords,
+                scene_id=session.story_engine.current_scene if hasattr(session.story_engine, 'current_scene') else 'school',
+                opening_events_pool=opening_events_pool if opening_events_pool else None,
+            )
+
+        state = session._dynamic_state
+
+        # 处理玩家选择
+        if option_id is not None and state.current_options:
+            state = controller.process_player_choice(state, option_id)
+            session._dynamic_state = state
+
+        # 构建响应
+        response_data = {
+            'thread_id': thread_id,
+            'character_dialogue': state.dialogue_history[-1]['content'] if state.dialogue_history else '',
+            'player_options': [opt.to_dict() for opt in state.current_options],
+            'scene': state.current_event.scene if state.current_event else 'classroom',
+            'current_states': state.emotion.to_dict(),
+            'is_game_finished': state.is_finished,
+            'engine': 'dynamic_script',
+        }
+
+        # 添加 TTS 情感参数
+        if TTS_EMOTION_AVAILABLE:
+            tts_params = calculate_tts_params(state.emotion, state.character_personality)
+            response_data['tts_emotion'] = {
+                "emotion": tts_params.emotion,
+                "speed": tts_params.speed_ratio,
+                "pitch": tts_params.pitch_ratio,
+                "volume": tts_params.volume_ratio,
+            }
+
+        # 结局信息
+        if state.is_finished:
+            response_data['ending_type'] = state.ending_type
+            response_data['event_title'] = '结局'
+
+        return response_data
 

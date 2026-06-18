@@ -3,6 +3,7 @@ import os
 import hashlib
 import json
 import time
+from datetime import datetime
 from typing import Optional, Dict, Any
 from pathlib import Path
 import sys
@@ -362,25 +363,69 @@ class TTSService:
         }
     
     def get_character_voice_config(self, character_id: int) -> Dict[str, Any]:
-        """获取角色音色配置"""
+        """获取角色音色配置（优先从内存缓存，其次从数据库）"""
         if character_id in self.voice_configs:
             return self.voice_configs[character_id]
-        
-        # 从数据库加载（如果实现了CharacterVoice表）
-        # TODO: 实现从数据库加载角色音色配置
-        # from database.db_manager import DatabaseManager
-        # db_manager = DatabaseManager()
-        # character_voice = db_manager.get_character_voice(character_id)
-        
+
+        # 从数据库加载
+        try:
+            from database.db_manager import DatabaseManager
+            from models.character import VoiceConfig
+            db_manager = DatabaseManager()
+            with db_manager.get_session() as session:
+                voice_config = session.query(VoiceConfig).filter_by(character_id=character_id).first()
+                if voice_config:
+                    config = {
+                        'voice_type': voice_config.voice_type or 'preset',
+                        'preset_voice_id': voice_config.preset_voice_id,
+                        'voice_design_description': voice_config.voice_design_description,
+                        'voice_params': voice_config.voice_params or {},
+                    }
+                    self.voice_configs[character_id] = config
+                    return config
+        except Exception as e:
+            logger.debug(f"从数据库加载音色配置失败: {e}")
+
         # 默认配置
         default_config = {
             'voice_type': 'preset',
-            'preset_voice_id': None,  # 使用默认音色
+            'preset_voice_id': None,
             'voice_params': {},
         }
-        
         self.voice_configs[character_id] = default_config
         return default_config
+
+    def save_voice_config(self, character_id: int, config: Dict[str, Any]) -> bool:
+        """保存角色音色配置到数据库"""
+        try:
+            from database.db_manager import DatabaseManager
+            from models.character import VoiceConfig
+            db_manager = DatabaseManager()
+            with db_manager.get_session() as session:
+                existing = session.query(VoiceConfig).filter_by(character_id=character_id).first()
+                if existing:
+                    existing.voice_type = config.get('voice_type', 'preset')
+                    existing.preset_voice_id = config.get('preset_voice_id')
+                    existing.voice_design_description = config.get('voice_design_description')
+                    existing.voice_params = config.get('voice_params', {})
+                    existing.updated_at = datetime.utcnow()
+                else:
+                    new_config = VoiceConfig(
+                        character_id=character_id,
+                        voice_type=config.get('voice_type', 'preset'),
+                        preset_voice_id=config.get('preset_voice_id'),
+                        voice_design_description=config.get('voice_design_description'),
+                        voice_params=config.get('voice_params', {}),
+                    )
+                    session.add(new_config)
+                session.commit()
+
+            # 更新内存缓存
+            self.voice_configs[character_id] = config
+            return True
+        except Exception as e:
+            logger.error(f"保存音色配置失败: {e}")
+            return False
     
     def _get_default_voice(self, character_id: int) -> str:
         """获取默认音色（根据角色性别等）"""

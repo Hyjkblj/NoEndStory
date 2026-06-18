@@ -140,3 +140,24 @@ class GameSession(Base):
     # 关联关系
     character = relationship('Character', foreign_keys=[character_id])
 
+
+class VoiceConfig(Base):
+    """角色音色配置表"""
+    __tablename__ = 'voice_configs'
+    __table_args__ = (
+        UniqueConstraint('character_id', name='uq_voice_configs_character_id'),
+        Index('idx_voice_configs_character_id', 'character_id'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    character_id = Column(Integer, ForeignKey('characters.id'), nullable=False, unique=True, comment='角色ID')
+    voice_type = Column(String(50), default='preset', comment='音色类型: preset/custom/voice_design')
+    preset_voice_id = Column(String(100), nullable=True, comment='预设音色ID（如 emo_male_001）')
+    voice_design_description = Column(Text, nullable=True, comment='Voice Design 描述')
+    voice_params = Column(JSON, nullable=True, comment='自定义音色参数')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # 关联关系
+    character = relationship('Character', foreign_keys=[character_id])
+

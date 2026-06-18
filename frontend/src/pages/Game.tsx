@@ -29,7 +29,6 @@ function Game() {
   const state = useGameState();
   const { saveGameProgress, setCharacterImage } = useGameInit(state);
   const { ttsEnabled, setTtsEnabled, ttsVolume, stopTts } = useTtsControls();
-  useGameTts(state.currentDialogue, state.characterId, { enabled: ttsEnabled, volume: ttsVolume });
   const { messages, threadId, characterId, scrollToBottom } = state;
 
   // 退出确认
@@ -39,6 +38,15 @@ function Game() {
   // 游戏结束状态
   const [gameFinished, setGameFinished] = useState(false);
   const [endingTitle, setEndingTitle] = useState('故事落幕');
+  // TTS 情感参数（从后端响应中获取）
+  const [ttsEmotionParams, setTtsEmotionParams] = useState<Record<string, unknown> | null>(null);
+
+  // TTS 播放（带情感参数）
+  useGameTts(state.currentDialogue, state.characterId, {
+    enabled: ttsEnabled,
+    volume: ttsVolume,
+    emotion_params: ttsEmotionParams,
+  });
 
   useEffect(() => {
     const characterData = gameStorage.getCharacterData();
@@ -99,7 +107,13 @@ function Game() {
     character_dialogue?: string;
     player_options?: PlayerOption[];
     is_game_finished?: boolean;
+    tts_emotion?: Record<string, unknown> | null;
   }) => {
+    // 更新 TTS 情感参数
+    if (responseData.tts_emotion) {
+      setTtsEmotionParams(responseData.tts_emotion);
+    }
+
     if (responseData.scene && responseData.scene !== state.currentScene) {
       handleSceneChange(responseData.scene);
     }

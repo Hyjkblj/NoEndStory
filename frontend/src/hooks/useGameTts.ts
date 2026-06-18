@@ -35,15 +35,21 @@ export function useTtsControls() {
 
 /**
  * 当 currentDialogue / characterId 变化时，使用角色音色播放 TTS
+ * 支持从后端响应中获取 emotion_params（语速/音调/情感）
  */
 export function useGameTts(
   currentDialogue: string,
   characterId: string | null,
-  options?: { enabled?: boolean; volume?: number }
+  options?: {
+    enabled?: boolean;
+    volume?: number;
+    emotion_params?: Record<string, unknown> | null;
+  }
 ) {
   const lastTtsDialogueRef = useRef('');
   const enabled = options?.enabled ?? true;
   const volume = options?.volume ?? 0.8;
+  const emotionParams = options?.emotion_params ?? null;
 
   useEffect(() => {
     if (!enabled) return;
@@ -65,7 +71,9 @@ export function useGameTts(
         _globalAudio = null;
       }
 
-      const result = await generateSpeech(textForTts, characterId);
+      const result = await generateSpeech(textForTts, characterId, {
+        emotion_params: emotionParams || undefined,
+      });
       if (cancelled || !result?.audio_url) return;
       const url = result.audio_url.startsWith('http')
         ? result.audio_url
@@ -81,5 +89,5 @@ export function useGameTts(
     return () => {
       cancelled = true;
     };
-  }, [currentDialogue, characterId, enabled, volume]);
+  }, [currentDialogue, characterId, enabled, volume, emotionParams]);
 }

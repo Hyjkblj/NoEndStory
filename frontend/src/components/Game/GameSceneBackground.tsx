@@ -1,4 +1,5 @@
-import { Typography, App as AntdApp } from 'antd';
+import { useState } from 'react';
+import { Typography, Spin } from 'antd';
 import { getStaticAssetUrl } from '@/services/api';
 
 const { Text } = Typography;
@@ -22,68 +23,102 @@ export default function GameSceneBackground({
   onSceneError,
   onCharacterError,
 }: GameSceneBackgroundProps) {
-  const { message } = AntdApp.useApp();
+  const [compositeLoaded, setCompositeLoaded] = useState(false);
+  const [sceneLoaded, setSceneLoaded] = useState(false);
+  const [characterLoaded, setCharacterLoaded] = useState(false);
 
-  if (shouldUseComposite && !compositeImageUrl) {
-    message.error('合成图片加载失败，请刷新页面重试');
+  // 合成图片模式
+  if (shouldUseComposite) {
+    if (!compositeImageUrl) {
+      return (
+        <div className="scene-placeholder-fallback" style={{ display: 'flex' }}>
+          <Spin size="large" />
+          <Text style={{ color: '#fff', fontSize: '18px', marginTop: 16 }}>场景合成中...</Text>
+        </div>
+      );
+    }
+
     return (
-      <div className="scene-placeholder-fallback" style={{ display: 'flex' }}>
-        <Text style={{ color: '#ff4d4f', fontSize: '24px' }}>合成图片加载失败</Text>
-      </div>
-    );
-  }
-
-  if (compositeImageUrl) {
-    return (
-      <img
-        src={getStaticAssetUrl(compositeImageUrl)}
-        alt="游戏场景"
-        className="composite-scene-image"
-        onError={(e) => {
-          message.error('合成图片加载失败，请刷新页面重试');
-          const target = e.target as HTMLImageElement;
-          target.style.display = 'none';
-          const placeholder = target.parentElement?.querySelector('.scene-placeholder-fallback') as HTMLElement;
-          if (placeholder) {
-            placeholder.style.display = 'flex';
-            placeholder.innerHTML = '<span style="color: #ff4d4f; font-size: 24px;">合成图片加载失败</span>';
-          }
-          onCompositeError?.();
-        }}
-      />
-    );
-  }
-
-  return (
-    <>
-      {sceneImageUrl ? (
+      <>
+        {!compositeLoaded && (
+          <div className="scene-placeholder-fallback" style={{ display: 'flex' }}>
+            <Spin size="large" />
+            <Text style={{ color: '#fff', fontSize: '18px', marginTop: 16 }}>加载场景中...</Text>
+          </div>
+        )}
         <img
-          src={getStaticAssetUrl(sceneImageUrl)}
-          alt="场景背景"
-          className="scene-background-image"
+          src={getStaticAssetUrl(compositeImageUrl)}
+          alt="游戏场景"
+          className="composite-scene-image"
+          style={{ opacity: compositeLoaded ? 1 : 0, transition: 'opacity 0.5s ease' }}
+          onLoad={() => setCompositeLoaded(true)}
           onError={(e) => {
             const target = e.target as HTMLImageElement;
             target.style.display = 'none';
-            const placeholder = target.parentElement?.querySelector('.scene-placeholder-fallback') as HTMLElement;
-            if (placeholder) placeholder.style.display = 'flex';
-            onSceneError?.();
+            onCompositeError?.();
           }}
         />
+      </>
+    );
+  }
+
+  // 分层模式（场景 + 角色）
+  return (
+    <>
+      {/* 场景背景 */}
+      {sceneImageUrl ? (
+        <>
+          {!sceneLoaded && (
+            <div className="scene-placeholder-fallback" style={{ display: 'flex' }}>
+              <Spin size="large" />
+              <Text style={{ color: '#fff', fontSize: '18px', marginTop: 16 }}>加载场景中...</Text>
+            </div>
+          )}
+          <img
+            src={getStaticAssetUrl(sceneImageUrl)}
+            alt="场景背景"
+            className="scene-background-image"
+            style={{ opacity: sceneLoaded ? 1 : 0, transition: 'opacity 0.5s ease' }}
+            onLoad={() => setSceneLoaded(true)}
+            onError={(e) => {
+              const target = e.target as HTMLImageElement;
+              target.style.display = 'none';
+              const placeholder = target.parentElement?.querySelector('.scene-placeholder-fallback') as HTMLElement;
+              if (placeholder) placeholder.style.display = 'flex';
+              onSceneError?.();
+            }}
+          />
+        </>
       ) : (
         <div className="scene-placeholder-fallback" style={{ display: 'flex' }}>
-          <Text style={{ color: '#fff', fontSize: '24px' }}>加载场景中...</Text>
+          <Spin size="large" />
+          <Text style={{ color: '#fff', fontSize: '18px', marginTop: 16 }}>加载场景中...</Text>
         </div>
       )}
+
+      {/* 角色叠加 */}
       {characterImageUrl && (
-        <img
-          src={getStaticAssetUrl(characterImageUrl)}
-          alt="角色"
-          className="character-overlay-image"
-          onError={(e) => {
-            (e.target as HTMLImageElement).style.display = 'none';
-            onCharacterError?.();
-          }}
-        />
+        <>
+          {!characterLoaded && (
+            <div style={{
+              position: 'absolute', top: '50%', left: '50%',
+              transform: 'translate(-50%, -50%)', zIndex: 3
+            }}>
+              <Spin />
+            </div>
+          )}
+          <img
+            src={getStaticAssetUrl(characterImageUrl)}
+            alt="角色"
+            className="character-overlay-image"
+            style={{ opacity: characterLoaded ? 1 : 0, transition: 'opacity 0.5s ease' }}
+            onLoad={() => setCharacterLoaded(true)}
+            onError={(e) => {
+              (e.target as HTMLImageElement).style.display = 'none';
+              onCharacterError?.();
+            }}
+          />
+        </>
       )}
     </>
   );

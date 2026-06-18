@@ -144,22 +144,21 @@ async def set_voice_config(
     tts_service: TTSService = Depends(get_tts_service)
 ):
     """设置角色音色配置
-    
+
     设置角色的音色类型、预设音色ID或Voice Design描述。
     """
     try:
-        # 获取角色音色配置
-        voice_config = tts_service.get_character_voice_config(request.character_id)
-        
-        # 更新配置
-        voice_config['voice_type'] = request.voice_type
-        voice_config['preset_voice_id'] = request.preset_voice_id
-        voice_config['voice_design_description'] = request.voice_design_description
-        voice_config['voice_params'] = request.voice_params or {}
-        
-        # 保存配置（实际应该保存到数据库）
-        tts_service.voice_configs[request.character_id] = voice_config
-        
+        # 构建配置
+        voice_config = {
+            'voice_type': request.voice_type,
+            'preset_voice_id': request.preset_voice_id,
+            'voice_design_description': request.voice_design_description,
+            'voice_params': request.voice_params or {},
+        }
+
+        # 保存到数据库 + 内存缓存
+        tts_service.save_voice_config(request.character_id, voice_config)
+
         return success_response(data={
             'character_id': request.character_id,
             'voice_config': voice_config,
