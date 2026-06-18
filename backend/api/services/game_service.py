@@ -20,15 +20,15 @@ except ImportError:
 
 logger = get_logger(__name__)
 
-# W8: Feature Flag - 引擎选择
-# USE_NOS_AGENT_ENGINE: 使用 NOS Agent 引擎
-# USE_DYNAMIC_SCRIPT: 使用动态剧本系统（PAD 空间 + 叙事锚点）
-# 优先级: NOS Agent > Dynamic Script > Legacy StoryEngine
+# 引擎选择（优先级: NOS Agent > Dynamic Script > ScriptEngine V2 > Legacy）
 USE_NOS_AGENT_ENGINE = os.getenv('USE_NOS_AGENT_ENGINE', 'false').lower() == 'true'
 USE_DYNAMIC_SCRIPT = os.getenv('USE_DYNAMIC_SCRIPT', 'false').lower() == 'true'
+# ScriptEngine V2 是新的默认引擎
+USE_SCRIPT_ENGINE_V2 = os.getenv('USE_SCRIPT_ENGINE_V2', 'true').lower() == 'true'
 
-# 动态剧本系统（延迟加载）
+# 引擎实例（延迟加载）
 _dynamic_script_controller = None
+_script_engine_v2_orchestrator = None
 
 # W6: Lazy import — 只在启用 Agent 引擎时加载
 _agent_orchestrator = None
@@ -71,6 +71,36 @@ def _get_dynamic_script_controller():
         _dynamic_script_controller = GameController(llm_service=text_gen)
         logger.info("动态剧本系统已加载")
     return _dynamic_script_controller
+
+
+def _get_script_engine_v2_orchestrator():
+    """获取 ScriptEngine V2 编排器单例（延迟加载）"""
+    global _script_engine_v2_orchestrator
+    if _script_engine_v2_orchestrator is None and USE_SCRIPT_ENGINE_V2:
+        from game.script_engine_v2 import OrchestratorV2
+        from game.ai_generator import _get_text_gen
+        from database.db_manager import DatabaseManager
+        from data.scenes import SCENES
+        from api.dependencies import get_image_service, get_tts_service, get_redis_client
+
+        text_gen = _get_text_gen()
+        db = DatabaseManager()
+        redis_client = get_redis_client()
+        scenes_data = {
+            scene_id: info.get('name', scene_id)
+            for scene_id, info in SCENES.get('sub_scenes', {}).items()
+        }
+
+        _script_engine_v2_orchestrator = OrchestratorV2(
+            text_gen=text_gen,
+            db_manager=db,
+            redis_client=redis_client,
+            scenes_data=scenes_data,
+            image_service=get_image_service(),
+            tts_service=get_tts_service(),
+        )
+        logger.info("ScriptEngine V2 已加载（新架构：ScriptEngine + WorldSimulator + ConsistencyAgent）")
+    return _script_engine_v2_orchestrator
 
 
 class GameService:
@@ -152,10 +182,10 @@ class GameService:
             'game_mode': session.game_mode
         }
     
-    def initialize_story(self, thread_id: str, character_id: int, scene_id: str = 'school', 
+    def initialize_story(self, thread_id: str, character_id: int, scene_id: str = 'school',
                          character_image_url: Optional[str] = None, opening_event_id: Optional[str] = None) -> Dict[str, Any]:
         """初始化故事（触发初遇场景）
-        
+
         Args:
             thread_id: 游戏会话ID
             character_id: 角色ID
@@ -164,6 +194,58 @@ class GameService:
             opening_event_id: 初遇事件ID（可选，如果不提供则随机选择）
         """
         logger.info(f"initialize_story 被调用: thread_id={thread_id}, character_id={character_id}, scene_id={scene_id}")
+
+        # ScriptEngine V2 路径：通过 process_input 触发初始化
+        if USE_SCRIPT_ENGINE_V2 and not USE_NOS_AGENT_ENGINE and not USE_DYNAMIC_SCRIPT:
+            orchestrator = _get_script_engine_v2_orchestrator()
+            if orchestrator:
+                # V2 的初始化在第一次 process_input 时自动完成
+                # 这里只返回一个基本响应，让前端继续调用 process_input
+                import asyncio
+                loop = asyncio.new_event_loop()
+                try:
+                    character = self.character_service.get_character(character_id) if self.character_service else {}
+                    character_name = character.get('name', '角色') if character else '角色'
+                    personality_data = character.get('personality', {}) if character else {}
+                    personality_keywords = personality_data.get('keywords', []) if isinstance(personality_data, dict) else []
+
+                    initial_states = None
+                    session = self.session_manager.get_session(thread_id)
+                    if session and session.db_manager:
+                        states = session.db_manager.get_character_states(character_id)
+                        if states:
+                            initial_states = {
+                                'favorability': states.favorability,
+                                'trust': states.trust,
+                                'hostility': states.hostility,
+                                'happiness': states.happiness,
+                                'sadness': states.sadness,
+                                'stress': states.stress,
+                                'anxiety': states.anxiety,
+                                'confidence': states.confidence,
+                                'initiative': states.initiative,
+                                'caution': states.caution,
+                            }
+
+                    state = loop.run_until_complete(orchestrator.init_session(
+                        thread_id=thread_id,
+                        character_id=character_id,
+                        character_name=character_name,
+                        character_personality={'keywords': personality_keywords},
+                        initial_scene=scene_id,
+                        initial_states=initial_states,
+                    ))
+
+                    # 生成第一轮
+                    response = loop.run_until_complete(orchestrator.process_input(
+                        user_input="[游戏开始]",
+                        thread_id=thread_id,
+                    ))
+
+                    logger.info(f"ScriptEngine V2 初始化完成: {thread_id}")
+                    return response
+                finally:
+                    loop.close()
         logger.debug(f"当前会话管理器中的会话数量: {len(self.session_manager._sessions)}")
         logger.debug(f"当前会话ID列表: {list(self.session_manager._sessions.keys())}")
         
@@ -573,7 +655,7 @@ class GameService:
     ) -> Dict[str, Any]:
         """处理玩家输入
 
-        引擎优先级: NOS Agent > Dynamic Script > Legacy StoryEngine
+        引擎优先级: NOS Agent > Dynamic Script > ScriptEngine V2 > Legacy
         """
         # NOS Agent 引擎路径
         if USE_NOS_AGENT_ENGINE:
@@ -582,6 +664,10 @@ class GameService:
         # 动态剧本系统路径
         if USE_DYNAMIC_SCRIPT:
             return await self._process_with_dynamic_script(thread_id, user_input, option_id)
+
+        # ScriptEngine V2 路径（新默认）
+        if USE_SCRIPT_ENGINE_V2:
+            return await self._process_with_script_engine_v2(thread_id, user_input, option_id)
 
         session = self.session_manager.get_session(thread_id)
         if not session:
@@ -1362,6 +1448,88 @@ class GameService:
         if state.is_finished:
             response_data['ending_type'] = state.ending_type
             response_data['event_title'] = '结局'
+
+        return response_data
+
+    # ==================== ScriptEngine V2 处理 ====================
+
+    async def _process_with_script_engine_v2(
+        self, thread_id: str, user_input: str, option_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """使用 ScriptEngine V2 处理玩家输入
+
+        新架构：ScriptEngine + WorldSimulator + ConsistencyAgent + OrchestratorV2
+        """
+        orchestrator = _get_script_engine_v2_orchestrator()
+        if not orchestrator:
+            logger.warning("ScriptEngine V2 未初始化，回退到 Legacy")
+            session = self.session_manager.get_session(thread_id)
+            if session:
+                with session.lock:
+                    return await self._process_with_legacy(thread_id, user_input, option_id)
+            raise ValueError("ScriptEngine V2 未初始化且会话不存在")
+
+        # 获取或创建状态
+        state = orchestrator.get_session_state(thread_id)
+
+        if state is None:
+            # 需要初始化会话
+            session = self.session_manager.get_session(thread_id)
+            if not session:
+                raise ValueError(f"Thread {thread_id} not found")
+
+            character = self.character_service.get_character(session.character_id) if self.character_service else {}
+            character_name = character.get('name', '角色') if character else '角色'
+            personality_data = character.get('personality', {}) if character else {}
+            personality_keywords = personality_data.get('keywords', []) if isinstance(personality_data, dict) else []
+
+            initial_scene = 'classroom'
+            if session.story_engine and hasattr(session.story_engine, 'current_event') and session.story_engine.current_event:
+                initial_scene = session.story_engine.current_event.get('scene', 'classroom')
+
+            initial_states = None
+            states = session.db_manager.get_character_states(session.character_id) if session.db_manager else None
+            if states:
+                initial_states = {
+                    'favorability': states.favorability,
+                    'trust': states.trust,
+                    'hostility': states.hostility,
+                    'happiness': states.happiness,
+                    'sadness': states.sadness,
+                    'stress': states.stress,
+                    'anxiety': states.anxiety,
+                    'confidence': states.confidence,
+                    'initiative': states.initiative,
+                    'caution': states.caution,
+                }
+
+            state = await orchestrator.init_session(
+                thread_id=thread_id,
+                character_id=session.character_id,
+                character_name=character_name,
+                character_personality={'keywords': personality_keywords},
+                initial_scene=initial_scene,
+                initial_states=initial_states,
+            )
+
+        # 处理输入
+        if option_id is not None:
+            response = await orchestrator.process_input_with_option(thread_id, option_id)
+        else:
+            response = await orchestrator.process_input(user_input, thread_id)
+
+        return response
+
+    async def _process_with_legacy(
+        self, thread_id: str, user_input: str, option_id: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """Legacy 处理（降级方案）"""
+        session = self.session_manager.get_session(thread_id)
+        if not session:
+            raise ValueError(f"Thread {thread_id} not found")
+
+        with session.lock:
+            return await self._process_input_legacy(session, user_input, option_id)
 
         return response_data
 
