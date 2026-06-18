@@ -120,6 +120,11 @@ class AgentState:
     event_history: List[Dict[str, Any]] = field(default_factory=list)
     used_event_ids: set = field(default_factory=set)
 
+    # 长期记忆（从 PostgreSQL 加载）
+    event_summaries: List[str] = field(default_factory=list)      # 最近事件摘要
+    knowledge: List[Dict[str, Any]] = field(default_factory=list) # 角色知识
+    preferences: List[Dict[str, Any]] = field(default_factory=list)  # 玩家偏好
+
     # 一致性校验结果
     consistency_checks: List[str] = field(default_factory=list)
 

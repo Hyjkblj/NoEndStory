@@ -41,24 +41,23 @@ def _get_agent_orchestrator():
         from game.agents import AgentOrchestrator
         from game.ai_generator import _get_text_gen
         from database.db_manager import DatabaseManager
-        from database.vector_db import VectorDatabase
         from data.scenes import SCENES
-        from api.dependencies import get_image_service, get_tts_service
+        from api.dependencies import get_image_service, get_tts_service, get_redis_client
 
         text_gen = _get_text_gen()
         db = DatabaseManager()
-        vdb = VectorDatabase()
+        redis_client = get_redis_client()
         scenes_data = {scene_id: info.get('name', scene_id) for scene_id, info in SCENES.get('sub_scenes', {}).items()}
 
         _agent_orchestrator = AgentOrchestrator(
             text_gen=text_gen,
             db_manager=db,
-            vector_db=vdb,
+            redis_client=redis_client,
             scenes_data=scenes_data,
             image_service=get_image_service(),
             tts_service=get_tts_service(),
         )
-        logger.info("NOS Agent 引擎已加载（含 ImageService + TTSService）")
+        logger.info("NOS Agent 引擎已加载（含 Redis 短期记忆 + PG 长期记忆 + ImageService + TTSService）")
     return _agent_orchestrator
 
 

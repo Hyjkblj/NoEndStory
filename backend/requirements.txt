@@ -1,7 +1,7 @@
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 pgvector==0.2.4
-chromadb==0.4.22
+redis>=5.0.0  # 短期记忆存储
 python-dotenv==1.0.0
 numpy==1.26.4
 openai==1.12.0

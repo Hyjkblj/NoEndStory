@@ -5,7 +5,9 @@ from api.services.character_service import CharacterService
 from api.services.image_service import ImageService
 from api.services.tts_service import TTSService
 from api.services.game_session import GameSessionManager
+from utils.logger import get_logger
 
+logger = get_logger(__name__)
 
 # Service实例缓存（用于单例模式，但通过依赖注入管理）
 _game_service: Optional[GameService] = None
@@ -13,6 +15,27 @@ _character_service: Optional[CharacterService] = None
 _image_service: Optional[ImageService] = None
 _tts_service: Optional[TTSService] = None
 _session_manager: Optional[GameSessionManager] = None
+_redis_client = None
+
+
+def get_redis_client():
+    """获取Redis客户端实例（单例模式）"""
+    global _redis_client
+    if _redis_client is None:
+        try:
+            import redis
+            import config
+            _redis_client = redis.Redis(**config.REDIS_CONFIG)
+            # 测试连接
+            _redis_client.ping()
+            logger.info(f"Redis 连接成功: {config.REDIS_CONFIG['host']}:{config.REDIS_CONFIG['port']}")
+        except ImportError:
+            logger.warning("redis 未安装，短期记忆将使用内存存储")
+            _redis_client = None
+        except Exception as e:
+            logger.warning(f"Redis 连接失败: {e}，短期记忆将使用内存存储")
+            _redis_client = None
+    return _redis_client
 
 
 def get_image_service() -> ImageService:

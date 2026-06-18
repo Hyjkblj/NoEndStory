@@ -19,6 +19,15 @@ DB_CONFIG = {
     'password': os.getenv('DB_PASSWORD', '')
 }
 
+# Redis配置（短期记忆存储）
+REDIS_CONFIG = {
+    'host': os.getenv('REDIS_HOST', 'localhost'),
+    'port': int(os.getenv('REDIS_PORT', '6379')),
+    'db': int(os.getenv('REDIS_DB', '0')),
+    'password': os.getenv('REDIS_PASSWORD', None),
+    'decode_responses': True,
+}
+
 # 向量数据库配置
 # 统一使用“项目根目录/vector_db”作为默认库位置（历史数据也在这里），避免从不同工作目录启动时读到不同库。
 _backend_dir = os.path.dirname(os.path.abspath(__file__))  # .../backend
