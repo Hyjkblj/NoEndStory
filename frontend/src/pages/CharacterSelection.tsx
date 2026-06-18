@@ -399,26 +399,37 @@ function CharacterSelection() {
               ) : (
                 <div className="voice-selection-grouped">
                   {[
-                    { key: 'female' as const, title: '女声' },
-                    { key: 'male' as const, title: '男声' },
-                    { key: 'neutral' as const, title: '中性' },
-                  ].map(({ key, title }) => {
-                    const list = presetVoices.filter((v) => (v.gender || 'neutral') === key);
+                    { key: 'emo_female' as const, title: '多情感女声', isEmo: true },
+                    { key: 'emo_male' as const, title: '多情感男声', isEmo: true },
+                    { key: 'female' as const, title: '女声', isEmo: false },
+                    { key: 'male' as const, title: '男声', isEmo: false },
+                    { key: 'neutral' as const, title: '中性', isEmo: false },
+                  ].map(({ key, title, isEmo }) => {
+                    // 多情感音色通过 id 前缀识别，普通音色通过 gender 字段识别
+                    const list = isEmo
+                      ? presetVoices.filter((v) => v.id.startsWith('emo_'))
+                      : presetVoices.filter((v) => (v.gender || 'neutral') === key && !v.id.startsWith('emo_'));
                     if (list.length === 0) return null;
                     return (
                       <div key={key} className="voice-group">
-                        <h3 className="voice-group-title">{title}</h3>
+                        <h3 className="voice-group-title">
+                          {title}
+                          {isEmo && <span className="voice-emo-badge">支持10种情感</span>}
+                        </h3>
                         <div className="voice-selection-grid">
                           {list.map((v) => (
                             <div
                               key={v.id}
-                              className={`voice-selection-card ${selectedVoiceId === v.id ? 'selected' : ''}`}
+                              className={`voice-selection-card ${selectedVoiceId === v.id ? 'selected' : ''} ${v.supports_emotion ? 'emotion-voice' : ''}`}
                             >
                               <Button
                                 className="voice-selection-card-main"
                                 onClick={() => setSelectedVoiceId(v.id)}
                               >
                                 <span className="voice-selection-card-name">{v.name}</span>
+                                {v.style && (
+                                  <span className="voice-selection-card-style">{v.style}</span>
+                                )}
                                 {v.description && (
                                   <span className="voice-selection-card-desc">{v.description}</span>
                                 )}

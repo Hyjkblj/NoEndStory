@@ -312,6 +312,8 @@ export interface PresetVoiceItem {
   gender?: string;
   style?: string;
   preview_text?: string;
+  supports_emotion?: boolean;
+  emotions?: string[];
 }
 
 export const getPresetVoices = async (gender?: string): Promise<PresetVoiceItem[]> => {
@@ -322,7 +324,13 @@ export const getPresetVoices = async (gender?: string): Promise<PresetVoiceItem[
     if (Array.isArray(voices)) return voices;
     if (voices && typeof voices === 'object') {
       const grouped = voices as Record<string, PresetVoiceItem[]>;
-      return [...(grouped.female || []), ...(grouped.male || []), ...(grouped.neutral || [])];
+      return [
+        ...(grouped.female || []),
+        ...(grouped.male || []),
+        ...(grouped.emo_female || []),
+        ...(grouped.emo_male || []),
+        ...(grouped.neutral || []),
+      ];
     }
     return [];
   } catch (error: unknown) {
