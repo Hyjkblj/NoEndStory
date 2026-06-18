@@ -285,6 +285,136 @@ PRESET_VOICES = {
             'supports_mix': True
         },
     ],
+    'emo_male': [
+        {
+            'id': 'emo_male_001',
+            'name': '冷酷哥哥',
+            'description': '高冷傲娇，声线磁性干净，待人疏离',
+            'provider': 'volcengine',
+            'voice_id': 'zh_male_aojiaobazong_emo_v2_mars_bigtts',
+            'preview_text': '哼，今天心情还不错，算你走运。',
+            'gender': 'male',
+            'style': '高冷傲娇',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_male_002',
+            'name': '京腔侃爷',
+            'description': '北京腔、风趣痞痞青年',
+            'provider': 'volcengine',
+            'voice_id': 'zh_male_jingqiangkanye_emo_mars_bigtts',
+            'preview_text': '得嘞，这事儿包我身上了！',
+            'gender': 'male',
+            'style': '北京腔风趣',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_male_003',
+            'name': '优柔公子',
+            'description': '温润儒雅，声音低沉温柔，有书卷气',
+            'provider': 'volcengine',
+            'voice_id': 'zh_male_yourougongzi_emo_v2_mars_bigtts',
+            'preview_text': '这本书很有意思，你要不要看看？',
+            'gender': 'male',
+            'style': '温润儒雅',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_male_004',
+            'name': '儒雅男友',
+            'description': '阳光俊朗，明亮少年感，充满活力',
+            'provider': 'volcengine',
+            'voice_id': 'zh_male_junlangnanyou_emo_v2_mars_bigtts',
+            'preview_text': '今天天气真好，一起出去走走吧！',
+            'gender': 'male',
+            'style': '阳光俊朗',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_male_005',
+            'name': '阳光青年',
+            'description': '阳光直率，充满少年感的大学生',
+            'provider': 'volcengine',
+            'voice_id': 'zh_male_ruyayichen_emo_v2_mars_bigtts',
+            'preview_text': '加油，我相信你一定可以的！',
+            'gender': 'male',
+            'style': '阳光直率',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+    ],
+    'emo_female': [
+        {
+            'id': 'emo_female_001',
+            'name': '高冷御姐',
+            'description': '高冷成熟，气质妩媚，行事利落有气场',
+            'provider': 'volcengine',
+            'voice_id': 'zh_female_gaolengyujie_emo_v2_mars_bigtts',
+            'preview_text': '这件事我自有分寸，不用你操心。',
+            'gender': 'female',
+            'style': '高冷成熟',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_female_002',
+            'name': '柔美女友',
+            'description': '温柔亲切，声音甜美的知心姐姐',
+            'provider': 'volcengine',
+            'voice_id': 'zh_female_linjuayi_emo_v2_mars_bigtts',
+            'preview_text': '没关系的，我在这里陪你。',
+            'gender': 'female',
+            'style': '温柔亲切',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_female_003',
+            'name': '爽快思思',
+            'description': '阳光爽快，声音温暖的直爽小妹',
+            'provider': 'volcengine',
+            'voice_id': 'zh_female_tianxinxiaomei_emo_v2_mars_bigtts',
+            'preview_text': '走吧走吧，一起去吃好吃的！',
+            'gender': 'female',
+            'style': '阳光爽快',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+        {
+            'id': 'emo_female_004',
+            'name': '魅力女友',
+            'description': '嗲软轻飘的轻熟美人，妩媚有耐心',
+            'provider': 'volcengine',
+            'voice_id': 'zh_female_sajiaonvyou_moon_bigtts',
+            'preview_text': '你觉得呢？我听你的。',
+            'gender': 'female',
+            'style': '轻熟妩媚',
+            'model_version': 'seed-tts-2.0',
+            'supports_emotion': True,
+            'supports_mix': False,
+            'emotions': ['happy', 'sad', 'angry', 'surprised', 'fear', 'hate', 'excited', 'coldness', 'neutral', 'depressed']
+        },
+    ],
     'neutral': [
         {
             'id': 'neutral_001',
@@ -405,8 +535,15 @@ SUPPORTED_LANGUAGES = {
 }
 
 def get_preset_voices_by_gender(gender: str) -> list:
-    """根据性别获取预设音色列表"""
-    return PRESET_VOICES.get(gender.lower(), PRESET_VOICES['neutral'])
+    """根据性别获取预设音色列表（包含多情感音色）"""
+    gender = gender.lower()
+    voices = []
+    # 标准音色
+    voices.extend(PRESET_VOICES.get(gender, []))
+    # 多情感音色
+    emo_key = f'emo_{gender}'
+    voices.extend(PRESET_VOICES.get(emo_key, []))
+    return voices if voices else PRESET_VOICES.get('neutral', [])
 
 def get_preset_voice(voice_id: str) -> dict:
     """根据ID获取预设音色"""
@@ -474,8 +611,15 @@ def create_mix_config(speakers: list) -> dict:
     }
 
 def get_preset_voices_by_gender(gender: str) -> list:
-    """根据性别获取预设音色列表"""
-    return PRESET_VOICES.get(gender.lower(), PRESET_VOICES['neutral'])
+    """根据性别获取预设音色列表（包含多情感音色）"""
+    gender = gender.lower()
+    voices = []
+    # 标准音色
+    voices.extend(PRESET_VOICES.get(gender, []))
+    # 多情感音色
+    emo_key = f'emo_{gender}'
+    voices.extend(PRESET_VOICES.get(emo_key, []))
+    return voices if voices else PRESET_VOICES.get('neutral', [])
 
 def get_preset_voice(voice_id: str) -> dict:
     """根据ID获取预设音色"""

@@ -259,6 +259,17 @@ class VoiceModelService:
             raise ValueError(f"文本验证失败: {e}")
         
         # 构建请求参数
+        audio_params = {
+            "voice_type": voice_id or "BV001_streaming",
+            "encoding": "wav",
+            "speed_ratio": kwargs.get('speed_ratio', 1.0),
+            "volume_ratio": kwargs.get('volume_ratio', 1.0),
+            "pitch_ratio": kwargs.get('pitch_ratio', 1.0),
+        }
+        # 支持 emotion 字段（用于 _emo_ 多情感音色）
+        if kwargs.get('emotion'):
+            audio_params['emotion'] = kwargs['emotion']
+
         request_data = {
             "app": {
                 "appid": self.app_id,
@@ -268,13 +279,7 @@ class VoiceModelService:
             "user": {
                 "uid": "user_001"
             },
-            "audio": {
-                "voice_type": voice_id or "BV001_streaming",
-                "encoding": "wav",
-                "speed_ratio": kwargs.get('speed_ratio', 1.0),
-                "volume_ratio": kwargs.get('volume_ratio', 1.0),
-                "pitch_ratio": kwargs.get('pitch_ratio', 1.0)
-            },
+            "audio": audio_params,
             "request": {
                 "reqid": f"tts_{int(time.time())}_{hash(cleaned_text) % 10000}",
                 "text": cleaned_text,

@@ -131,6 +131,7 @@ class AgentState:
     output_audio_url: str = ""
     output_audio_duration: float = 0.0
     output_emotion_changes: Dict[str, float] = field(default_factory=dict)
+    output_tts_params: Any = None  # TTSParams from tts_emotion_engine
 
     def advance_round(self) -> None:
         self.round_count += 1

@@ -333,11 +333,14 @@ class TTSService:
         kwargs = {}
         if emotion_params:
             if 'speed' in emotion_params:
-                kwargs['speed_ratio'] = max(0.5, min(2.0, emotion_params['speed']))
+                kwargs['speed_ratio'] = max(0.5, min(2.0, float(emotion_params['speed'])))
             if 'volume' in emotion_params:
-                kwargs['volume_ratio'] = max(0.1, min(2.0, emotion_params['volume']))
+                kwargs['volume_ratio'] = max(0.1, min(2.0, float(emotion_params['volume'])))
             if 'pitch' in emotion_params:
-                kwargs['pitch_ratio'] = max(0.5, min(2.0, emotion_params['pitch']))
+                kwargs['pitch_ratio'] = max(0.5, min(2.0, float(emotion_params['pitch'])))
+            # 支持 TTS 情感标签（如 happy/sad/angry，用于 _emo_ 多情感音色）
+            if 'emotion' in emotion_params:
+                kwargs['emotion'] = str(emotion_params['emotion'])
         
         # 使用VoiceModelService合成语音
         audio_data = self.voice_model.synthesize_speech(

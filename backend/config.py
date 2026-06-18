@@ -121,6 +121,18 @@ VOLCENGINE_TTS_ENABLE_TIMESTAMP = os.getenv('VOLCENGINE_TTS_ENABLE_TIMESTAMP', '
 VOLCENGINE_TTS_ENABLE_CACHE = os.getenv('VOLCENGINE_TTS_ENABLE_CACHE', 'true').lower() == 'true'  # 是否启用缓存
 VOLCENGINE_TTS_ENABLE_EMOTION = os.getenv('VOLCENGINE_TTS_ENABLE_EMOTION', 'true').lower() == 'true'  # 是否启用情感控制
 
+# TTS 情感系统配置（tts_emotion_engine）
+TTS_EMOTION_ENABLED = os.getenv('TTS_EMOTION_ENABLED', 'true').lower() == 'true'  # TTS 情感计算引擎开关
+TTS_EMOTION_CONFIDENCE_THRESHOLD = float(os.getenv('TTS_EMOTION_CONFIDENCE_THRESHOLD', '0.15'))  # 置信度阈值（低于此值降级为 neutral）
+
+# 语速范围限制
+TTS_SPEED_MIN = float(os.getenv('TTS_SPEED_MIN', '0.7'))
+TTS_SPEED_MAX = float(os.getenv('TTS_SPEED_MAX', '1.3'))
+
+# 音调范围限制
+TTS_PITCH_MIN = float(os.getenv('TTS_PITCH_MIN', '0.85'))
+TTS_PITCH_MAX = float(os.getenv('TTS_PITCH_MAX', '1.15'))
+
 # 文本生成配置（火山引擎）
 VOLCENGINE_TEXT_MODEL = get_text_llm_model()  # 统一模型开关：优先读取 LLM_TEXT_MODEL
 VOLCENGINE_TEXT_API_URL = os.getenv('VOLCENGINE_TEXT_API_URL', '')  # 文本生成API端点（可选，默认根据region自动构建）

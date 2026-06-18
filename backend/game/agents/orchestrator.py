@@ -13,6 +13,8 @@ from .consistency_agent import ConsistencyAgent
 from .dialogue_agent import DialogueAgent
 from .memory import MemoryManager
 from utils.logger import get_logger
+from services.tts_emotion_engine import calculate_tts_params, extract_personality_keywords
+import config
 
 logger = get_logger("orchestrator")
 
@@ -157,7 +159,23 @@ class AgentOrchestrator:
         tts_future = None
         if self.tts_service and self.tts_service.enabled and character_dialogue:
             try:
-                emotion_params = self._emotion_to_tts_params(state.emotion)
+                # 使用 TTS 情感计算引擎（支持 12 维情绪 + 性格修正）
+                personality_keywords = extract_personality_keywords(
+                    state.character_personality
+                )
+                tts_params = calculate_tts_params(
+                    state.emotion,
+                    personality_keywords=personality_keywords,
+                    confidence_threshold=config.TTS_EMOTION_CONFIDENCE_THRESHOLD,
+                )
+                emotion_params = {
+                    "emotion": tts_params.emotion,
+                    "speed": tts_params.speed_ratio,
+                    "pitch": tts_params.pitch_ratio,
+                    "volume": tts_params.volume_ratio,
+                }
+                # 存储用于输出
+                state.output_tts_params = tts_params
                 loop = asyncio.get_running_loop()
                 tts_future = loop.run_in_executor(
                     None,
@@ -198,6 +216,15 @@ class AgentOrchestrator:
                 logger.warning(f"TTS 等待失败: {e}")
 
         # 构建输出
+        tts_params_out = None
+        if state.output_tts_params:
+            tts_params_out = {
+                "emotion": state.output_tts_params.emotion,
+                "speed_ratio": state.output_tts_params.speed_ratio,
+                "pitch_ratio": state.output_tts_params.pitch_ratio,
+                "confidence": state.output_tts_params.confidence,
+            }
+
         output = {
             "thread_id": state.thread_id,
             "character_dialogue": character_dialogue,
@@ -219,6 +246,7 @@ class AgentOrchestrator:
             "event_type": state.pending_event.get("type") if state.pending_event else None,
             "event_description": state.pending_event.get("description") if state.pending_event else None,
             "emotion_tags": self._get_emotion_tags(state),
+            "tts_params": tts_params_out,
         }
 
         logger.info(f"输入处理完成: round={state.round_count}, phase={state.phase.value}")
@@ -296,7 +324,21 @@ class AgentOrchestrator:
         tts_future = None
         if self.tts_service and self.tts_service.enabled and character_dialogue:
             try:
-                emotion_params = self._emotion_to_tts_params(state.emotion)
+                personality_keywords = extract_personality_keywords(
+                    state.character_personality
+                )
+                tts_params = calculate_tts_params(
+                    state.emotion,
+                    personality_keywords=personality_keywords,
+                    confidence_threshold=config.TTS_EMOTION_CONFIDENCE_THRESHOLD,
+                )
+                emotion_params = {
+                    "emotion": tts_params.emotion,
+                    "speed": tts_params.speed_ratio,
+                    "pitch": tts_params.pitch_ratio,
+                    "volume": tts_params.volume_ratio,
+                }
+                state.output_tts_params = tts_params
                 loop = asyncio.get_running_loop()
                 tts_future = loop.run_in_executor(
                     None,
@@ -336,6 +378,15 @@ class AgentOrchestrator:
             except Exception as e:
                 logger.warning(f"TTS 等待失败: {e}")
 
+        tts_params_out = None
+        if state.output_tts_params:
+            tts_params_out = {
+                "emotion": state.output_tts_params.emotion,
+                "speed_ratio": state.output_tts_params.speed_ratio,
+                "pitch_ratio": state.output_tts_params.pitch_ratio,
+                "confidence": state.output_tts_params.confidence,
+            }
+
         return {
             "thread_id": state.thread_id,
             "character_dialogue": character_dialogue,
@@ -357,6 +408,7 @@ class AgentOrchestrator:
             "event_type": state.pending_event.get("type") if state.pending_event else None,
             "event_description": state.pending_event.get("description") if state.pending_event else None,
             "emotion_tags": self._get_emotion_tags(state),
+            "tts_params": tts_params_out,
         }
 
     async def _build_ending_output(self, state: AgentState = None) -> Dict[str, Any]:
