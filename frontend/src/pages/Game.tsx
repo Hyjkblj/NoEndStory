@@ -1,16 +1,24 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Typography, Spin, Button, Modal, App as AntdApp } from 'antd';
-import { ArrowLeftOutlined, SoundOutlined, AudioMutedOutlined } from '@ant-design/icons';
+import {
+  ArrowLeftOutlined,
+  SoundOutlined,
+  AudioMutedOutlined,
+  SaveOutlined,
+  ReloadOutlined,
+  HomeOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { processGameInput, initGame } from '@/services/api';
+import { processGameInput, initGame, getStaticAssetUrl } from '@/services/api';
 import SceneTransition from '@/components/SceneTransition';
+import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { GameSceneBackground, GameDialogue } from '@/components/Game';
 import { SCENE_CONFIGS, getSceneImageUrl, buildSceneImageUrl, getSceneNameById } from '@/config/scenes';
 import * as gameStorage from '@/storage/gameStorage';
 import { getFallbackSceneImageUrls } from '@/utils/game';
 import { logger } from '@/utils/logger';
 import { useGameState, useGameInit, useGameTts, useTtsControls } from '@/hooks';
-import type { PlayerOption } from '@/types/game';
+import type { EndingMemory, EndingRecord, EndingRelationshipMetric, PlayerOption } from '@/types/game';
 import { ROUTES } from '@/config/routes';
 import './Game.css';
 
@@ -23,13 +31,141 @@ const LOADING_TIPS = [
   '即将呈现...',
 ];
 
+type GameResponseData = {
+  thread_id?: string;
+  scene?: string;
+  composite_image_url?: string;
+  scene_image_url?: string;
+  story_background?: string;
+  character_dialogue?: string;
+  final_dialogue?: string;
+  player_options?: PlayerOption[];
+  is_game_finished?: boolean;
+  event_title?: string;
+  ending_title?: string;
+  ending_type?: string;
+  ending_description?: string;
+  current_states?: Record<string, number> | null;
+  state_changes?: Record<string, number>;
+  tts_emotion?: Record<string, unknown> | null;
+};
+
+const ENDING_TYPE_LABELS: Record<string, string> = {
+  good_ending: '甜蜜结局',
+  sweet_ending: '甜蜜结局',
+  neutral_ending: '暧昧未满',
+  open_ending: '未完待续',
+  bad_ending: '遗憾结局',
+  distant_ending: '疏离结局',
+  fragile_ending: '摇晃结局',
+};
+
+const RELATIONSHIP_LABELS: Array<{ key: string; label: string; tone: EndingRelationshipMetric['tone'] }> = [
+  { key: 'favorability', label: '好感', tone: 'warm' },
+  { key: 'trust', label: '信任', tone: 'soft' },
+  { key: 'dependence', label: '依赖', tone: 'warm' },
+  { key: 'emotion', label: '心绪', tone: 'soft' },
+  { key: 'stress', label: '压力', tone: 'tense' },
+];
+
+const getNumericState = (states: Record<string, number> | null | undefined, key: string): number | null => {
+  const value = states?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
+};
+
+const inferEndingType = (states: Record<string, number> | null | undefined): string => {
+  const favorability = getNumericState(states, 'favorability') ?? 50;
+  const trust = getNumericState(states, 'trust') ?? 50;
+  const hostility = getNumericState(states, 'hostility') ?? 0;
+  const stress = getNumericState(states, 'stress') ?? 0;
+  const anxiety = getNumericState(states, 'anxiety') ?? 0;
+
+  if (favorability >= 70 && trust >= 60) return 'sweet_ending';
+  if (hostility >= 60 || favorability <= 30) return 'distant_ending';
+  if (stress >= 75 || anxiety >= 70) return 'fragile_ending';
+  return 'open_ending';
+};
+
+const buildRelationshipMetrics = (states: Record<string, number> | null | undefined): EndingRelationshipMetric[] => (
+  RELATIONSHIP_LABELS.map(({ key, label, tone }) => ({
+    key,
+    label,
+    tone,
+    value: getNumericState(states, key),
+  }))
+);
+
+const getEndingDescription = (endingType: string, responseData: GameResponseData): string => {
+  if (responseData.ending_description) return responseData.ending_description;
+  if (responseData.story_background) return responseData.story_background;
+
+  if (endingType === 'sweet_ending' || endingType === 'good_ending') {
+    return '你们把一段关系慢慢推近，许多未说出口的话终于有了回应。';
+  }
+  if (endingType === 'distant_ending' || endingType === 'bad_ending') {
+    return '有些靠近停在了半路，但那些选择依然成为这段故事真实的痕迹。';
+  }
+  if (endingType === 'fragile_ending') {
+    return '心跳和不安交错在一起，这段关系停在了仍需确认的地方。';
+  }
+  return '这段故事暂时收束，但你们之间仍留下了可以被重新打开的余温。';
+};
+
+const buildEndingMemories = (
+  responseData: GameResponseData,
+  params: {
+    sceneName: string;
+    finalDialogue: string;
+    lastChoice?: string;
+    endingTypeLabel: string;
+  }
+): EndingMemory[] => {
+  const memories: EndingMemory[] = [
+    {
+      title: '初遇被安放在这里',
+      description: `这段故事最终停在「${params.sceneName}」的光线里。`,
+    },
+  ];
+
+  if (params.lastChoice) {
+    memories.push({
+      title: '最后的选择',
+      description: '你把这一刻推向了最终结局。',
+      choice: params.lastChoice,
+    });
+  }
+
+  if (params.finalDialogue) {
+    memories.push({
+      title: '最后一句对白',
+      description: params.finalDialogue,
+    });
+  }
+
+  memories.push({
+    title: '关系被封存为',
+    description: params.endingTypeLabel,
+  });
+
+  if (responseData.story_background && responseData.story_background !== params.finalDialogue) {
+    memories.push({
+      title: '结局旁白',
+      description: responseData.story_background,
+    });
+  }
+
+  return memories.slice(0, 5);
+};
+
 function Game() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const state = useGameState();
   const { saveGameProgress, setCharacterImage } = useGameInit(state);
+  const { activeTransitionId, failRouteTransition } = useRouteTransition();
   const { ttsEnabled, setTtsEnabled, ttsVolume, stopTts } = useTtsControls();
   const { messages, threadId, characterId, scrollToBottom } = state;
+  const { setCurrentOptions, setLoading, setShowTransition } = state;
 
   // 退出确认
   const [showExitConfirm, setShowExitConfirm] = useState(false);
@@ -38,8 +174,15 @@ function Game() {
   // 游戏结束状态
   const [gameFinished, setGameFinished] = useState(false);
   const [endingTitle, setEndingTitle] = useState('故事落幕');
+  const [endingRecord, setEndingRecord] = useState<EndingRecord | null>(null);
+  const [endingSaved, setEndingSaved] = useState(false);
+  // 场景/角色分层画面渲染异常时停止当前交互
+  const [visualError, setVisualError] = useState<string | null>(null);
+  const [visualReady, setVisualReady] = useState(false);
   // TTS 情感参数（从后端响应中获取）
   const [ttsEmotionParams, setTtsEmotionParams] = useState<Record<string, unknown> | null>(null);
+  // 获取角色名称
+  const characterName = gameStorage.getCharacterData()?.name || '角色';
 
   // TTS 播放（带情感参数）
   useGameTts(state.currentDialogue, state.characterId, {
@@ -100,15 +243,114 @@ function Game() {
     state.setCurrentScene(newScene);
   };
 
-  const handleGameResponse = (responseData: {
-    scene?: string;
-    composite_image_url?: string;
-    scene_image_url?: string;
-    character_dialogue?: string;
-    player_options?: PlayerOption[];
-    is_game_finished?: boolean;
-    tts_emotion?: Record<string, unknown> | null;
-  }) => {
+  const ensureCharacterLayer = () => {
+    if (state.characterImageUrl) return;
+    setCharacterImage(state.characterId || gameStorage.getCurrentCharacterId());
+  };
+
+  const visualKey = `${state.compositeImageUrl ?? ''}|${state.sceneImageUrl ?? ''}|${state.characterImageUrl ?? ''}`;
+  const expectedVisual = Boolean(state.compositeImageUrl || state.sceneImageUrl || state.characterImageUrl);
+  const gameRouteReady = Boolean(
+    gameFinished ||
+    (!visualError && !state.loading && state.threadId && expectedVisual && visualReady)
+  );
+
+  useEffect(() => {
+    setVisualReady(false);
+  }, [visualKey]);
+
+  useRouteTransitionReady(gameRouteReady, { delayMs: 180 });
+
+  const handleVisualReady = useCallback(() => {
+    setVisualReady(true);
+    setVisualError(null);
+  }, []);
+
+  const handleVisualError = useCallback(
+    (errorMessage: string) => {
+      logger.error('[游戏画面] 分层渲染停止:', errorMessage);
+      setVisualError(errorMessage);
+      failRouteTransition(errorMessage, activeTransitionId ?? undefined);
+      setLoading(false);
+      setCurrentOptions([]);
+      setShowTransition(false);
+      stopTts();
+    },
+    [activeTransitionId, failRouteTransition, setCurrentOptions, setLoading, setShowTransition, stopTts]
+  );
+
+  useEffect(() => {
+    if (visualError || gameFinished) return;
+    if (state.loading || !state.threadId || expectedVisual) return;
+
+    const timer = window.setTimeout(() => {
+      const errorMessage = '缺少可渲染的场景与角色画面，已停止进入游戏。';
+      logger.error('[游戏画面] 缺少可渲染画面:', {
+        threadId: state.threadId,
+        currentScene: state.currentScene,
+      });
+      setVisualError(errorMessage);
+      failRouteTransition(errorMessage, activeTransitionId ?? undefined);
+      setCurrentOptions([]);
+      setShowTransition(false);
+      stopTts();
+    }, 12000);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeTransitionId,
+    expectedVisual,
+    failRouteTransition,
+    gameFinished,
+    setCurrentOptions,
+    setShowTransition,
+    state.currentScene,
+    state.loading,
+    state.threadId,
+    stopTts,
+    visualError,
+  ]);
+
+  const createEndingRecord = (responseData: GameResponseData, lastChoice?: string): EndingRecord => {
+    const sceneId = responseData.scene || state.currentScene || undefined;
+    const sceneName = sceneId ? getSceneNameById(sceneId) : '最后的场景';
+    const endingType = responseData.ending_type || inferEndingType(responseData.current_states);
+    const endingTypeLabel = ENDING_TYPE_LABELS[endingType] || '特别结局';
+    const finalDialogue = responseData.final_dialogue || responseData.character_dialogue || state.currentDialogue || '';
+    const title = responseData.ending_title || responseData.event_title || endingTypeLabel;
+    const threadIdValue = responseData.thread_id || state.threadId || `local-${Date.now()}`;
+
+    return {
+      id: `ending-${threadIdValue}-${Date.now()}`,
+      threadId: threadIdValue,
+      characterId: state.characterId || gameStorage.getCurrentCharacterId() || undefined,
+      characterName,
+      title,
+      type: endingType,
+      typeLabel: endingTypeLabel,
+      description: getEndingDescription(endingType, responseData),
+      finalDialogue,
+      sceneId,
+      sceneName,
+      createdAt: Date.now(),
+      relationship: buildRelationshipMetrics(responseData.current_states),
+      keyMemories: buildEndingMemories(responseData, {
+        sceneName,
+        finalDialogue,
+        lastChoice,
+        endingTypeLabel,
+      }),
+      visual: {
+        compositeImageUrl: responseData.composite_image_url || state.compositeImageUrl,
+        sceneImageUrl: responseData.scene_image_url || state.sceneImageUrl,
+        characterImageUrl: state.characterImageUrl,
+      },
+    };
+  };
+
+  const handleGameResponse = (responseData: GameResponseData, lastChoice?: string) => {
+    setVisualError(null);
+
     // 更新 TTS 情感参数
     if (responseData.tts_emotion) {
       setTtsEmotionParams(responseData.tts_emotion);
@@ -123,9 +365,12 @@ function Game() {
       state.setSceneImageUrl(null);
       state.setCharacterImageUrl(null);
     } else if (responseData.scene_image_url) {
+      state.setCompositeImageUrl(null);
       state.setShouldUseComposite(false);
       state.setSceneImageUrl(responseData.scene_image_url);
+      ensureCharacterLayer();
     } else if (responseData.scene) {
+      state.setCompositeImageUrl(null);
       const sceneConfig = SCENE_CONFIGS.find((s) => s.id === responseData.scene);
       if (sceneConfig) {
         const sceneUrl = getSceneImageUrl(sceneConfig);
@@ -137,9 +382,7 @@ function Game() {
       } else {
         state.setSceneImageUrl(getFallbackSceneImageUrls(responseData.scene)[0]);
       }
-      if (!state.characterImageUrl) {
-        setCharacterImage(state.characterId || gameStorage.getCurrentCharacterId());
-      }
+      ensureCharacterLayer();
     }
     if (responseData.character_dialogue) {
       state.setCurrentDialogue(responseData.character_dialogue);
@@ -149,15 +392,18 @@ function Game() {
     else state.setCurrentOptions([]);
     // 结局处理：标记结束状态，清空选项
     if (responseData.is_game_finished) {
+      const record = createEndingRecord(responseData, lastChoice);
       setGameFinished(true);
+      setEndingRecord(record);
+      setEndingSaved(false);
       state.setCurrentOptions([]);
-      const title = responseData.event_title || '故事落幕';
+      const title = record.title || '故事落幕';
       setEndingTitle(title);
     }
   };
 
   const handleOptionSelect = useCallback(async (optionId: number) => {
-    if (state.loading || !state.threadId || gameFinished) return;
+    if (state.loading || !state.threadId || gameFinished || visualError) return;
     const selectedOption = state.currentOptions[optionId];
     if (!selectedOption) return;
 
@@ -177,7 +423,7 @@ function Game() {
         state.setThreadId(responseThreadId);
         message.info('游戏会话已恢复');
       }
-      handleGameResponse(response);
+      handleGameResponse(response, selectedOption.text);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } }; message?: string };
       logger.error('处理选项失败', err);
@@ -215,7 +461,7 @@ function Game() {
     } finally {
       state.setLoading(false);
     }
-  }, [state.loading, state.threadId, state.currentOptions, state.characterId]);
+  }, [state.loading, state.threadId, state.currentOptions, state.characterId, gameFinished, visualError]);
 
   const handleExit = () => {
     stopTts();
@@ -224,8 +470,35 @@ function Game() {
     navigate(ROUTES.FIRST_STEP);
   };
 
-  // 获取角色名称
-  const characterName = gameStorage.getCharacterData()?.name || '角色';
+  const handleSaveEnding = () => {
+    if (!endingRecord) return;
+    gameStorage.saveEndingRecord(endingRecord);
+    gameStorage.cleanupGuestOldGameData({ keepThreadId: null, keepLatestEnding: true });
+    setEndingSaved(true);
+    message.success('这段回忆已经保存');
+  };
+
+  const handleRestartAfterEnding = () => {
+    stopTts();
+    gameStorage.cleanupGuestOldGameData({
+      keepThreadId: null,
+      keepLatestEnding: false,
+      clearCharacterData: true,
+      clearSession: true,
+    });
+    navigate(ROUTES.CHARACTER_SETTING);
+  };
+
+  const handleBackHomeAfterEnding = () => {
+    if (endingRecord && !endingSaved) gameStorage.saveEndingRecord(endingRecord);
+    stopTts();
+    gameStorage.cleanupGuestOldGameData({
+      keepThreadId: null,
+      keepLatestEnding: true,
+      clearSession: true,
+    });
+    navigate(ROUTES.HOME);
+  };
 
   return (
     <div className="game-scene-container">
@@ -285,18 +558,28 @@ function Game() {
       {/* 场景背景 */}
       <div className="game-scene-background">
         <GameSceneBackground
-          shouldUseComposite={state.shouldUseComposite}
           compositeImageUrl={state.compositeImageUrl}
           sceneImageUrl={state.sceneImageUrl}
           characterImageUrl={state.characterImageUrl}
+          expected={Boolean(state.compositeImageUrl || state.sceneImageUrl || state.characterImageUrl)}
+          onVisualReady={handleVisualReady}
+          onVisualError={handleVisualError}
         />
+        {visualError && (
+          <div className="game-visual-error" role="alert">
+            <div className="game-visual-error-card">
+              <span>画面渲染已停止</span>
+              <p>{visualError}</p>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 对话区域（含历史 + 打字机效果） */}
       <GameDialogue
         currentDialogue={state.currentDialogue}
         currentOptions={state.currentOptions}
-        loading={state.loading}
+        loading={state.loading || Boolean(visualError)}
         onOptionSelect={handleOptionSelect}
         messages={messages}
         characterName={characterName}
@@ -305,36 +588,124 @@ function Game() {
 
       {/* 结局覆盖层 */}
       {gameFinished && (
-        <div className="game-ending-overlay">
-          <div className="game-ending-card">
-            <div className="ending-divider" />
-            <h1 className="ending-title">{endingTitle}</h1>
-            <div className="ending-divider" />
-            <p className="ending-subtitle">感谢你的陪伴</p>
-            <div className="ending-actions">
-              <Button
-                type="primary"
-                size="large"
-                onClick={() => {
-                  stopTts();
-                  gameStorage.clearAllGameData();
-                  navigate(ROUTES.CHARACTER_SETTING);
-                }}
-              >
-                再来一局
-              </Button>
-              <Button
-                size="large"
-                onClick={() => {
-                  stopTts();
-                  navigate(ROUTES.FIRST_STEP);
-                }}
-              >
-                返回菜单
-              </Button>
+        <section className="game-ending-overlay" aria-live="polite">
+          <div className="game-ending-backdrop" />
+          <div className="game-ending-shell">
+            <div className="game-ending-visual" aria-hidden="true">
+              {endingRecord?.visual.compositeImageUrl ? (
+                <img
+                  src={getStaticAssetUrl(endingRecord.visual.compositeImageUrl)}
+                  alt=""
+                  className="ending-visual-scene"
+                />
+              ) : endingRecord?.visual.sceneImageUrl ? (
+                <img
+                  src={getStaticAssetUrl(endingRecord.visual.sceneImageUrl)}
+                  alt=""
+                  className="ending-visual-scene"
+                />
+              ) : (
+                <div className="ending-visual-empty" />
+              )}
+              {endingRecord?.visual.characterImageUrl && !endingRecord.visual.compositeImageUrl && (
+                <img
+                  src={getStaticAssetUrl(endingRecord.visual.characterImageUrl)}
+                  alt=""
+                  className="ending-visual-character"
+                />
+              )}
+              <div className="ending-visual-shade" />
+            </div>
+
+            <div className="game-ending-content">
+              <div className="ending-heading">
+                <span className="ending-kicker">No End Story</span>
+                <span className="ending-type-badge">{endingRecord?.typeLabel || '特别结局'}</span>
+                <h1 className="ending-title">{endingTitle}</h1>
+                <p className="ending-description">
+                  {endingRecord?.description || '这一段故事抵达了它的终点。'}
+                </p>
+              </div>
+
+              {endingRecord?.finalDialogue && (
+                <blockquote className="ending-final-dialogue">
+                  <span>{endingRecord.characterName}</span>
+                  <p>{endingRecord.finalDialogue}</p>
+                </blockquote>
+              )}
+
+              <div className="ending-panel-grid">
+                <section className="ending-panel ending-relationship-panel" aria-label="最终关系状态">
+                  <div className="ending-panel-header">
+                    <span>Final Relation</span>
+                    <strong>最终关系</strong>
+                  </div>
+                  <div className="ending-metrics">
+                    {(endingRecord?.relationship || []).map((metric) => (
+                      <div key={metric.key} className={`ending-metric ending-metric-${metric.tone || 'quiet'}`}>
+                        <div className="ending-metric-row">
+                          <span>{metric.label}</span>
+                          <strong>{metric.value == null ? '--' : metric.value}</strong>
+                        </div>
+                        <div className="ending-metric-track">
+                          <span style={{ width: `${metric.value ?? 0}%` }} />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="ending-panel ending-memory-panel" aria-label="回忆时间线">
+                  <div className="ending-panel-header">
+                    <span>Memory Archive</span>
+                    <strong>回忆封存</strong>
+                  </div>
+                  <ol className="ending-memory-list">
+                    {(endingRecord?.keyMemories || []).map((memory) => (
+                      <li key={`${memory.title}-${memory.description}`}>
+                        <span className="ending-memory-dot" />
+                        <div>
+                          <strong>{memory.title}</strong>
+                          <p>{memory.description}</p>
+                          {memory.choice && <em>{memory.choice}</em>}
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              </div>
+
+              <div className="ending-actions">
+                <Button
+                  size="large"
+                  icon={<SaveOutlined />}
+                  onClick={handleSaveEnding}
+                  disabled={endingSaved || !endingRecord}
+                  className="ending-save-button"
+                >
+                  {endingSaved ? '已保存' : '保存回忆'}
+                </Button>
+                <Button
+                  type="primary"
+                  size="large"
+                  icon={<ReloadOutlined />}
+                  onClick={handleRestartAfterEnding}
+                  className="ending-primary-button"
+                >
+                  再来一局
+                </Button>
+                <Button
+                  size="large"
+                  icon={<HomeOutlined />}
+                  onClick={handleBackHomeAfterEnding}
+                  className="ending-home-button"
+                >
+                  回到首页
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
+        </section>
       )}
     </div>
   );

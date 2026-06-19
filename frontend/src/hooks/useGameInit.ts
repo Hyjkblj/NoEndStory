@@ -3,7 +3,7 @@ import { App as AntdApp } from 'antd';
 import { initGame, initializeStory, getCharacterImages } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
 import { getSceneNameById } from '@/config/scenes';
-import { getCharacterImageFromStorage, getFallbackSceneImageUrls } from '@/utils/game';
+import { getCharacterLayerImageFromStorage, getFallbackSceneImageUrls, isLikelyTransparentCharacterLayer } from '@/utils/game';
 import { logger } from '@/utils/logger';
 import type { GameMessage, PlayerOption } from '@/types/game';
 import type { GameStateBag } from './useGameState';
@@ -47,7 +47,9 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
       if (!characterId || characterId === 'undefined' || characterId === 'null' || String(characterId).trim() === '') return;
       getCharacterImages(String(characterId))
         .then((data) => {
-          if (data?.images?.length) setCharacterImageUrl(data.images[0]);
+          const layerImage = data?.images?.find(isLikelyTransparentCharacterLayer);
+          if (layerImage) setCharacterImageUrl(layerImage);
+          else logger.warn('[game] no transparent character layer found for layered rendering');
         })
         .catch((error: unknown) => {
           const err = error as { message?: string };
@@ -59,7 +61,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
 
   const setCharacterImage = useCallback(
     (characterId: string | null) => {
-      const imageUrl = getCharacterImageFromStorage();
+      const imageUrl = getCharacterLayerImageFromStorage();
       if (imageUrl) {
         setCharacterImageUrl(imageUrl);
         return;
@@ -91,6 +93,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         const lastMessage = messages.length > 0 ? messages[messages.length - 1].content : undefined;
         gameStorage.setGameSave({ threadId, characterId, messages, lastMessage, timestamp: Date.now() });
         gameStorage.setMainGameSave({ threadId, characterId, lastMessage, timestamp: Date.now() });
+        gameStorage.cleanupGuestOldGameData({ keepThreadId: threadId, keepLatestEnding: true });
       } catch (error: unknown) {
         logger.error('failed to save progress:', error);
       }
@@ -192,7 +195,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         try {
           applySceneTransition(characterData.selectedScene.id, characterData.selectedScene.name);
 
-          const imageUrl = getCharacterImageFromStorage();
+          const imageUrl = getCharacterLayerImageFromStorage();
           const storyData = (await initializeStory(
             gameThreadId,
             gameCharacterId,
@@ -224,7 +227,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         }
 
         setThreadId(newThreadId);
-        const imageUrl = getCharacterImageFromStorage();
+        const imageUrl = getCharacterLayerImageFromStorage();
         const storyData = (await initializeStory(newThreadId, charId, undefined, imageUrl)) as StoryData;
 
         applyStoryData(storyData, charId);

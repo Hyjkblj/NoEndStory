@@ -10,10 +10,11 @@ import {
   WomanOutlined,
 } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
-import LoadingScreen from '@/components/loading';
+import { useRouteTransition } from '@/hooks/useRouteTransition';
 import { ROUTES } from '@/config/routes';
 import { checkServerHealth, createCharacter } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
+import { preloadImages } from '@/utils/preload';
 import './CharacterSetting.css';
 
 const categories = ['外貌', '性格', '风格'];
@@ -120,9 +121,9 @@ const styleOptions = [
 
 function CharacterSetting() {
   const navigate = useNavigate();
+  const { transitionTo } = useRouteTransition();
   const [messageApi, messageContextHolder] = message.useMessage();
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('正在连接服务器...');
 
   const [name, setName] = useState('');
   const [height, setHeight] = useState(160);
@@ -238,77 +239,95 @@ function CharacterSetting() {
   const handleFinalConfirm = async () => {
     setIsModalVisible(false);
     setLoading(true);
-    setLoadingMessage('正在创建角色...');
 
     try {
-      const isHealthy = await checkServerHealth();
-      if (!isHealthy) {
-        messageApi.error('无法连接到服务器，请检查后端服务是否运行。');
-        setLoading(false);
-        return;
-      }
+      const didNavigate = await transitionTo({
+        to: ROUTES.CHARACTER_SELECTION,
+        variant: 'character',
+        work: async ({ animateTo, setProgress }) => {
+          setProgress(12);
+          const isHealthy = await checkServerHealth();
+          if (!isHealthy) {
+            messageApi.error('无法连接到服务器，请检查后端服务是否运行。');
+            return false;
+          }
 
-      const appearanceData: Record<string, unknown> = {
-        keywords: selectedAppearance.map((idx) => appearanceOptions[idx]),
-        height,
-        weight,
-      };
+          await animateTo(28, 420);
 
-      const personalityData: Record<string, unknown> = {
-        keywords: selectedPersonality.map((idx) => personalityOptions[idx]),
-      };
+          const appearanceData: Record<string, unknown> = {
+            keywords: selectedAppearance.map((idx) => appearanceOptions[idx]),
+            height,
+            weight,
+          };
 
-      const backgroundData: Record<string, unknown> = {
-        style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
-      };
+          const personalityData: Record<string, unknown> = {
+            keywords: selectedPersonality.map((idx) => personalityOptions[idx]),
+          };
 
-      setLoadingMessage('正在生成你的专属角色...');
+          const backgroundData: Record<string, unknown> = {
+            style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
+          };
 
-      const response = await createCharacter({
-        name: name || '未命名角色',
-        appearance: appearanceData,
-        personality: personalityData,
-        background: backgroundData,
-        gender,
-        age,
+          await animateTo(42, 520);
+
+          const response = await createCharacter({
+            name: name || '未命名角色',
+            appearance: appearanceData,
+            personality: personalityData,
+            background: backgroundData,
+            gender,
+            age,
+          });
+
+          await animateTo(72, 700);
+
+          const characterId = response.character_id;
+          const idStr = characterId != null ? String(characterId).trim() : '';
+          if (!idStr || idStr === 'undefined' || idStr === 'null') {
+            messageApi.error('创建角色失败：未获取到有效角色 ID。');
+            return false;
+          }
+
+          const imageUrls = Array.isArray(response.image_urls)
+            ? response.image_urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '')
+            : [];
+          const imageUrl = typeof response.image_url === 'string' ? response.image_url : undefined;
+          const responseName = typeof response.name === 'string' ? response.name : '未命名角色';
+
+          const characterData = {
+            characterId: idStr,
+            name: responseName,
+            height,
+            weight,
+            age,
+            gender,
+            appearance: selectedAppearance.map((idx) => appearanceOptions[idx]),
+            personality: personalityData,
+            personalityKeywords: selectedPersonality.map((idx) => personalityOptions[idx]),
+            style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
+            imageUrl,
+            image_urls: imageUrls,
+          };
+
+          gameStorage.cleanupGuestOldGameData({
+            keepThreadId: null,
+            keepLatestEnding: false,
+            clearCharacterData: true,
+            clearSession: true,
+          });
+          gameStorage.setCharacterData(characterData);
+          gameStorage.removeRestoreIds();
+          gameStorage.setCreatedCharacterId(idStr);
+
+          await animateTo(84, 420);
+          await preloadImages([imageUrl, ...imageUrls], 9000);
+          await animateTo(89, 360);
+        },
       });
 
-      const characterId = response.character_id;
-      const idStr = characterId != null ? String(characterId).trim() : '';
-      if (!idStr || idStr === 'undefined' || idStr === 'null') {
-        messageApi.error('创建角色失败：未获取到有效角色 ID。');
+      if (!didNavigate) {
         setLoading(false);
-        return;
       }
-
-      const imageUrls = Array.isArray(response.image_urls)
-        ? response.image_urls.filter((url): url is string => typeof url === 'string' && url.trim() !== '')
-        : [];
-      const imageUrl = typeof response.image_url === 'string' ? response.image_url : undefined;
-      const responseName = typeof response.name === 'string' ? response.name : '未命名角色';
-
-      const characterData = {
-        characterId: idStr,
-        name: responseName,
-        height,
-        weight,
-        age,
-        gender,
-        appearance: selectedAppearance.map((idx) => appearanceOptions[idx]),
-        personality: personalityData,
-        personalityKeywords: selectedPersonality.map((idx) => personalityOptions[idx]),
-        style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
-        imageUrl,
-        image_urls: imageUrls,
-      };
-
-      gameStorage.setCharacterData(characterData);
-      gameStorage.removeRestoreIds();
-      gameStorage.setCreatedCharacterId(idStr);
-
-      setLoadingMessage('正在加载角色图片...');
-      await new Promise((r) => setTimeout(r, 500));
-      navigate(ROUTES.CHARACTER_SELECTION);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { detail?: string } }; message?: string };
       messageApi.error(err.response?.data?.detail || err.message || '创建角色失败，请稍后重试。');
@@ -352,15 +371,6 @@ function CharacterSetting() {
       </span>
     ));
   };
-
-  if (loading) {
-    return (
-      <>
-        {messageContextHolder}
-        <LoadingScreen message={loadingMessage} />
-      </>
-    );
-  }
 
   return (
     <div className="character-setting-page">
@@ -645,7 +655,7 @@ function CharacterSetting() {
           <Button key="cancel" onClick={() => setIsModalVisible(false)}>
             再想想
           </Button>,
-          <Button key="confirm" type="primary" onClick={handleFinalConfirm}>
+          <Button key="confirm" type="primary" onClick={handleFinalConfirm} disabled={loading}>
             确认生成
           </Button>,
         ]}

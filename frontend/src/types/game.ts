@@ -61,3 +61,38 @@ export interface InitialGameData {
   characterImageUrl: string;
   voiceConfig?: VoiceConfig;
 }
+
+export interface EndingRelationshipMetric {
+  key: string;
+  label: string;
+  value: number | null;
+  tone?: 'warm' | 'soft' | 'tense' | 'quiet';
+}
+
+export interface EndingMemory {
+  title: string;
+  description: string;
+  choice?: string;
+}
+
+export interface EndingRecord {
+  id: string;
+  threadId: string;
+  characterId?: string;
+  characterName: string;
+  title: string;
+  type: string;
+  typeLabel: string;
+  description: string;
+  finalDialogue: string;
+  sceneId?: string;
+  sceneName?: string;
+  createdAt: number;
+  relationship: EndingRelationshipMetric[];
+  keyMemories: EndingMemory[];
+  visual: {
+    compositeImageUrl?: string | null;
+    sceneImageUrl?: string | null;
+    characterImageUrl?: string | null;
+  };
+}

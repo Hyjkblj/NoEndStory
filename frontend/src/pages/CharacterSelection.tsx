@@ -4,9 +4,11 @@ import { Button, App as AntdApp } from 'antd';
 import { CheckOutlined, LeftOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import LoadingScreen from '@/components/loading';
+import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
+import { preloadImages } from '@/utils/preload';
 import './CharacterSelection.css';
 
 interface CharacterOption {
@@ -41,6 +43,7 @@ const getEmotionVoiceGender = (voice: PresetVoiceItem): 'female' | 'male' => (
 
 function CharacterSelection() {
   const navigate = useNavigate();
+  const { transitionTo } = useRouteTransition();
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('正在加载角色...');
@@ -59,40 +62,47 @@ function CharacterSelection() {
   useEffect(() => {
     if (step !== 'voice') return;
     let cancelled = false;
-    setVoicesLoading(true);
-    getPresetVoices()
-      .then((res) => {
-        if (cancelled) return;
-        let list: PresetVoiceItem[] = [];
-        if (Array.isArray(res)) list = res;
-        else if (res && typeof res === 'object' && !Array.isArray(res)) {
-          const r = res as Record<string, PresetVoiceItem[]>;
-          list = [...(r.emo_female || []), ...(r.emo_male || [])];
-        }
-        const emotionVoices = list.filter((voice) => (
-          isEmotionVoiceForGender(voice, 'female') || isEmotionVoiceForGender(voice, 'male')
-        ));
-        setPresetVoices(emotionVoices);
-        setSelectedVoiceId((currentVoiceId) => (
-          currentVoiceId && !emotionVoices.some((voice) => voice.id === currentVoiceId) ? null : currentVoiceId
-        ));
-        if (emotionVoices.length === 0) {
-          message.warning('未获取到多情感音色列表，请检查后端服务');
-        }
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        const err = error as { response?: { status?: number }; message?: string };
-        const is503 = err.response?.status === 503;
-        if (is503) {
-          message.warning('TTS 服务暂不可用，但您仍可选择音色（游戏中使用时需确保 TTS 服务已启用）');
-        } else {
-          message.error('获取音色列表失败，请检查后端服务');
-        }
-        setPresetVoices([]);
-      })
-      .finally(() => { if (!cancelled) setVoicesLoading(false); });
-    return () => { cancelled = true; };
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+      setVoicesLoading(true);
+      getPresetVoices()
+        .then((res) => {
+          if (cancelled) return;
+          let list: PresetVoiceItem[] = [];
+          if (Array.isArray(res)) list = res;
+          else if (res && typeof res === 'object' && !Array.isArray(res)) {
+            const r = res as Record<string, PresetVoiceItem[]>;
+            list = [...(r.emo_female || []), ...(r.emo_male || [])];
+          }
+          const emotionVoices = list.filter((voice) => (
+            isEmotionVoiceForGender(voice, 'female') || isEmotionVoiceForGender(voice, 'male')
+          ));
+          setPresetVoices(emotionVoices);
+          setSelectedVoiceId((currentVoiceId) => (
+            currentVoiceId && !emotionVoices.some((voice) => voice.id === currentVoiceId) ? null : currentVoiceId
+          ));
+          if (emotionVoices.length === 0) {
+            message.warning('未获取到多情感音色列表，请检查后端服务');
+          }
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          const err = error as { response?: { status?: number }; message?: string };
+          const is503 = err.response?.status === 503;
+          if (is503) {
+            message.warning('TTS 服务暂不可用，但您仍可选择音色（游戏中使用时需确保 TTS 服务已启用）');
+          } else {
+            message.error('获取音色列表失败，请检查后端服务');
+          }
+          setPresetVoices([]);
+        })
+        .finally(() => { if (!cancelled) setVoicesLoading(false); });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [step, message]);
 
   // 试听音色
@@ -231,8 +241,14 @@ function CharacterSelection() {
   }, [message, navigate]);
 
   useEffect(() => {
-    void loadCharacters();
+    const timer = window.setTimeout(() => {
+      void loadCharacters();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [loadCharacters]);
+
+  useRouteTransitionReady(!loading && characters.length > 0, { delayMs: 120 });
 
   // 点击 CHOICE：仅保存选中的图片并进入音色选择界面
   const handleSelectImage = (characterId: string, imageIndex: number) => {
@@ -280,83 +296,97 @@ function CharacterSelection() {
     setLoading(true);
     setLoadingMessage('正在检查服务器连接...');
     try {
-      const isHealthy = await checkServerHealth();
-      if (!isHealthy) {
-        message.error('无法连接到服务器，请检查后端服务是否运行');
-        setLoading(false);
-        return;
-      }
-
-      setLoadingMessage('正在保存选择...');
-      try {
-        const selectionResponse = await removeCharacterBackground(
-          characterId,
-          selectedImageUrl,
-          character.imageUrls || [],
-          imageIndex
-        );
-        const characterData = gameStorage.getCharacterData();
-        if (characterData) {
-          const selectionPayload = selectionResponse as RemoveBackgroundResultPayload;
-          const transparentUrl = selectionPayload.transparent_url ?? selectionPayload.data?.transparent_url;
-          const selectedUrl = selectionPayload.selected_image_url ?? selectionPayload.data?.selected_image_url;
-          if (transparentUrl) {
-            characterData.transparentImageUrl = transparentUrl;
-            characterData.imageUrl = transparentUrl;
-            characterData.image_urls = [transparentUrl];
-          } else {
-            if (selectedUrl) {
-              characterData.selectedImageUrl = selectedUrl;
-              characterData.originalImageUrl = selectedUrl;
-            }
-            const fallbackUrl = selectedUrl || characterData.imageUrl;
-            if (fallbackUrl) {
-              characterData.imageUrl = fallbackUrl;
-              characterData.image_urls = [fallbackUrl];
-            }
+      const didNavigate = await transitionTo({
+        to: ROUTES.FIRST_MEETING,
+        variant: 'character',
+        work: async ({ animateTo, setProgress }) => {
+          setProgress(14);
+          const isHealthy = await checkServerHealth();
+          if (!isHealthy) {
+            message.error('无法连接到服务器，请检查后端服务是否运行');
+            return false;
           }
-          gameStorage.setCharacterData(characterData);
-        }
-        
-        // 保存音色配置到角色数据和后端
-        if (selectedVoiceId) {
+
+          await animateTo(34, 420);
+
           try {
-            // 保存到后端
-            await setVoiceConfig({
-              character_id: Number(characterId),
-              voice_type: 'preset',
-              preset_voice_id: selectedVoiceId,
-            });
-            
+            const selectionResponse = await removeCharacterBackground(
+              characterId,
+              selectedImageUrl,
+              character.imageUrls || [],
+              imageIndex
+            );
             const characterData = gameStorage.getCharacterData();
             if (characterData) {
-              const selectedVoice = presetVoices.find(v => v.id === selectedVoiceId);
-              characterData.voiceConfig = {
-                voice_type: 'preset',
-                preset_voice_id: selectedVoiceId,
-                voice_name: selectedVoice?.name || '未知音色',
-                voice_description: selectedVoice?.description || '',
-                voice_id: selectedVoice?.voice_id || ''
-              };
+              const selectionPayload = selectionResponse as RemoveBackgroundResultPayload;
+              const transparentUrl = selectionPayload.transparent_url ?? selectionPayload.data?.transparent_url;
+              const selectedUrl = selectionPayload.selected_image_url ?? selectionPayload.data?.selected_image_url;
+              if (transparentUrl) {
+                characterData.transparentImageUrl = transparentUrl;
+                characterData.imageUrl = transparentUrl;
+                characterData.image_urls = [transparentUrl];
+              } else {
+                if (selectedUrl) {
+                  characterData.selectedImageUrl = selectedUrl;
+                  characterData.originalImageUrl = selectedUrl;
+                }
+                const fallbackUrl = selectedUrl || characterData.imageUrl;
+                if (fallbackUrl) {
+                  characterData.imageUrl = fallbackUrl;
+                  characterData.image_urls = [fallbackUrl];
+                }
+              }
               gameStorage.setCharacterData(characterData);
             }
-          } catch (e) {
-            console.warn('[角色选择] 保存音色配置失败:', e);
+          } catch (bgError: unknown) {
+            console.error('选择图片失败:', bgError);
+            message.warning('选择图片失败，将使用原图继续');
           }
-        }
-        setLoadingMessage('选择完成，正在跳转...');
-        await new Promise((r) => setTimeout(r, 500));
-        navigate(ROUTES.FIRST_MEETING);
-      } catch (bgError: unknown) {
-        console.error('选择图片失败:', bgError);
-        message.warning('选择图片失败，将使用原图继续');
-        await new Promise((r) => setTimeout(r, 500));
-        navigate(ROUTES.FIRST_MEETING);
+
+          await animateTo(62, 560);
+
+          if (selectedVoiceId) {
+            try {
+              await setVoiceConfig({
+                character_id: Number(characterId),
+                voice_type: 'preset',
+                preset_voice_id: selectedVoiceId,
+              });
+
+              const characterData = gameStorage.getCharacterData();
+              if (characterData) {
+                const selectedVoice = presetVoices.find(v => v.id === selectedVoiceId);
+                characterData.voiceConfig = {
+                  voice_type: 'preset',
+                  preset_voice_id: selectedVoiceId,
+                  voice_name: selectedVoice?.name || '未知音色',
+                  voice_description: selectedVoice?.description || '',
+                  voice_id: selectedVoice?.voice_id || ''
+                };
+                gameStorage.setCharacterData(characterData);
+              }
+            } catch (e) {
+              console.warn('[角色选择] 保存音色配置失败:', e);
+            }
+          }
+
+          const latestCharacterData = gameStorage.getCharacterData();
+          await animateTo(78, 420);
+          await preloadImages([
+            latestCharacterData?.transparentImageUrl,
+            latestCharacterData?.imageUrl,
+            selectedImageUrl,
+          ], 9000);
+          await animateTo(88, 360);
+        },
+      });
+
+      if (!didNavigate) {
+        setLoading(false);
       }
     } catch (error) {
       console.error('选择角色失败:', error);
       message.error('选择角色失败，请稍后重试');
-    } finally {
       setLoading(false);
     }
   };

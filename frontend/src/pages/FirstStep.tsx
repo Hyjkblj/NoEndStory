@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { App as AntdApp, Button } from 'antd';
 import {
@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
+import SakuraSway from '@/components/SakuraSway';
+import { useRouteTransition } from '@/hooks/useRouteTransition';
 import { checkServerHealth } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
@@ -59,6 +61,7 @@ const getSaveSummary = (save: StoredMainSave | null): SaveSummary | null => {
 
 function FirstStep() {
   const navigate = useNavigate();
+  const { transitionTo } = useRouteTransition();
   const { message, modal } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('故事正在继续...');
@@ -67,7 +70,6 @@ function FirstStep() {
   );
 
   const hasSave = Boolean(saveSummary?.threadId);
-  const petals = useMemo(() => Array.from({ length: 18 }), []);
 
   const handleContinueGame = async () => {
     if (!saveSummary?.threadId) return;
@@ -75,25 +77,60 @@ function FirstStep() {
     setLoading(true);
     setLoadingMessage('故事正在继续...');
     try {
-      const isHealthy = await checkServerHealth();
-      if (isHealthy) {
-        gameStorage.setRestoreThreadId(saveSummary.threadId);
-        if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
-        setLoadingMessage('正在翻到上次停下的那一页...');
-        await new Promise((r) => setTimeout(r, 500));
-        navigate(ROUTES.GAME);
-      } else {
-        message.error('故事暂时无法继续，请稍后再试。');
+      const didNavigate = await transitionTo({
+        to: ROUTES.GAME,
+        variant: 'story',
+        disableReadyFallback: true,
+        work: async ({ animateTo, setProgress }) => {
+          setProgress(16);
+          const isHealthy = await checkServerHealth();
+          if (!isHealthy) {
+            message.error('故事暂时无法继续，请稍后再试。');
+            return false;
+          }
+          await animateTo(52, 520);
+          gameStorage.setRestoreThreadId(saveSummary.threadId);
+          if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
+          setLoadingMessage('正在翻到上次停下的那一页...');
+          await animateTo(88, 620);
+        },
+      });
+
+      if (!didNavigate) {
+        setLoading(false);
       }
     } catch {
       message.error('故事暂时无法继续，请稍后再试。');
-    } finally {
       setLoading(false);
     }
   };
 
   const handleNewStory = () => {
-    navigate(ROUTES.CHARACTER_SETTING);
+    const hasEnding = gameStorage.getEndingRecords().length > 0;
+    const startNewStory = () => {
+      gameStorage.cleanupGuestOldGameData({
+        keepThreadId: null,
+        keepLatestEnding: false,
+        clearCharacterData: true,
+        clearSession: true,
+      });
+      navigate(ROUTES.CHARACTER_SETTING);
+    };
+
+    if (!hasSave && !hasEnding) {
+      startNewStory();
+      return;
+    }
+
+    modal.confirm({
+      title: '开启新的游客故事？',
+      content: '游客模式只保留最新一局。开始新故事后，上一局的角色、进度和结局会被覆盖。',
+      okText: '开始新故事',
+      cancelText: '先不开始',
+      className: 'first-step-confirm-modal',
+      icon: <PlayCircleOutlined className="first-step-confirm-icon" />,
+      onOk: startNewStory,
+    });
   };
 
   const handleExit = () => {
@@ -120,28 +157,7 @@ function FirstStep() {
     >
       <div className="first-step-overlay" />
       <div className="first-step-vignette" />
-
-      <div className="sakura-container" aria-hidden="true">
-        {petals.map((_, index) => (
-          <div
-            key={index}
-            className="sakura-petal"
-            style={{
-              left: `${(index * 7) % 100}%`,
-              animationDelay: `${index * 0.45}s`,
-              animationDuration: `${9 + (index % 5)}s`,
-            }}
-          >
-            <svg width="20" height="20" viewBox="0 0 20 20" focusable="false">
-              <path
-                d="M10 2C10 2 12 6 16 6C12 6 10 10 10 10C10 10 8 6 4 6C8 6 10 2 10 2Z"
-                fill="#ffb3d9"
-                opacity="0.8"
-              />
-            </svg>
-          </div>
-        ))}
-      </div>
+      <SakuraSway />
 
       <section className="first-step-shell" aria-labelledby="first-step-title">
         <div className="first-step-copy">

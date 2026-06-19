@@ -4,6 +4,17 @@
 import * as gameStorage from '@/storage/gameStorage';
 import { getSceneNameById } from '@/config/scenes';
 
+const ORIGINAL_CHARACTER_IMAGE_PATTERN = /portrait_img\d+/i;
+
+export function isGeneratedOriginalCharacterImage(url?: string | null): boolean {
+  return Boolean(url && ORIGINAL_CHARACTER_IMAGE_PATTERN.test(url));
+}
+
+export function isLikelyTransparentCharacterLayer(url?: string | null): url is string {
+  const value = typeof url === 'string' ? url.trim() : '';
+  return Boolean(value && !isGeneratedOriginalCharacterImage(value));
+}
+
 /** 从存储中按优先级解析角色图片 URL（透明图 > 原图，排除已删除的 portrait_img） */
 export function getCharacterImageFromStorage(): string | undefined {
   const characterData = gameStorage.getCharacterData();
@@ -19,6 +30,18 @@ export function getCharacterImageFromStorage(): string | undefined {
 }
 
 /** 当后端未返回 scene_image_url 时，生成可尝试的场景图 URL 列表（smallscenes 优先，再 scenes） */
+export function getCharacterLayerImageFromStorage(): string | undefined {
+  const characterData = gameStorage.getCharacterData();
+  if (!characterData) return undefined;
+
+  const candidates = [
+    characterData.transparentImageUrl,
+    characterData.imageUrl,
+  ];
+
+  return candidates.find(isLikelyTransparentCharacterLayer);
+}
+
 export function getFallbackSceneImageUrls(sceneId: string): string[] {
   const sceneName = getSceneNameById(sceneId);
   const encoded = encodeURIComponent(sceneName);
