@@ -1,8 +1,8 @@
 /** 游戏相关类型定义 */
 
 export interface GameMessage {
-  id: string;
-  role: 'character' | 'player' | 'system';
+  id?: string;
+  role: 'assistant' | 'user' | 'system';
   content: string;
   timestamp?: string;
 }

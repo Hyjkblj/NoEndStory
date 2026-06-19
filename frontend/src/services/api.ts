@@ -146,10 +146,10 @@ export interface RemoveBackgroundRequest {
 }
 
 export interface RemoveBackgroundResponse {
-  original_url: string;
   transparent_url: string;
   local_path: string;
   selected_image_url?: string;
+  deleted_count?: number;
 }
 
 export const removeCharacterBackground = async (
@@ -276,7 +276,16 @@ export interface ProcessGameInputResponse {
   composite_image_url?: string;
   character_dialogue?: string;
   player_options?: PlayerOption[];
+  story_background?: string;
+  event_title?: string;
+  current_states?: Record<string, number>;
+  state_changes?: Record<string, number>;
+  tts_emotion?: Record<string, unknown>;
+  is_event_finished?: boolean;
   is_game_finished?: boolean;
+  ending_title?: string;
+  ending_type?: string;
+  ending_description?: string;
   [key: string]: unknown;
 }
 

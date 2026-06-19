@@ -105,13 +105,24 @@ class GameInputData(BaseModel):
     story_background: Optional[str] = None
     event_title: Optional[str] = None
     scene: Optional[str] = None
+    scene_image_url: Optional[str] = None
+    composite_image_url: Optional[str] = None
+    current_states: Optional[Dict[str, Any]] = None
+    state_changes: Optional[Dict[str, float]] = None
+    tts_emotion: Optional[Dict[str, Any]] = None
     is_event_finished: bool = False
     is_game_finished: bool = False
+    # 结局相关字段
+    ending_title: Optional[str] = None
+    ending_type: Optional[str] = None
+    ending_description: Optional[str] = None
     # 会话恢复时的额外字段
     thread_id: Optional[str] = None
     session_restored: Optional[bool] = None
     need_reselect_option: Optional[bool] = None
     restored_from_thread_id: Optional[str] = None
+    # 允许后端返回任意额外字段
+    model_config = {"extra": "allow"}
 
 
 class CheckEndingData(BaseModel):
@@ -178,7 +189,13 @@ class InitializeStoryData(BaseModel):
     story_background: Optional[str] = None
     character_dialogue: Optional[str] = None
     player_options: Optional[List[Dict[str, Any]]] = None
+    event_title: Optional[str] = None
+    current_states: Optional[Dict[str, Any]] = None
+    state_changes: Optional[Dict[str, float]] = None
+    tts_emotion: Optional[Dict[str, Any]] = None
     is_game_finished: Optional[bool] = False
+    # 允许后端返回任意额外字段
+    model_config = {"extra": "allow"}
 
 
 # ========== 完整 API 响应模型（含包装） ==========
