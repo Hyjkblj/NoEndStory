@@ -1,68 +1,285 @@
-/* 樱花容器 */
+.first-step-page {
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(32px, 7vw, 88px);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #fff8e8;
+  isolation: isolate;
+}
+
+.first-step-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -3;
+  background: inherit;
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.015);
+  transition: transform 700ms ease;
+}
+
+.first-step-page:has(.first-step-action-card:hover)::after {
+  transform: scale(1.04);
+}
+
+.first-step-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background:
+    linear-gradient(90deg, rgba(25, 13, 8, 0.68) 0%, rgba(25, 13, 8, 0.42) 45%, rgba(25, 13, 8, 0.12) 100%),
+    linear-gradient(180deg, rgba(20, 11, 8, 0.2) 0%, rgba(20, 11, 8, 0.22) 44%, rgba(20, 11, 8, 0.56) 100%);
+}
+
+.first-step-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  box-shadow: inset 0 0 150px rgba(0, 0, 0, 0.48);
+  pointer-events: none;
+}
+
+.first-step-shell {
+  width: min(100%, 1050px);
+  display: grid;
+  grid-template-columns: minmax(300px, 0.9fr) minmax(360px, 430px);
+  gap: clamp(28px, 6vw, 72px);
+  align-items: center;
+  animation: first-step-enter 650ms ease both;
+}
+
+.first-step-copy {
+  max-width: 620px;
+}
+
+.first-step-kicker {
+  margin: 0 0 12px;
+  color: #ffd98a;
+  font-size: clamp(15px, 1.4vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.42);
+}
+
+.first-step-title {
+  margin: 0;
+  color: #fff9ec;
+  font-size: clamp(58px, 9vw, 112px);
+  line-height: 0.96;
+  font-weight: 900;
+  text-wrap: balance;
+  text-shadow:
+    0 3px 10px rgba(39, 17, 6, 0.52),
+    0 0 34px rgba(255, 196, 95, 0.28);
+}
+
+.first-step-subtitle {
+  max-width: 520px;
+  margin: 22px 0 0;
+  color: rgba(255, 248, 232, 0.88);
+  font-size: clamp(18px, 2vw, 23px);
+  line-height: 1.65;
+  text-wrap: pretty;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.38);
+}
+
+.first-step-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+}
+
+.first-step-action-card {
+  width: 100%;
+  min-height: 132px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid rgba(255, 236, 194, 0.42);
+  border-radius: 8px;
+  color: #fff8e8;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition:
+    transform 220ms ease,
+    border-color 220ms ease,
+    background 220ms ease,
+    box-shadow 220ms ease,
+    opacity 220ms ease;
+  touch-action: manipulation;
+}
+
+.first-step-action-card-save {
+  background: rgba(24, 15, 12, 0.46);
+}
+
+.first-step-action-card-new {
+  background:
+    linear-gradient(135deg, rgba(255, 224, 138, 0.18) 0%, rgba(216, 104, 55, 0.18) 100%),
+    rgba(24, 15, 12, 0.5);
+}
+
+.first-step-action-card:hover,
+.first-step-action-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(255, 229, 161, 0.76);
+  background-color: rgba(37, 22, 16, 0.62);
+  box-shadow:
+    0 22px 48px rgba(0, 0, 0, 0.32),
+    0 0 0 4px rgba(255, 219, 137, 0.16);
+  outline: none;
+}
+
+.first-step-action-card:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.first-step-action-card.is-disabled,
+.first-step-action-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+  transform: none;
+}
+
+.first-step-action-card.is-disabled:hover,
+.first-step-action-card:disabled:hover {
+  border-color: rgba(255, 236, 194, 0.28);
+  background-color: rgba(24, 15, 12, 0.42);
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.24);
+}
+
+.first-step-action-icon {
+  width: 54px;
+  height: 54px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 223, 151, 0.16);
+  color: #ffdc91;
+  font-size: 24px;
+}
+
+.first-step-action-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.first-step-action-label {
+  color: rgba(255, 248, 232, 0.72);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.first-step-action-title {
+  color: #fff7df;
+  font-size: 22px;
+  font-weight: 850;
+  line-height: 1.24;
+  overflow-wrap: anywhere;
+}
+
+.first-step-action-meta {
+  color: rgba(255, 248, 232, 0.72);
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.first-step-action-excerpt {
+  color: rgba(255, 248, 232, 0.84);
+  font-size: 14px;
+  line-height: 1.5;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.first-step-utility {
+  grid-column: 2;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.first-step-utility-button {
+  min-height: 44px;
+  padding: 0 18px !important;
+  border: 1px solid rgba(255, 236, 194, 0.28) !important;
+  border-radius: 999px !important;
+  background: rgba(24, 15, 12, 0.34) !important;
+  color: rgba(255, 248, 232, 0.84) !important;
+  font-weight: 700 !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition:
+    transform 200ms ease,
+    background 200ms ease,
+    border-color 200ms ease,
+    box-shadow 200ms ease !important;
+}
+
+.first-step-utility-button:hover,
+.first-step-utility-button:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(255, 229, 161, 0.72) !important;
+  background: rgba(37, 22, 16, 0.55) !important;
+  color: #fff8e8 !important;
+  box-shadow: 0 0 0 4px rgba(255, 219, 137, 0.12);
+}
+
 .sakura-container {
   position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  inset: 0;
   overflow: hidden;
   pointer-events: none;
   z-index: 1;
 }
 
-/* 樱花花瓣 */
 .sakura-petal {
   position: absolute;
-  top: -20px;
+  top: -28px;
   pointer-events: none;
+  animation: sakura-fall linear infinite;
+  filter: drop-shadow(0 2px 5px rgba(79, 29, 45, 0.12));
 }
 
-/* 樱花飘落动画 - 包含下落、旋转和摆动 */
 @keyframes sakura-fall {
   0% {
     transform: translateY(0) translateX(0) rotate(0deg);
-    opacity: 0.8;
+    opacity: 0;
   }
-  10% {
-    transform: translateY(10vh) translateX(15px) rotate(36deg);
-    opacity: 0.85;
-  }
-  25% {
-    transform: translateY(25vh) translateX(-20px) rotate(90deg);
-    opacity: 0.9;
-  }
-  40% {
-    transform: translateY(40vh) translateX(25px) rotate(144deg);
-    opacity: 0.85;
-  }
-  50% {
-    transform: translateY(50vh) translateX(-15px) rotate(180deg);
-    opacity: 0.8;
-  }
-  60% {
-    transform: translateY(60vh) translateX(20px) rotate(216deg);
+  8% {
     opacity: 0.75;
   }
-  75% {
-    transform: translateY(75vh) translateX(-25px) rotate(270deg);
-    opacity: 0.7;
-  }
-  90% {
-    transform: translateY(90vh) translateX(15px) rotate(324deg);
-    opacity: 0.5;
+  45% {
+    transform: translateY(48vh) translateX(22px) rotate(160deg);
+    opacity: 0.72;
   }
   100% {
-    transform: translateY(100vh) translateX(-10px) rotate(360deg);
+    transform: translateY(104vh) translateX(-16px) rotate(360deg);
     opacity: 0;
   }
 }
 
-/* 应用动画 */
-.sakura-petal {
-  animation: sakura-fall linear infinite;
-}
-
-/* 不同大小的樱花 */
 .sakura-petal:nth-child(odd) svg {
   width: 24px;
   height: 24px;
@@ -73,71 +290,196 @@
   height: 30px;
 }
 
-.sakura-petal:nth-child(3n) svg {
-  width: 20px;
-  height: 20px;
-}
-
-.sakura-petal:nth-child(4n) svg {
-  width: 28px;
-  height: 28px;
-}
-
-.sakura-petal:nth-child(5n) svg {
-  width: 26px;
-  height: 26px;
-}
-
-/* 不同的樱花颜色和透明度 */
-.sakura-petal:nth-child(5n) svg path {
-  fill: #ffc0cb;
-  opacity: 0.7;
-}
-
-.sakura-petal:nth-child(5n+1) svg path {
-  fill: #ffb3d9;
-  opacity: 0.8;
-}
-
-.sakura-petal:nth-child(5n+2) svg path {
-  fill: #ff99cc;
-  opacity: 0.75;
-}
-
-.sakura-petal:nth-child(5n+3) svg path {
-  fill: #ffb3e6;
-  opacity: 0.85;
-}
-
-.sakura-petal:nth-child(5n+4) svg path {
+.sakura-petal:nth-child(3n) svg path {
   fill: #ffcce6;
-  opacity: 0.7;
 }
 
-/* 新的故事按钮动画效果 */
-.new-story-button {
-  transition: all 0.3s ease !important;
+.sakura-petal:nth-child(4n) svg path {
+  fill: #ffb3d9;
 }
 
-.new-story-button:hover {
-  transform: scale(1.05) !important;
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6), inset 0 2px 5px rgba(255, 255, 255, 0.4) !important;
+.first-step-confirm-modal .ant-modal-content {
+  border: 1px solid rgba(255, 236, 194, 0.42);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 232, 0.98), rgba(255, 232, 190, 0.96)),
+    rgba(255, 248, 232, 0.98);
+  box-shadow:
+    0 24px 70px rgba(49, 24, 11, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
-.new-story-button:active {
-  transform: scale(0.98) !important;
+.first-step-confirm-modal .ant-modal-title {
+  color: #3a1b08;
+  font-weight: 850;
 }
 
-/* 继续游戏按钮动画效果 */
-.continue-game-button {
-  transition: all 0.3s ease !important;
+.first-step-confirm-modal .ant-modal-confirm-body .ant-modal-confirm-content {
+  color: rgba(58, 27, 8, 0.68);
+  font-size: 15px;
+  line-height: 1.65;
 }
 
-.continue-game-button:hover {
-  transform: scale(1.05) !important;
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.6), inset 0 2px 5px rgba(255, 255, 255, 0.4) !important;
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-primary {
+  border: 1px solid rgba(255, 230, 167, 0.88);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffe08a 0%, #f2a23b 48%, #d86837 100%);
+  color: #2f1607;
+  font-weight: 800;
+  box-shadow: 0 12px 28px rgba(83, 34, 12, 0.22);
 }
 
-.continue-game-button:active {
-  transform: scale(0.98) !important;
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-default {
+  border-color: rgba(58, 27, 8, 0.16);
+  border-radius: 999px;
+  background: rgba(255, 248, 232, 0.84);
+  color: #5b3116;
+}
+
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-default:hover,
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-default:focus-visible {
+  border-color: rgba(201, 116, 47, 0.42) !important;
+  background: rgba(255, 234, 194, 0.92) !important;
+  color: #3a1b08 !important;
+  box-shadow: 0 0 0 4px rgba(201, 116, 47, 0.12);
+}
+
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-default:active {
+  border-color: rgba(154, 77, 32, 0.48) !important;
+  background: rgba(255, 224, 171, 0.96) !important;
+  color: #2f1607 !important;
+}
+
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-primary:hover,
+.first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-primary:focus-visible {
+  border-color: rgba(255, 230, 167, 0.95) !important;
+  background: linear-gradient(135deg, #ffe8a4 0%, #f4aa45 48%, #df7540 100%) !important;
+  color: #2f1607 !important;
+  box-shadow:
+    0 14px 30px rgba(83, 34, 12, 0.26),
+    0 0 0 4px rgba(201, 116, 47, 0.12);
+}
+
+.first-step-confirm-icon {
+  color: #c9742f;
+}
+
+@keyframes first-step-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 860px) {
+  .first-step-page {
+    align-items: flex-start;
+    min-height: 100dvh;
+    padding: 76px 24px 40px;
+    background-position: 46% center;
+  }
+
+  .first-step-page::after {
+    background-position: 46% center;
+  }
+
+  .first-step-overlay {
+    background:
+      linear-gradient(180deg, rgba(25, 13, 8, 0.28) 0%, rgba(25, 13, 8, 0.64) 38%, rgba(25, 13, 8, 0.76) 100%),
+      linear-gradient(90deg, rgba(25, 13, 8, 0.2) 0%, rgba(25, 13, 8, 0.12) 100%);
+  }
+
+  .first-step-shell {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+
+  .first-step-copy {
+    text-align: center;
+    margin-inline: auto;
+  }
+
+  .first-step-title {
+    font-size: clamp(52px, 18vw, 82px);
+  }
+
+  .first-step-subtitle {
+    margin-top: 18px;
+    font-size: 17px;
+  }
+
+  .first-step-actions {
+    max-width: 430px;
+    margin-inline: auto;
+  }
+
+  .first-step-action-card {
+    min-height: 116px;
+    padding: 18px;
+  }
+
+  .first-step-action-title {
+    font-size: 20px;
+  }
+
+  .first-step-utility {
+    grid-column: auto;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 460px) {
+  .first-step-page {
+    padding: 64px 20px 32px;
+    background-position: 42% center;
+  }
+
+  .first-step-page::after {
+    background-position: 42% center;
+  }
+
+  .first-step-actions {
+    gap: 14px;
+  }
+
+  .first-step-action-card {
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .first-step-action-icon {
+    width: 46px;
+    height: 46px;
+    font-size: 21px;
+  }
+
+  .first-step-utility-button {
+    flex: 1 1 150px;
+    justify-content: center;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-step-page::after,
+  .first-step-shell,
+  .first-step-action-card,
+  .first-step-utility-button,
+  .sakura-petal {
+    animation: none;
+    transition: none !important;
+  }
+
+  .first-step-page:has(.first-step-action-card:hover)::after {
+    transform: scale(1.015);
+  }
+
+  .sakura-petal {
+    display: none;
+  }
 }

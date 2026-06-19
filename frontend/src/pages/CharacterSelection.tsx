@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, App as AntdApp } from 'antd';
+import { CheckOutlined, LeftOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import LoadingScreen from '@/components/loading';
 import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
-import { logger } from '@/utils/logger';
 import './CharacterSelection.css';
 
 interface CharacterOption {
@@ -26,6 +26,19 @@ interface RemoveBackgroundResultPayload {
   };
 }
 
+const EMOTION_VOICE_GROUPS = [
+  { key: 'female' as const, title: '多情感女声' },
+  { key: 'male' as const, title: '多情感男声' },
+];
+
+const isEmotionVoiceForGender = (voice: PresetVoiceItem, gender: 'female' | 'male') => (
+  voice.id.startsWith(`emo_${gender}_`) || (voice.id.startsWith('emo_') && voice.gender === gender)
+);
+
+const getEmotionVoiceGender = (voice: PresetVoiceItem): 'female' | 'male' => (
+  isEmotionVoiceForGender(voice, 'male') ? 'male' : 'female'
+);
+
 function CharacterSelection() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
@@ -42,7 +55,6 @@ function CharacterSelection() {
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
 
-
   // 进入音色选择时拉取预设音色（拉取全部，前端按性别分组展示）
   useEffect(() => {
     if (step !== 'voice') return;
@@ -55,11 +67,17 @@ function CharacterSelection() {
         if (Array.isArray(res)) list = res;
         else if (res && typeof res === 'object' && !Array.isArray(res)) {
           const r = res as Record<string, PresetVoiceItem[]>;
-          list = [...(r.female || []), ...(r.male || []), ...(r.neutral || [])];
+          list = [...(r.emo_female || []), ...(r.emo_male || [])];
         }
-        setPresetVoices(list);
-        if (list.length === 0) {
-          message.warning('未获取到音色列表，请检查后端服务');
+        const emotionVoices = list.filter((voice) => (
+          isEmotionVoiceForGender(voice, 'female') || isEmotionVoiceForGender(voice, 'male')
+        ));
+        setPresetVoices(emotionVoices);
+        setSelectedVoiceId((currentVoiceId) => (
+          currentVoiceId && !emotionVoices.some((voice) => voice.id === currentVoiceId) ? null : currentVoiceId
+        ));
+        if (emotionVoices.length === 0) {
+          message.warning('未获取到多情感音色列表，请检查后端服务');
         }
       })
       .catch((error: unknown) => {
@@ -352,7 +370,7 @@ function CharacterSelection() {
     : characters[0]?.imageUrl;
 
   return (
-    <div className="character-selection-container">
+    <div className={`character-selection-container ${step === 'voice' ? 'voice-step-active' : ''}`}>
       {/* 背景图片 - 与设计图一致保持同一背景 */}
       <div
         className="character-selection-background"
@@ -368,7 +386,7 @@ function CharacterSelection() {
         /* 音色选择界面：左人物右音色（按性别分组），底部确认 */
         <div className="character-selection-content voice-selection-layout">
           <h2 className="voice-selection-title">音色设定</h2>
-          <p className="voice-selection-hint">选择角色的语音风格，游戏中对话将使用该音色</p>
+          <p className="voice-selection-hint">选择角色的多情感语音风格，游戏中对话将使用该音色</p>
           <div className="voice-selection-panels">
             <div className="voice-selection-left">
               <div className="voice-character-panel">
@@ -396,55 +414,57 @@ function CharacterSelection() {
             <div className="voice-selection-right">
               {voicesLoading ? (
                 <div className="voice-selection-loading">加载音色列表中...</div>
+              ) : presetVoices.length === 0 ? (
+                <div className="voice-empty-state">
+                  <span className="voice-empty-title">暂无多情感音色</span>
+                  <span className="voice-empty-copy">请稍后重试，或确认后端 TTS 服务已开启。</span>
+                </div>
               ) : (
                 <div className="voice-selection-grouped">
-                  {[
-                    { key: 'emo_female' as const, title: '多情感女声', isEmo: true },
-                    { key: 'emo_male' as const, title: '多情感男声', isEmo: true },
-                    { key: 'female' as const, title: '女声', isEmo: false },
-                    { key: 'male' as const, title: '男声', isEmo: false },
-                    { key: 'neutral' as const, title: '中性', isEmo: false },
-                  ].map(({ key, title, isEmo }) => {
-                    // 多情感音色通过 id 前缀识别，普通音色通过 gender 字段识别
-                    const list = isEmo
-                      ? presetVoices.filter((v) => v.id.startsWith('emo_'))
-                      : presetVoices.filter((v) => (v.gender || 'neutral') === key && !v.id.startsWith('emo_'));
+                  {EMOTION_VOICE_GROUPS.map(({ key, title }) => {
+                    const list = presetVoices.filter((v) => isEmotionVoiceForGender(v, key));
                     if (list.length === 0) return null;
                     return (
-                      <div key={key} className="voice-group">
+                      <div key={key} className={`voice-group voice-group-${key}`}>
                         <h3 className="voice-group-title">
                           {title}
-                          {isEmo && <span className="voice-emo-badge">支持10种情感</span>}
+                          <span className="voice-emo-badge">支持10种情感</span>
                         </h3>
                         <div className="voice-selection-grid">
-                          {list.map((v) => (
-                            <div
-                              key={v.id}
-                              className={`voice-selection-card ${selectedVoiceId === v.id ? 'selected' : ''} ${v.supports_emotion ? 'emotion-voice' : ''}`}
-                            >
-                              <Button
-                                className="voice-selection-card-main"
-                                onClick={() => setSelectedVoiceId(v.id)}
+                          {list.map((v) => {
+                            const voiceGender = getEmotionVoiceGender(v);
+                            const isEmotionVoice = v.supports_emotion || v.id.startsWith('emo_');
+                            return (
+                              <div
+                                key={v.id}
+                                className={`voice-selection-card voice-card-${voiceGender} ${selectedVoiceId === v.id ? 'selected' : ''} ${isEmotionVoice ? 'emotion-voice' : ''}`}
                               >
-                                <span className="voice-selection-card-name">{v.name}</span>
-                                {v.style && (
-                                  <span className="voice-selection-card-style">{v.style}</span>
-                                )}
-                                {v.description && (
-                                  <span className="voice-selection-card-desc">{v.description}</span>
-                                )}
-                              </Button>
-                              <Button
-                                size="small"
-                                className="voice-preview-btn"
-                                onClick={(e) => { e.stopPropagation(); handlePreviewVoice(v); }}
-                                disabled={previewingVoiceId !== null}
-                                loading={previewingVoiceId === v.id}
-                              >
-                                {previewingVoiceId === v.id ? '播放中…' : '试听'}
-                              </Button>
-                            </div>
-                          ))}
+                                <Button
+                                  className="voice-selection-card-main"
+                                  aria-pressed={selectedVoiceId === v.id}
+                                  onClick={() => setSelectedVoiceId(v.id)}
+                                >
+                                  <span className="voice-selection-card-name">{v.name}</span>
+                                  {v.style && (
+                                    <span className="voice-selection-card-style">{v.style}</span>
+                                  )}
+                                  {v.description && (
+                                    <span className="voice-selection-card-desc">{v.description}</span>
+                                  )}
+                                </Button>
+                                <Button
+                                  size="small"
+                                  className="voice-preview-btn"
+                                  icon={<PlayCircleOutlined />}
+                                  onClick={(e) => { e.stopPropagation(); handlePreviewVoice(v); }}
+                                  disabled={previewingVoiceId !== null}
+                                  loading={previewingVoiceId === v.id}
+                                >
+                                  {previewingVoiceId === v.id ? '播放中…' : '试听'}
+                                </Button>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
@@ -456,12 +476,14 @@ function CharacterSelection() {
           <div className="voice-selection-footer">
             <Button
               className="voice-back-button"
+              icon={<LeftOutlined />}
               onClick={() => setStep('image')}
             >
               返回
             </Button>
             <Button
               className="voice-confirm-button"
+              icon={<CheckOutlined />}
               onClick={handleVoiceConfirm}
               disabled={loading}
             >

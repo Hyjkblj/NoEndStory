@@ -1,0 +1,304 @@
+.home-page {
+  position: relative;
+  width: 100%;
+  min-height: 100dvh;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: clamp(32px, 7vw, 88px);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  color: #fff8e8;
+  isolation: isolate;
+}
+
+.home-page::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  background: inherit;
+  background-size: cover;
+  background-position: center;
+  transform: scale(1.015);
+  transition: transform 700ms ease;
+}
+
+.home-page:has(.home-primary-button:hover)::after,
+.home-page:has(.home-save-card:hover)::after {
+  transform: scale(1.04);
+}
+
+.home-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(90deg, rgba(25, 13, 8, 0.66) 0%, rgba(25, 13, 8, 0.4) 42%, rgba(25, 13, 8, 0.14) 100%),
+    linear-gradient(180deg, rgba(20, 11, 8, 0.26) 0%, rgba(20, 11, 8, 0.14) 48%, rgba(20, 11, 8, 0.54) 100%);
+}
+
+.home-vignette {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  box-shadow: inset 0 0 140px rgba(0, 0, 0, 0.46);
+  pointer-events: none;
+}
+
+.home-hero {
+  width: min(100%, 960px);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 28px;
+  animation: home-enter 650ms ease both;
+}
+
+.home-title-block {
+  max-width: 720px;
+}
+
+.home-kicker {
+  margin: 0 0 12px;
+  color: #ffd98a;
+  font-size: clamp(15px, 1.4vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.42);
+}
+
+.home-title {
+  margin: 0;
+  color: #fff9ec;
+  font-size: clamp(64px, 12vw, 128px);
+  line-height: 0.94;
+  font-weight: 900;
+  text-wrap: balance;
+  text-shadow:
+    0 3px 10px rgba(39, 17, 6, 0.52),
+    0 0 34px rgba(255, 196, 95, 0.28);
+}
+
+.home-subtitle {
+  max-width: 560px;
+  margin: 22px 0 0;
+  color: rgba(255, 248, 232, 0.88);
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.65;
+  text-wrap: pretty;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.38);
+}
+
+.home-primary-button {
+  min-width: 196px;
+  height: 58px;
+  padding: 0 34px !important;
+  border: 1px solid rgba(255, 230, 167, 0.88) !important;
+  border-radius: 999px !important;
+  background: linear-gradient(135deg, #ffe08a 0%, #f2a23b 48%, #d86837 100%) !important;
+  color: #2f1607 !important;
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  box-shadow:
+    0 18px 38px rgba(83, 34, 12, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.65) !important;
+  transition:
+    transform 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease !important;
+  touch-action: manipulation;
+}
+
+.home-primary-button:hover,
+.home-primary-button:focus-visible {
+  transform: translateY(-2px);
+  filter: saturate(1.08);
+  box-shadow:
+    0 22px 46px rgba(83, 34, 12, 0.44),
+    0 0 0 5px rgba(255, 219, 137, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.75) !important;
+}
+
+.home-primary-button:active {
+  transform: translateY(0) scale(0.98);
+}
+
+.home-save-card {
+  width: min(100%, 430px);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 96px;
+  padding: 18px 20px;
+  border: 1px solid rgba(255, 236, 194, 0.38);
+  border-radius: 8px;
+  background: rgba(24, 15, 12, 0.44);
+  color: #fff8e8;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition:
+    transform 220ms ease,
+    border-color 220ms ease,
+    background 220ms ease,
+    box-shadow 220ms ease;
+  touch-action: manipulation;
+}
+
+.home-save-card:hover,
+.home-save-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: rgba(255, 229, 161, 0.72);
+  background: rgba(37, 22, 16, 0.58);
+  box-shadow:
+    0 20px 44px rgba(0, 0, 0, 0.28),
+    0 0 0 4px rgba(255, 219, 137, 0.16);
+  outline: none;
+}
+
+.home-save-card:active {
+  transform: translateY(0) scale(0.99);
+}
+
+.home-save-icon {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(255, 223, 151, 0.16);
+  color: #ffdc91;
+  font-size: 22px;
+}
+
+.home-save-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.home-save-label {
+  color: rgba(255, 248, 232, 0.72);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.home-save-title {
+  color: #fff7df;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.home-save-meta {
+  color: rgba(255, 248, 232, 0.7);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.home-save-excerpt {
+  color: rgba(255, 248, 232, 0.82);
+  font-size: 14px;
+  line-height: 1.5;
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+@keyframes home-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 720px) {
+  .home-page {
+    align-items: flex-start;
+    justify-content: center;
+    min-height: 100dvh;
+    padding: 96px 24px 48px;
+    background-position: 42% center;
+  }
+
+  .home-page::after {
+    background-position: 42% center;
+  }
+
+  .home-overlay {
+    background:
+      linear-gradient(180deg, rgba(25, 13, 8, 0.28) 0%, rgba(25, 13, 8, 0.62) 42%, rgba(25, 13, 8, 0.74) 100%),
+      linear-gradient(90deg, rgba(25, 13, 8, 0.24) 0%, rgba(25, 13, 8, 0.18) 100%);
+  }
+
+  .home-hero {
+    align-items: center;
+    text-align: center;
+    gap: 24px;
+  }
+
+  .home-title {
+    font-size: clamp(58px, 20vw, 86px);
+  }
+
+  .home-subtitle {
+    margin-top: 18px;
+    font-size: 17px;
+  }
+
+  .home-primary-button {
+    width: min(100%, 260px);
+    height: 56px;
+  }
+
+  .home-save-card {
+    width: min(100%, 340px);
+    min-height: 88px;
+  }
+}
+
+@media (max-width: 420px) {
+  .home-page {
+    padding-inline: 20px;
+    background-position: 42% center;
+  }
+
+  .home-page::after {
+    background-position: 42% center;
+  }
+
+  .home-title {
+    font-size: clamp(52px, 19vw, 74px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-page::after,
+  .home-hero,
+  .home-primary-button,
+  .home-save-card {
+    animation: none;
+    transition: none !important;
+  }
+
+  .home-page:has(.home-primary-button:hover)::after,
+  .home-page:has(.home-save-card:hover)::after {
+    transform: scale(1.015);
+  }
+}

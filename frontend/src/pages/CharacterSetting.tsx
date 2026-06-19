@@ -1,18 +1,18 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Slider, message, Modal, Input } from 'antd';
+import { Button, Input, Modal, Slider, message } from 'antd';
 import {
-  LeftOutlined,
-  RightOutlined,
-  ManOutlined,
-  WomanOutlined,
   CloseOutlined,
+  LeftOutlined,
+  ManOutlined,
   ReloadOutlined,
+  RightOutlined,
+  WomanOutlined,
 } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import LoadingScreen from '@/components/loading';
-import { checkServerHealth, createCharacter } from '@/services/api';
 import { ROUTES } from '@/config/routes';
+import { checkServerHealth, createCharacter } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
 import './CharacterSetting.css';
 
@@ -136,6 +136,45 @@ function CharacterSetting() {
   const [selectedStyle, setSelectedStyle] = useState<number | null>(null);
   const [isModalVisible, setIsModalVisible] = useState(false);
 
+  const selectedAppearanceLabels = useMemo(
+    () => selectedAppearance.map((index) => appearanceOptions[index]),
+    [selectedAppearance],
+  );
+
+  const selectedPersonalityLabels = useMemo(
+    () => selectedPersonality.map((index) => personalityOptions[index]),
+    [selectedPersonality],
+  );
+
+  const selectedStyleLabel = selectedStyle !== null ? styleOptions[selectedStyle] : null;
+  const displayName = name.trim() || '未命名角色';
+
+  const impressionSentence = useMemo(() => {
+    const appearanceText = selectedAppearanceLabels.slice(0, 3).join('、');
+    const personalityText = selectedPersonalityLabels.slice(0, 3).join('、');
+    const styleText = selectedStyleLabel ? selectedStyleLabel.replace('。', '') : '';
+
+    if (!appearanceText && !personalityText && !styleText) {
+      return '还没有落笔。先给这个人一点轮廓，故事就会开始向你靠近。';
+    }
+
+    const fragments = [
+      appearanceText ? `带着${appearanceText}的第一印象` : '',
+      personalityText ? `性格里有${personalityText}` : '',
+      styleText ? `整体气质偏向${styleText}` : '',
+    ].filter(Boolean);
+
+    return `${displayName} ${fragments.join('，')}。`;
+  }, [displayName, selectedAppearanceLabels, selectedPersonalityLabels, selectedStyleLabel]);
+
+  const completionCount =
+    (name.trim() ? 1 : 0) +
+    selectedAppearance.length +
+    selectedPersonality.length +
+    (selectedStyle !== null ? 1 : 0);
+
+  const completionPercent = Math.min(100, Math.round((completionCount / 12) * 100));
+
   const toggleAppearance = (index: number) => {
     setSelectedAppearance((prev) => {
       if (prev.includes(index)) return prev.filter((i) => i !== index);
@@ -184,16 +223,16 @@ function CharacterSetting() {
     setSelectedStyle(Math.floor(Math.random() * styleOptions.length));
   };
 
-  const handleGenderToggle = () => {
-    setGender((prev) => (prev === 'male' ? 'female' : 'male'));
-  };
-
   const handleCategoryPrev = () => {
     setCurrentCategory((prev) => (prev > 0 ? prev - 1 : categories.length - 1));
   };
 
   const handleCategoryNext = () => {
     setCurrentCategory((prev) => (prev < categories.length - 1 ? prev + 1 : 0));
+  };
+
+  const handleBack = () => {
+    navigate(ROUTES.FIRST_STEP);
   };
 
   const handleFinalConfirm = async () => {
@@ -256,7 +295,8 @@ function CharacterSetting() {
         age,
         gender,
         appearance: selectedAppearance.map((idx) => appearanceOptions[idx]),
-        personality: selectedPersonality.map((idx) => personalityOptions[idx]),
+        personality: personalityData,
+        personalityKeywords: selectedPersonality.map((idx) => personalityOptions[idx]),
         style: selectedStyle !== null ? styleOptions[selectedStyle] : null,
         imageUrl,
         image_urls: imageUrls,
@@ -301,6 +341,18 @@ function CharacterSetting() {
     };
   };
 
+  const renderSelectedTags = (items: string[], emptyText: string) => {
+    if (items.length === 0) {
+      return <span className="character-empty-pill">{emptyText}</span>;
+    }
+
+    return items.map((item) => (
+      <span className="character-summary-pill" key={item}>
+        {item}
+      </span>
+    ));
+  };
+
   if (loading) {
     return (
       <>
@@ -311,223 +363,334 @@ function CharacterSetting() {
   }
 
   return (
-    <div className="character-setting-container">
+    <div className="character-setting-page">
       {messageContextHolder}
 
       <div
         className="character-setting-background"
         style={{
           backgroundImage: `url(${backgroundImage})`,
-          backgroundSize: 'cover',
-          backgroundPosition: 'center',
-          backgroundRepeat: 'no-repeat',
         }}
       />
+      <div className="character-setting-overlay" />
+      <div className="character-setting-vignette" />
 
-      <div className="character-setting-content">
-        <div className="character-name-section">
-          <div className="character-name-input">
-            <span className="name-label">姓名:</span>
-            <Input
-              className="name-input"
-              placeholder="请输入角色姓名"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={20}
-              suffix={
-                <Button
-                  type="text"
-                  icon={<ReloadOutlined />}
-                  onClick={handleRandomName}
-                  className="name-random-icon"
-                  size="small"
-                />
-              }
-            />
-          </div>
-          <Button className="random-button" onClick={handleRandomize}>
-            随机一组
-          </Button>
-        </div>
+      <main className="character-setting-shell">
+        <section className="character-setting-intro" aria-labelledby="character-setting-title">
+          <button type="button" className="character-back-button" onClick={handleBack} aria-label="返回上一步">
+            <LeftOutlined aria-hidden="true" />
+            <span>返回</span>
+          </button>
+          <p className="character-setting-kicker">Character Studio</p>
+          <h1 className="character-setting-title" id="character-setting-title">
+            角色工作室
+          </h1>
+          <p className="character-setting-subtitle">把一个模糊的人影，慢慢写成会与你相遇的人。</p>
+        </section>
 
-        <div className="character-setting-top">
-          <div className="slider-group">
-            <span className="slider-label">身高</span>
-            <Slider
-              min={140}
-              max={200}
-              value={height}
-              onChange={(value) => setHeight(Array.isArray(value) ? value[0] : value)}
-              style={{ flex: 1, minWidth: 120 }}
-              tooltip={{ formatter: (value) => `${value}cm` }}
-            />
-            <div className="slider-value">{height}cm</div>
-          </div>
+        <section className="character-workbench" aria-label="角色创建面板">
+          <aside className="character-impression-panel" aria-label="角色印象预览">
+            <div className="character-impression-header">
+              <span className="character-panel-eyebrow">角色印象</span>
+              <span className="character-progress-text">{completionPercent}%</span>
+            </div>
 
-          <div className="slider-group">
-            <span className="slider-label">体重</span>
-            <Slider
-              min={35}
-              max={100}
-              value={weight}
-              onChange={(value) => setWeight(Array.isArray(value) ? value[0] : value)}
-              style={{ flex: 1, minWidth: 120 }}
-              tooltip={{ formatter: (value) => `${value}kg` }}
-            />
-            <div className="slider-value">{weight}kg</div>
-          </div>
+            <div className="character-progress-track" aria-hidden="true">
+              <div className="character-progress-fill" style={{ width: `${completionPercent}%` }} />
+            </div>
 
-          <div className="slider-group">
-            <span className="slider-label">年龄</span>
-            <Slider
-              min={16}
-              max={60}
-              value={age}
-              onChange={(value) => setAge(Array.isArray(value) ? value[0] : value)}
-              style={{ flex: 1, minWidth: 120 }}
-              tooltip={{ formatter: (value) => `${value}岁` }}
-            />
-            <div className="slider-value">{age}岁</div>
-          </div>
+            <div className="character-avatar-orbit" aria-hidden="true">
+              <span className="character-avatar-core">{displayName.slice(0, 1)}</span>
+            </div>
 
-          <Button
-            className="gender-button"
-            onClick={handleGenderToggle}
-            icon={gender === 'male' ? <ManOutlined /> : <WomanOutlined />}
-          >
-            性别: {gender === 'male' ? '男' : '女'}
-          </Button>
-        </div>
+            <div className="character-profile-card">
+              <span className="character-profile-label">姓名</span>
+              <strong>{displayName}</strong>
+            </div>
 
-        <div className="character-setting-middle">
-          <div className="character-options">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Button
-                key={index}
-                className={`option-button ${currentCategory === index ? 'active' : ''}`}
-                onClick={() => setCurrentCategory(index)}
-              >
-                {categories[index] || `选项${index + 1}`}
+            <div className="character-profile-grid">
+              <div>
+                <span>性别</span>
+                <strong>{gender === 'male' ? '男' : '女'}</strong>
+              </div>
+              <div>
+                <span>年龄</span>
+                <strong>{age} 岁</strong>
+              </div>
+              <div>
+                <span>身高</span>
+                <strong>{height} cm</strong>
+              </div>
+              <div>
+                <span>体重</span>
+                <strong>{weight} kg</strong>
+              </div>
+            </div>
+
+            <p className="character-impression-copy">{impressionSentence}</p>
+
+            <div className="character-summary-group">
+              <span className="character-summary-label">外貌线索</span>
+              <div className="character-summary-tags">
+                {renderSelectedTags(selectedAppearanceLabels, '等待选择')}
+              </div>
+            </div>
+
+            <div className="character-summary-group">
+              <span className="character-summary-label">性格线索</span>
+              <div className="character-summary-tags">
+                {renderSelectedTags(selectedPersonalityLabels, '等待选择')}
+              </div>
+            </div>
+          </aside>
+
+          <section className="character-editor-panel" aria-label="角色设定表单">
+            <div className="character-editor-topline">
+              <div>
+                <span className="character-panel-eyebrow">创作面板</span>
+                <h2>写下第一眼的答案</h2>
+              </div>
+              <Button className="random-button" icon={<ReloadOutlined />} onClick={handleRandomize}>
+                随机灵感
               </Button>
-            ))}
-          </div>
+            </div>
 
-          <div className="character-preview">
-            <div className="preview-content">
+            <div className="character-name-section">
+              <label className="character-field-label" htmlFor="character-name">
+                角色姓名
+              </label>
+              <Input
+                id="character-name"
+                className="name-input"
+                placeholder="请输入角色姓名"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={20}
+                suffix={
+                  <Button
+                    aria-label="随机生成角色姓名"
+                    type="text"
+                    icon={<ReloadOutlined />}
+                    onClick={handleRandomName}
+                    className="name-random-icon"
+                    size="small"
+                  />
+                }
+              />
+            </div>
+
+            <div className="character-basics-grid">
+              <div className="slider-group">
+                <div className="slider-heading">
+                  <span className="slider-label">身高</span>
+                  <span className="slider-value">{height}cm</span>
+                </div>
+                <Slider
+                  min={140}
+                  max={200}
+                  value={height}
+                  onChange={(value) => setHeight(Array.isArray(value) ? value[0] : value)}
+                  tooltip={{ formatter: (value) => `${value}cm` }}
+                />
+              </div>
+
+              <div className="slider-group">
+                <div className="slider-heading">
+                  <span className="slider-label">体重</span>
+                  <span className="slider-value">{weight}kg</span>
+                </div>
+                <Slider
+                  min={35}
+                  max={100}
+                  value={weight}
+                  onChange={(value) => setWeight(Array.isArray(value) ? value[0] : value)}
+                  tooltip={{ formatter: (value) => `${value}kg` }}
+                />
+              </div>
+
+              <div className="slider-group">
+                <div className="slider-heading">
+                  <span className="slider-label">年龄</span>
+                  <span className="slider-value">{age}岁</span>
+                </div>
+                <Slider
+                  min={16}
+                  max={60}
+                  value={age}
+                  onChange={(value) => setAge(Array.isArray(value) ? value[0] : value)}
+                  tooltip={{ formatter: (value) => `${value}岁` }}
+                />
+              </div>
+
+              <div className="gender-selector" role="group" aria-label="选择角色性别">
+                <button
+                  type="button"
+                  className={`gender-option gender-option-male ${gender === 'male' ? 'selected' : ''}`}
+                  aria-pressed={gender === 'male'}
+                  onClick={() => setGender('male')}
+                >
+                  <ManOutlined />
+                  男
+                </button>
+                <button
+                  type="button"
+                  className={`gender-option gender-option-female ${gender === 'female' ? 'selected' : ''}`}
+                  aria-pressed={gender === 'female'}
+                  onClick={() => setGender('female')}
+                >
+                  <WomanOutlined />
+                  女
+                </button>
+              </div>
+            </div>
+
+            <div className="category-tabs" role="tablist" aria-label="角色设定分类">
+              {categories.map((category, index) => (
+                <button
+                  key={category}
+                  type="button"
+                  className={`category-tab ${currentCategory === index ? 'active' : ''}`}
+                  role="tab"
+                  aria-selected={currentCategory === index}
+                  onClick={() => setCurrentCategory(index)}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+
+            <div className="character-choice-stage">
+              <div className="choice-stage-header">
+                <div>
+                  <span className="character-panel-eyebrow">{categories[currentCategory]}</span>
+                  <h3>
+                    {currentCategory === 0 && '选择最多 5 个外貌线索'}
+                    {currentCategory === 1 && '选择最多 5 个性格线索'}
+                    {currentCategory === 2 && '选择一个整体风格'}
+                  </h3>
+                </div>
+                <span className="choice-counter">
+                  {currentCategory === 0 && `${selectedAppearance.length}/5`}
+                  {currentCategory === 1 && `${selectedPersonality.length}/5`}
+                  {currentCategory === 2 && (selectedStyle === null ? '0/1' : '1/1')}
+                </span>
+              </div>
+
               {currentCategory === 0 && (
-                <div className="category-content">
-                  <div className="appearance-grid">
-                    {appearanceOptions.map((option, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        className={`appearance-button ${selectedAppearance.includes(index) ? 'selected' : ''}`}
-                        onClick={() => toggleAppearance(index)}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
+                <div className="choice-chip-grid">
+                  {appearanceOptions.map((option, index) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={`choice-chip ${selectedAppearance.includes(index) ? 'selected' : ''}`}
+                      aria-pressed={selectedAppearance.includes(index)}
+                      onClick={() => toggleAppearance(index)}
+                    >
+                      {option}
+                    </button>
+                  ))}
                 </div>
               )}
 
               {currentCategory === 1 && (
-                <div className="category-content">
-                  <div className="personality-grid">
-                    {personalityOptions.map((option, index) => (
-                      <button
-                        key={index}
-                        type="button"
-                        className={`personality-button ${selectedPersonality.includes(index) ? 'selected' : ''}`}
-                        onClick={() => togglePersonality(index)}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
+                <div className="choice-chip-grid">
+                  {personalityOptions.map((option, index) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={`choice-chip ${selectedPersonality.includes(index) ? 'selected' : ''}`}
+                      aria-pressed={selectedPersonality.includes(index)}
+                      onClick={() => togglePersonality(index)}
+                    >
+                      {option}
+                    </button>
+                  ))}
                 </div>
               )}
 
               {currentCategory === 2 && (
-                <div className="category-content">
-                  <div className="options-list">
-                    {styleOptions.map((option, index) => (
-                      <div
-                        key={index}
-                        className={`option-item ${selectedStyle === index ? 'selected' : ''}`}
-                        onClick={() => setSelectedStyle(index)}
-                      >
-                        <span className="option-number">{index + 1}.</span>
-                        <span className="option-text">{option}</span>
-                      </div>
-                    ))}
-                  </div>
+                <div className="style-option-list">
+                  {styleOptions.map((option, index) => (
+                    <button
+                      key={option}
+                      type="button"
+                      className={`style-option ${selectedStyle === index ? 'selected' : ''}`}
+                      aria-pressed={selectedStyle === index}
+                      onClick={() => setSelectedStyle(index)}
+                    >
+                      <span className="style-option-number">{String(index + 1).padStart(2, '0')}</span>
+                      <span className="style-option-text">{option}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
-          </div>
-        </div>
 
-        <div className="category-navigation">
-          <Button className="nav-arrow-button" icon={<LeftOutlined />} onClick={handleCategoryPrev} />
-          <Button className="nav-arrow-button" icon={<RightOutlined />} onClick={handleCategoryNext} />
-          <Button className="confirm-button" onClick={() => setIsModalVisible(true)}>
-            确认
-          </Button>
-        </div>
-      </div>
+            <div className="category-navigation">
+              <Button aria-label="上一个分类" className="nav-arrow-button" icon={<LeftOutlined />} onClick={handleCategoryPrev} />
+              <Button aria-label="下一个分类" className="nav-arrow-button" icon={<RightOutlined />} onClick={handleCategoryNext} />
+              <Button className="confirm-button" onClick={() => setIsModalVisible(true)}>
+                生成角色
+              </Button>
+            </div>
+          </section>
+        </section>
+      </main>
 
       <Modal
-        title="确认角色信息"
+        title="确认角色档案"
         open={isModalVisible}
         onCancel={() => setIsModalVisible(false)}
         footer={[
           <Button key="cancel" onClick={() => setIsModalVisible(false)}>
-            取消
+            再想想
           </Button>,
           <Button key="confirm" type="primary" onClick={handleFinalConfirm}>
-            确认创建
+            确认生成
           </Button>,
         ]}
-        width={620}
+        width={680}
         className="character-confirm-modal"
       >
         <div className="modal-content">
           <div className="modal-section">
-            <h4 className="modal-section-title">基本信息</h4>
-            <div className="modal-info-item">
-              <span className="info-label">姓名:</span>
-              <span className="info-value">{name || '未填写'}</span>
-            </div>
-            <div className="modal-info-item">
-              <span className="info-label">身高:</span>
-              <span className="info-value">{height}cm</span>
-            </div>
-            <div className="modal-info-item">
-              <span className="info-label">体重:</span>
-              <span className="info-value">{weight}kg</span>
-            </div>
-            <div className="modal-info-item">
-              <span className="info-label">年龄:</span>
-              <span className="info-value">{age}岁</span>
-            </div>
-            <div className="modal-info-item">
-              <span className="info-label">性别:</span>
-              <span className="info-value">{gender === 'male' ? '男' : '女'}</span>
+            <h4 className="modal-section-title">基础档案</h4>
+            <div className="modal-info-grid">
+              <div className="modal-info-item">
+                <span className="info-label">姓名</span>
+                <span className="info-value">{displayName}</span>
+              </div>
+              <div className="modal-info-item">
+                <span className="info-label">性别</span>
+                <span className="info-value">{gender === 'male' ? '男' : '女'}</span>
+              </div>
+              <div className="modal-info-item">
+                <span className="info-label">年龄</span>
+                <span className="info-value">{age}岁</span>
+              </div>
+              <div className="modal-info-item">
+                <span className="info-label">身高</span>
+                <span className="info-value">{height}cm</span>
+              </div>
+              <div className="modal-info-item">
+                <span className="info-label">体重</span>
+                <span className="info-value">{weight}kg</span>
+              </div>
             </div>
           </div>
 
           <div className="modal-section">
-            <h4 className="modal-section-title">已选择关键词</h4>
+            <h4 className="modal-section-title">已写下的线索</h4>
 
             <div className="keywords-group">
               <div className="keywords-group-title">外貌</div>
               {getSelectedAppearanceKeywords().length > 0 ? (
                 <div className="keywords-tags">
-                  {getSelectedAppearanceKeywords().map((keyword, index) => (
-                    <div key={index} className="keyword-tag-item">
+                  {getSelectedAppearanceKeywords().map((keyword) => (
+                    <div key={keyword.value} className="keyword-tag-item">
                       <span className="keyword-tag-label">{keyword.label}</span>
                       <Button
+                        aria-label={`移除外貌线索 ${keyword.label}`}
                         type="text"
                         icon={<CloseOutlined />}
                         onClick={keyword.onRemove}
@@ -546,10 +709,11 @@ function CharacterSetting() {
               <div className="keywords-group-title">性格</div>
               {getSelectedPersonalityKeywords().length > 0 ? (
                 <div className="keywords-tags">
-                  {getSelectedPersonalityKeywords().map((keyword, index) => (
-                    <div key={index} className="keyword-tag-item">
+                  {getSelectedPersonalityKeywords().map((keyword) => (
+                    <div key={keyword.value} className="keyword-tag-item">
                       <span className="keyword-tag-label">{keyword.label}</span>
                       <Button
+                        aria-label={`移除性格线索 ${keyword.label}`}
                         type="text"
                         icon={<CloseOutlined />}
                         onClick={keyword.onRemove}
@@ -571,6 +735,7 @@ function CharacterSetting() {
                   <div className="keyword-tag-item">
                     <span className="keyword-tag-label">{getSelectedStyle()!.label}</span>
                     <Button
+                      aria-label="移除风格线索"
                       type="text"
                       icon={<CloseOutlined />}
                       onClick={getSelectedStyle()!.onRemove}
@@ -589,4 +754,3 @@ function CharacterSetting() {
 }
 
 export default CharacterSetting;
-
