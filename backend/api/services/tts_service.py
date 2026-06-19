@@ -54,12 +54,13 @@ class TTSService:
         """
         # 使用传入的语音大模型服务，或创建新的实例
         self.voice_model = voice_model_service or VoiceModelService(provider=config.TTS_PROVIDER)
-        
+
         self.provider = self.voice_model.get_provider()
         self.enabled = self.voice_model.enabled
         self.voice_design_enabled = self.voice_model.is_voice_design_enabled()
-        
-        self.cache_dir = Path(backend_dir) / 'audio' / 'cache'
+
+        # 使用 config 中统一配置的音频缓存目录
+        self.cache_dir = Path(config.AUDIO_CACHE_DIR)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # 缓存角色音色配置

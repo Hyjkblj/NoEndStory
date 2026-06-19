@@ -37,7 +37,8 @@ class WebSocketTTSService:
     def __init__(self):
         """初始化WebSocket TTS服务"""
         self.provider = 'volcengine_websocket'
-        self.cache_dir = Path(backend_dir) / 'audio' / 'cache'
+        # 使用 config 中统一配置的音频缓存目录
+        self.cache_dir = Path(config.AUDIO_CACHE_DIR)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         
         # 火山引擎WebSocket TTS配置

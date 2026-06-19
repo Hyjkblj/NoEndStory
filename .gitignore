@@ -74,6 +74,15 @@ backend/chroma_db/
 backend/logs/
 *.pyc
 
+# 生成的资源文件（保留目录结构）
+resources/images/characters/*
+resources/images/scenes/*
+resources/images/smallscenes/*
+resources/images/composite/*
+resources/audio/cache/*
+# 保留 .gitkeep 文件
+!resources/**/.gitkeep
+
 # 测试
 .pytest_cache/
 .tox/

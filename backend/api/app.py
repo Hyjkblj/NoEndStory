@@ -162,8 +162,8 @@ app.include_router(admin_stats.router, prefix="/api")
 app.include_router(admin_security.router)
 app.include_router(ws_game.router)
 
-# 配置静态文件服务（用于提供本地保存的图片）- W8: 合并为循环，消除重复代码
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 配置静态文件服务（用于提供本地保存的图片）
+# 使用 config 中的绝对路径（资源目录已在 config.py 中统一配置）
 
 # 静态文件挂载配置列表（路径映射）
 STATIC_MOUNTS = [
@@ -177,23 +177,17 @@ STATIC_MOUNTS = [
 # 挂载图片静态文件服务
 for mount_path, config_attr, description in STATIC_MOUNTS:
     try:
-        dir_config = getattr(config, config_attr, None)
-        if dir_config is None:
+        static_dir = getattr(config, config_attr, None)
+        if static_dir is None:
             logger.warning(f"配置项 {config_attr} 未设置，跳过 {description} 静态文件服务")
             continue
-        
-        # 解析目录路径（支持绝对路径和相对路径）
-        if os.path.isabs(dir_config):
-            static_dir = dir_config
-        else:
-            static_dir = os.path.join(backend_dir, dir_config)
-        
+
         # 确保目录存在
         os.makedirs(static_dir, exist_ok=True)
-        
+
         # 生成唯一的名称（基于URL路径）
         name = mount_path.replace("/", "_").strip("_")
-        
+
         # 挂载静态文件服务
         app.mount(mount_path, StaticFiles(directory=static_dir), name=name)
         logger.info(f"{description}静态文件服务已配置: {static_dir} -> {mount_path}")
@@ -202,11 +196,9 @@ for mount_path, config_attr, description in STATIC_MOUNTS:
 
 # 配置音频文件静态文件服务（TTS缓存）
 try:
-    audio_cache_dir = os.path.join(backend_dir, "audio", "cache")
+    audio_cache_dir = config.AUDIO_CACHE_DIR
     os.makedirs(audio_cache_dir, exist_ok=True)
-    
-    # 挂载音频文件静态文件服务
-    # 访问路径：/static/audio/cache/{filename}
+
     app.mount("/static/audio/cache", StaticFiles(directory=audio_cache_dir), name="audio_cache")
     logger.info(f"音频缓存静态文件服务已配置: {audio_cache_dir} -> /static/audio/cache")
 except Exception as e:

@@ -165,9 +165,16 @@ GAME_CONFIG = {
     'total_events': 5,  # 总事件数（开头1 + 中间3 + 结尾1）
 }
 
+# 资源目录配置（项目根目录下的 resources）
+_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+RESOURCE_DIR = os.getenv('RESOURCE_DIR', os.path.join(_project_root, 'resources'))
+
 # 图片保存配置
-IMAGE_SAVE_DIR = os.getenv('IMAGE_SAVE_DIR', './images/characters')  # 角色图片保存目录
-SCENE_IMAGE_SAVE_DIR = os.getenv('SCENE_IMAGE_SAVE_DIR', './images/scenes')  # 场景图片保存目录（大场景）
-SMALL_SCENE_IMAGE_SAVE_DIR = os.getenv('SMALL_SCENE_IMAGE_SAVE_DIR', './images/smallscenes')  # 小场景图片保存目录
-COMPOSITE_IMAGE_SAVE_DIR = os.getenv('COMPOSITE_IMAGE_SAVE_DIR', './images/composite')  # 合成图片保存目录（场景+人物）
-IMAGE_SAVE_ENABLED = os.getenv('IMAGE_SAVE_ENABLED', 'true').lower() == 'true'  # 是否启用本地保存
+IMAGE_SAVE_DIR = os.getenv('IMAGE_SAVE_DIR', os.path.join(RESOURCE_DIR, 'images', 'characters'))
+SCENE_IMAGE_SAVE_DIR = os.getenv('SCENE_IMAGE_SAVE_DIR', os.path.join(RESOURCE_DIR, 'images', 'scenes'))
+SMALL_SCENE_IMAGE_SAVE_DIR = os.getenv('SMALL_SCENE_IMAGE_SAVE_DIR', os.path.join(RESOURCE_DIR, 'images', 'smallscenes'))
+COMPOSITE_IMAGE_SAVE_DIR = os.getenv('COMPOSITE_IMAGE_SAVE_DIR', os.path.join(RESOURCE_DIR, 'images', 'composite'))
+IMAGE_SAVE_ENABLED = os.getenv('IMAGE_SAVE_ENABLED', 'true').lower() == 'true'
+
+# 音频缓存目录
+AUDIO_CACHE_DIR = os.getenv('AUDIO_CACHE_DIR', os.path.join(RESOURCE_DIR, 'audio', 'cache'))
