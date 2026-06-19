@@ -141,6 +141,55 @@ class GameSession(Base):
     character = relationship('Character', foreign_keys=[character_id])
 
 
+class SceneImage(Base):
+    """场景图片池表
+
+    用于存储预生成的场景图片，支持加权随机抽取和池管理。
+    """
+    __tablename__ = 'scene_images'
+    __table_args__ = (
+        Index('idx_scene_images_scene_id', 'scene_id'),
+        Index('idx_scene_images_status', 'status'),
+        Index('idx_scene_images_scene_status', 'scene_id', 'status'),
+        CheckConstraint("status IN ('active', 'inactive', 'pending')", name='chk_scene_images_status'),
+        CheckConstraint('quality_score >= 0 AND quality_score <= 5', name='chk_scene_images_quality'),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    scene_id = Column(String(50), nullable=False, comment='场景ID')
+    image_url = Column(Text, nullable=False, comment='图片URL')
+    image_path = Column(Text, nullable=True, comment='图片本地路径')
+    quality_score = Column(Float, default=3.0, comment='质量分数(0-5)')
+    status = Column(String(20), default='active', comment='状态: active/inactive/pending')
+    use_count = Column(Integer, default=0, comment='使用次数')
+    last_used_at = Column(DateTime, nullable=True, comment='最后使用时间')
+    generation_time = Column(Float, nullable=True, comment='生成耗时(秒)')
+    prompt_used = Column(Text, nullable=True, comment='生成时使用的prompt')
+    image_metadata = Column(JSON, nullable=True, comment='扩展元数据')
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'scene_id': self.scene_id,
+            'image_url': self.image_url,
+            'image_path': self.image_path,
+            'quality_score': self.quality_score,
+            'status': self.status,
+            'use_count': self.use_count,
+            'last_used_at': self.last_used_at.isoformat() if self.last_used_at else None,
+            'generation_time': self.generation_time,
+            'prompt_used': self.prompt_used,
+            'metadata': self.image_metadata,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'updated_at': self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    def __repr__(self):
+        return f"<SceneImage(id={self.id}, scene_id='{self.scene_id}', quality={self.quality_score})>"
+
+
 class VoiceConfig(Base):
     """角色音色配置表"""
     __tablename__ = 'voice_configs'

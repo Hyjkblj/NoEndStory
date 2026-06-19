@@ -1,3 +1,4 @@
+# 核心依赖（精简版，移除 PyTorch/sentence-transformers）
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.23
 pgvector==0.2.4
@@ -6,7 +7,6 @@ python-dotenv==1.0.0
 numpy==1.26.4
 openai==1.12.0
 dashscope>=1.25.2  # TTS功能需要1.25.2+
-sentence-transformers>=2.2.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.0.0
@@ -14,6 +14,7 @@ python-multipart>=0.0.6
 Pillow>=10.0.0
 requests>=2.31.0
 pydub>=0.25.1  # 用于音频处理（获取时长等）
-rembg==2.0.41
+rembg==2.0.41  # 角色抠图（依赖 onnxruntime，不依赖 PyTorch）
 alembic==1.13.0  # W2: database migration management
+# 注意：sentence-transformers 已移除（不再需要 PyTorch）
 

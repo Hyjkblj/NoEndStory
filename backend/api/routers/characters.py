@@ -423,7 +423,7 @@ async def initialize_story(
         opening_event_id = request.opening_event_id
         character_image_url = request.character_image_url
         logger.info(f"初始化故事请求: thread_id={request.thread_id}, character_id={character_id}, scene_id={scene_id}, opening_event_id={opening_event_id}, character_image_url={character_image_url}")
-        result = game_service.initialize_story(request.thread_id, character_id, scene_id, character_image_url, opening_event_id)
+        result = await game_service.initialize_story(request.thread_id, character_id, scene_id, character_image_url, opening_event_id)
         logger.info("初始化故事成功")
         return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:

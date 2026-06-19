@@ -1,54 +1,30 @@
-ARG PYTHON_BASE_IMAGE=python:3.10-slim
-FROM ${PYTHON_BASE_IMAGE}
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+FROM python:3.11-slim
 
 WORKDIR /app
 
-ARG APT_MIRROR=
-
-# Runtime dependencies for image/audio processing and TTS handling.
-RUN set -eux; \
-    if [ -n "${APT_MIRROR:-}" ]; then \
-        mirror="${APT_MIRROR%/}"; \
-        if [ -f /etc/apt/sources.list ]; then \
-            sed -i "s|http://deb.debian.org/debian|${mirror}/debian|g; s|https://deb.debian.org/debian|${mirror}/debian|g; s|http://security.debian.org/debian-security|${mirror}/debian-security|g; s|https://security.debian.org/debian-security|${mirror}/debian-security|g" /etc/apt/sources.list; \
-        fi; \
-        if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
-            sed -i "s|http://deb.debian.org/debian|${mirror}/debian|g; s|https://deb.debian.org/debian|${mirror}/debian|g; s|http://security.debian.org/debian-security|${mirror}/debian-security|g; s|https://security.debian.org/debian-security|${mirror}/debian-security|g" /etc/apt/sources.list.d/debian.sources; \
-        fi; \
-    fi; \
-    apt-get update -o Acquire::Retries=5 -o Acquire::http::Timeout=30; \
+# 安装系统依赖（使用国内镜像加速）
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
-        build-essential \
-        gcc \
-        g++ \
-        curl \
-        ffmpeg \
-        libgl1 \
-        libglib2.0-0 \
-        libgomp1; \
-    rm -rf /var/lib/apt/lists/*
+    libpq-dev \
+    gcc \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt constraints.txt /app/
-# Player image keeps dependencies lean and avoids pulling large CUDA wheels.
-RUN pip install --upgrade pip && \
-    grep -v "^sentence-transformers" requirements.txt > requirements.docker.txt && \
-    pip install -r requirements.docker.txt -c constraints.txt
+# 复制依赖文件
+COPY requirements.txt .
 
-COPY . /app
+# 安装 Python 依赖（使用国内镜像加速）
+RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-RUN mkdir -p \
-    /app/audio/cache \
-    /app/vector_db \
-    /app/images/characters \
-    /app/images/scenes \
-    /app/images/smallscenes \
-    /app/images/composite
+# 复制应用代码
+COPY . .
 
+# 创建必要目录
+RUN mkdir -p images/characters images/scenes images/composite audio
+
+# 暴露端口
 EXPOSE 8000
 
+# 启动命令
 CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

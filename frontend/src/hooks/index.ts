@@ -2,3 +2,4 @@ export { useGameState, useDialogueState, useSessionMeta, useSceneState, useGameP
 export type { GameStateBag } from './useGameState';
 export { useGameInit } from './useGameInit';
 export { useGameTts, useTtsControls } from './useGameTts';
+export { useButtonClickSound } from './useButtonClickSound';

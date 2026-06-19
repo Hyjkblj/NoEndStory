@@ -318,15 +318,96 @@ class ImageStorageService:
             if not matching_files:
                 logger.warning(f"在smallscenes目录中未找到包含中文名称 '{scene_name_cn}' 的图片文件")
                 return None
-            
+
             # 随机选择一个匹配的文件
             selected_file = random.choice(matching_files)
             logger.debug(f"场景 {scene_id} (中文名称: {scene_name_cn}) 通过中文名称匹配到 {len(matching_files)} 个文件，随机选择: {os.path.basename(selected_file)}")
             return selected_file
-            
+
         except Exception as e:
             logger.warning(f"获取场景图片路径失败: {e}", exc_info=True)
             return None
+
+    def get_scene_image_url(self, scene_id: str) -> Optional[str]:
+        """获取场景图片URL（数据库优先，文件回退，自动注册）
+
+        优先级：
+        1. 从数据库 scene_images 表查询（加权随机）
+        2. 回退到文件系统扫描
+        3. 找到文件后自动注册到数据库
+
+        Args:
+            scene_id: 场景ID
+
+        Returns:
+            图片URL（如 /static/images/smallscenes/xxx.jpg），未找到返回None
+        """
+        try:
+            from urllib.parse import quote
+
+            # 1. 从数据库获取
+            try:
+                from api.services.image.image_pool_service import ImagePoolService
+                pool = ImagePoolService()
+                image = pool.get_random_image(scene_id)
+                if image and image.get('image_url'):
+                    logger.debug(f"场景 {scene_id} 从数据库获取图片: {image['image_url']}")
+                    return image['image_url']
+            except Exception as e:
+                logger.debug(f"数据库查询失败，回退到文件扫描: {e}")
+
+            # 2. 回退到文件扫描
+            file_path = self.get_latest_scene_image_path(scene_id)
+            if not file_path or not os.path.exists(file_path):
+                logger.debug(f"场景 {scene_id} 无可用图片")
+                return None
+
+            # 3. 构建URL
+            filename = os.path.basename(file_path)
+            encoded_filename = quote(filename, safe='')
+
+            # 判断文件所在目录
+            if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
+                if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
+                    small_scene_dir = config.SMALL_SCENE_IMAGE_SAVE_DIR
+                else:
+                    small_scene_dir = os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR)
+
+                normalized_file = os.path.normpath(os.path.abspath(file_path))
+                normalized_dir = os.path.normpath(os.path.abspath(small_scene_dir))
+
+                if normalized_file.startswith(normalized_dir):
+                    image_url = f"/static/images/smallscenes/{encoded_filename}"
+                else:
+                    image_url = f"/static/images/scenes/{encoded_filename}"
+            else:
+                image_url = f"/static/images/scenes/{encoded_filename}"
+
+            # 4. 异步注册到数据库
+            self._register_to_pool(scene_id, image_url, file_path)
+
+            logger.debug(f"场景 {scene_id} 从文件系统获取图片: {image_url}")
+            return image_url
+
+        except Exception as e:
+            logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
+            return None
+
+    def _register_to_pool(self, scene_id: str, image_url: str, image_path: str) -> None:
+        """将文件系统中的图片注册到数据库池（后台执行）"""
+        try:
+            from api.services.image.image_pool_service import ImagePoolService
+            pool = ImagePoolService()
+            pool.add_image_to_pool(
+                scene_id=scene_id,
+                image_url=image_url,
+                image_path=image_path,
+                quality_score=3.0,
+                metadata={'source': 'filesystem_scan'}
+            )
+            logger.debug(f"场景 {scene_id} 图片已注册到数据库: {image_url}")
+        except Exception as e:
+            logger.debug(f"注册图片到数据库失败（非致命）: {e}")
     
     def get_next_version(self, save_dir: str, base_filename: str, ext: str) -> int:
         """获取下一个版本号

@@ -40,7 +40,7 @@ def _get_agent_orchestrator():
     global _agent_orchestrator
     if _agent_orchestrator is None and USE_NOS_AGENT_ENGINE:
         from game.agents import AgentOrchestrator
-        from game.ai_generator import _get_text_gen
+        from game.story_engine import _get_text_gen
         from database.db_manager import DatabaseManager
         from data.scenes import SCENES
         from api.dependencies import get_image_service, get_tts_service, get_redis_client
@@ -67,7 +67,7 @@ def _get_dynamic_script_controller():
     global _dynamic_script_controller
     if _dynamic_script_controller is None and USE_DYNAMIC_SCRIPT:
         from game.script_engine.game_controller import GameController
-        from game.ai_generator import _get_text_gen
+        from game.story_engine import _get_text_gen
         text_gen = _get_text_gen()
         _dynamic_script_controller = GameController(llm_service=text_gen)
         logger.info("动态剧本系统已加载")
@@ -79,7 +79,7 @@ def _get_script_engine_v2_orchestrator():
     global _script_engine_v2_orchestrator
     if _script_engine_v2_orchestrator is None and USE_SCRIPT_ENGINE_V2:
         from game.script_engine_v2 import OrchestratorV2
-        from game.ai_generator import _get_text_gen
+        from game.story_engine import _get_text_gen
         from database.db_manager import DatabaseManager
         from data.scenes import SCENES
         from api.dependencies import get_image_service, get_tts_service, get_redis_client
@@ -183,7 +183,7 @@ class GameService:
             'game_mode': session.game_mode
         }
     
-    def initialize_story(self, thread_id: str, character_id: int, scene_id: str = 'school',
+    async def initialize_story(self, thread_id: str, character_id: int, scene_id: str = 'school',
                          character_image_url: Optional[str] = None, opening_event_id: Optional[str] = None) -> Dict[str, Any]:
         """初始化故事（触发初遇场景）
 
@@ -201,52 +201,47 @@ class GameService:
             orchestrator = _get_script_engine_v2_orchestrator()
             if orchestrator:
                 # V2 的初始化在第一次 process_input 时自动完成
-                # 这里只返回一个基本响应，让前端继续调用 process_input
-                import asyncio
-                loop = asyncio.new_event_loop()
-                try:
-                    character = self.character_service.get_character(character_id) if self.character_service else {}
-                    character_name = character.get('name', '角色') if character else '角色'
-                    personality_data = character.get('personality', {}) if character else {}
-                    personality_keywords = personality_data.get('keywords', []) if isinstance(personality_data, dict) else []
+                character = self.character_service.get_character(character_id) if self.character_service else {}
+                character_name = character.get('name', '角色') if character else '角色'
+                personality_data = character.get('personality', {}) if character else {}
+                personality_keywords = personality_data.get('keywords', []) if isinstance(personality_data, dict) else []
 
-                    initial_states = None
-                    session = self.session_manager.get_session(thread_id)
-                    if session and session.db_manager:
-                        states = session.db_manager.get_character_states(character_id)
-                        if states:
-                            initial_states = {
-                                'favorability': states.favorability,
-                                'trust': states.trust,
-                                'hostility': states.hostility,
-                                'happiness': states.happiness,
-                                'sadness': states.sadness,
-                                'stress': states.stress,
-                                'anxiety': states.anxiety,
-                                'confidence': states.confidence,
-                                'initiative': states.initiative,
-                                'caution': states.caution,
-                            }
+                initial_states = None
+                session = self.session_manager.get_session(thread_id)
+                if session and session.db_manager:
+                    states = session.db_manager.get_character_states(character_id)
+                    if states:
+                        initial_states = {
+                            'favorability': states.favorability,
+                            'trust': states.trust,
+                            'hostility': states.hostility,
+                            'happiness': states.happiness,
+                            'sadness': states.sadness,
+                            'stress': states.stress,
+                            'anxiety': states.anxiety,
+                            'confidence': states.confidence,
+                            'initiative': states.initiative,
+                            'caution': states.caution,
+                        }
 
-                    state = loop.run_until_complete(orchestrator.init_session(
-                        thread_id=thread_id,
-                        character_id=character_id,
-                        character_name=character_name,
-                        character_personality={'keywords': personality_keywords},
-                        initial_scene=scene_id,
-                        initial_states=initial_states,
-                    ))
+                # 直接 await（已在 async 上下文中）
+                state = await orchestrator.init_session(
+                    thread_id=thread_id,
+                    character_id=character_id,
+                    character_name=character_name,
+                    character_personality={'keywords': personality_keywords},
+                    initial_scene=scene_id,
+                    initial_states=initial_states,
+                )
 
-                    # 生成第一轮
-                    response = loop.run_until_complete(orchestrator.process_input(
-                        user_input="[游戏开始]",
-                        thread_id=thread_id,
-                    ))
+                # 生成第一轮
+                response = await orchestrator.process_input(
+                    user_input="[游戏开始]",
+                    thread_id=thread_id,
+                )
 
-                    logger.info(f"ScriptEngine V2 初始化完成: {thread_id}")
-                    return response
-                finally:
-                    loop.close()
+                logger.info(f"ScriptEngine V2 初始化完成: {thread_id}")
+                return response
         logger.debug(f"当前会话管理器中的会话数量: {len(self.session_manager._sessions)}")
         logger.debug(f"当前会话ID列表: {list(self.session_manager._sessions.keys())}")
         
@@ -317,102 +312,8 @@ class GameService:
         # 使用事件返回的场景ID（可能因为事件ID对应场景而改变）
         event_scene = event.get('scene', scene_id)
         
-        # 获取场景图片URL（如果已有）
-        scene_image_url = None
-        try:
-            import os
-            import config
-            from urllib.parse import quote
-            
-            # 查找最新的场景图片
-            logger.debug(f"查找场景图片: scene_id={event_scene}")
-            scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
-            logger.debug(f"查找结果: scene_image_path={scene_image_path}")
-            
-            if scene_image_path and os.path.exists(scene_image_path):
-                # URL编码文件名，确保中文文件名能正确访问
-                filename = os.path.basename(scene_image_path)
-                encoded_filename = quote(filename, safe='')
-                
-                # 判断图片来自哪个目录，使用对应的URL路径
-                import config
-                if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR) if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR') else False:
-                    small_scene_dir = os.path.normpath(config.SMALL_SCENE_IMAGE_SAVE_DIR)
-                elif hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
-                    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                    small_scene_dir = os.path.normpath(os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR))
-                else:
-                    small_scene_dir = None
-                
-                # 标准化路径后进行比较，确保路径格式一致
-                if small_scene_dir:
-                    normalized_scene_path = os.path.normpath(os.path.abspath(scene_image_path))
-                    normalized_small_scene_dir = os.path.normpath(os.path.abspath(small_scene_dir))
-                    # 检查文件是否在smallscenes目录中
-                    if os.path.exists(small_scene_dir) and normalized_scene_path.startswith(normalized_small_scene_dir):
-                        scene_image_url = f"/static/images/smallscenes/{encoded_filename}"
-                    else:
-                        scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                else:
-                    scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                
-                logger.debug(f"找到场景图片: 文件名={filename}, URL={scene_image_url}")
-            else:
-                logger.debug(f"未找到场景图片文件: scene_id={event_scene}, path={scene_image_path}")
-                # 如果没有找到，尝试查找简化格式的文件名（用于大场景图片）
-                # 格式：{major_scene_id}_{场景名称}.{ext}
-                try:
-                    from data.scenes import SUB_SCENES, get_major_scene_by_sub_scene
-                    major_scene_id = get_major_scene_by_sub_scene(event_scene)
-                    scene_info = SUB_SCENES.get(event_scene, {})
-                    scene_name = scene_info.get('name', event_scene)
-                    
-                    # 检查是否有大场景图片文件
-                    if os.path.isabs(config.SCENE_IMAGE_SAVE_DIR):
-                        scene_images_dir = config.SCENE_IMAGE_SAVE_DIR
-                    else:
-                        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        scene_images_dir = os.path.join(backend_dir, config.SCENE_IMAGE_SAVE_DIR)
-                    
-                    if os.path.exists(scene_images_dir):
-                        # 查找格式：{major_scene_id}_{场景名称}.{ext} 或 {scene_id}_{场景名称}.{ext}
-                        import glob
-                        from data.scenes import MAJOR_SCENES
-                        
-                        # 获取大场景名称
-                        major_scene_name = MAJOR_SCENES.get(major_scene_id, {}).get('name', major_scene_id)
-                        
-                        # 尝试多种文件名格式
-                        patterns = [
-                            f"{event_scene}_{scene_name}.*",  # 小场景格式：cafeteria_食堂.*
-                            f"{major_scene_id}_{major_scene_name}.*",  # 大场景格式：school_学校.*
-                            f"{event_scene}.*",  # 仅场景ID：cafeteria.*
-                            f"{major_scene_id}.*"  # 仅大场景ID：school.*
-                        ]
-                        
-                        logger.debug(f"尝试查找场景图片，模式: {patterns}")
-                        for pattern in patterns:
-                            full_pattern = os.path.join(scene_images_dir, pattern)
-                            matching_files = glob.glob(full_pattern)
-                            if matching_files:
-                                # 过滤出图片文件
-                                image_extensions = ['.jpg', '.jpeg', '.png', '.webp']
-                                image_files = [f for f in matching_files if any(f.lower().endswith(ext) for ext in image_extensions)]
-                                if image_files:
-                                    # 使用最新的文件
-                                    latest_file = max(image_files, key=os.path.getmtime)
-                                    filename = os.path.basename(latest_file)
-                                    encoded_filename = quote(filename, safe='')
-                                    scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                                    logger.debug(f"找到场景图片: 模式={pattern}, 文件名={filename}, URL={scene_image_url}")
-                                    break
-                        
-                        if not scene_image_url:
-                            logger.debug(f"未找到任何场景图片文件，场景ID={event_scene}, 大场景ID={major_scene_id}")
-                except Exception as e2:
-                    logger.warning(f"查找大场景图片失败: {e2}", exc_info=True)
-        except Exception as e:
-            logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
+        # 获取场景图片URL（数据库优先，文件回退）
+        scene_image_url = self.image_service.get_scene_image_url(event_scene)
         
         # 验证返回的composite_image_url（如果存在且不是None）
         validated_composite_url = None
@@ -495,41 +396,13 @@ class GameService:
         """异步生成合成图片（在后台线程中执行）"""
         try:
             import os
-            import config
             from data.scenes import SUB_SCENES
-            
-            # 优化：先检查是否已有场景图片（复用已有图片，节省时间）
-            scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
-            scene_image_url = None
-            
-            if scene_image_path and os.path.exists(scene_image_path):
-                # 已有场景图片，直接使用
-                logger.debug(f"复用已有场景图片: {scene_image_path}")
-                # URL编码文件名，确保中文文件名能正确访问
-                from urllib.parse import quote
-                import config
-                encoded_filename = quote(os.path.basename(scene_image_path), safe='')
-                
-                # 判断图片来自哪个目录，使用对应的URL路径
-                if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
-                    if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
-                        small_scene_dir = os.path.normpath(config.SMALL_SCENE_IMAGE_SAVE_DIR)
-                    else:
-                        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                        small_scene_dir = os.path.normpath(os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR))
-                    
-                    # 标准化路径后进行比较，确保路径格式一致
-                    normalized_scene_path = os.path.normpath(os.path.abspath(scene_image_path))
-                    normalized_small_scene_dir = os.path.normpath(os.path.abspath(small_scene_dir))
-                    
-                    # 检查文件是否在smallscenes目录中
-                    if os.path.exists(small_scene_dir) and normalized_scene_path.startswith(normalized_small_scene_dir):
-                        scene_image_url = f"/static/images/smallscenes/{encoded_filename}"
-                    else:
-                        scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                else:
-                    scene_image_url = f"/static/images/scenes/{encoded_filename}"
-            else:
+
+            # 获取场景图片URL（数据库优先，文件回退）
+            scene_image_url = self.image_service.get_scene_image_url(event_scene)
+            scene_image_path = None
+
+            if not scene_image_url:
                 # 没有已有图片，生成新图片
                 logger.info(f"开始生成场景图片: {event_scene}")
                 scene_info = SUB_SCENES.get(event_scene, {})
@@ -539,35 +412,14 @@ class GameService:
                     'scene_description': scene_info.get('description', '')
                 }
                 scene_image_url = self.image_service.generate_scene_image(scene_data, event_scene)
+            else:
+                # 获取本地路径用于合成
+                scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
             
             if scene_image_url:
-                # 如果刚生成新图片，获取其本地路径并更新URL
+                # 确保有本地路径
                 if not scene_image_path or not os.path.exists(scene_image_path):
                     scene_image_path = self.image_service.get_latest_scene_image_path(event_scene)
-                    if scene_image_path and os.path.exists(scene_image_path):
-                        # 重新构建URL，确保使用正确的路径
-                        from urllib.parse import quote
-                        import config
-                        encoded_filename = quote(os.path.basename(scene_image_path), safe='')
-                        
-                        # 判断图片来自哪个目录
-                        if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
-                            if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
-                                small_scene_dir = os.path.normpath(config.SMALL_SCENE_IMAGE_SAVE_DIR)
-                            else:
-                                backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                                small_scene_dir = os.path.normpath(os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR))
-                            
-                            # 标准化路径后进行比较，确保路径格式一致
-                            normalized_scene_path = os.path.normpath(os.path.abspath(scene_image_path))
-                            normalized_small_scene_dir = os.path.normpath(os.path.abspath(small_scene_dir))
-                            
-                            if os.path.exists(small_scene_dir) and normalized_scene_path.startswith(normalized_small_scene_dir):
-                                scene_image_url = f"/static/images/smallscenes/{encoded_filename}"
-                            else:
-                                scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                        else:
-                            scene_image_url = f"/static/images/scenes/{encoded_filename}"
                 if not scene_image_path:
                     scene_image_path = scene_image_url
                 
@@ -816,41 +668,11 @@ class GameService:
             else:
                 current_states = None
             
-            # 获取场景图片URL（如果场景切换时已生成）
+            # 获取场景图片URL（数据库优先，文件回退）
             scene_image_url = None
             current_scene = session.story_engine.current_event.get('scene') if session.story_engine.current_event else None
             if current_scene:
-                try:
-                    import os
-                    import config
-                    from urllib.parse import quote
-                    
-                    # 查找最新的场景图片
-                    scene_image_path = self.image_service.get_latest_scene_image_path(current_scene)
-                    if scene_image_path and os.path.exists(scene_image_path):
-                        # URL编码文件名，确保中文文件名能正确访问
-                        encoded_filename = quote(os.path.basename(scene_image_path), safe='')
-                        
-                        # 判断图片来自哪个目录，使用对应的URL路径
-                        if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
-                            if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
-                                small_scene_dir = os.path.normpath(config.SMALL_SCENE_IMAGE_SAVE_DIR)
-                            else:
-                                backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                                small_scene_dir = os.path.normpath(os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR))
-                            
-                            # 标准化路径后进行比较，确保路径格式一致
-                            normalized_scene_path = os.path.normpath(os.path.abspath(scene_image_path))
-                            normalized_small_scene_dir = os.path.normpath(os.path.abspath(small_scene_dir))
-                            
-                            # 检查文件是否在smallscenes目录中
-                            if os.path.exists(small_scene_dir) and normalized_scene_path.startswith(normalized_small_scene_dir):
-                                scene_image_url = f"/static/images/smallscenes/{encoded_filename}"
-                            else:
-                                scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                        else:
-                            scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                        logger.debug(f"找到场景图片: {scene_image_url} (路径: {scene_image_path})")
+                scene_image_url = self.image_service.get_scene_image_url(current_scene)
                 except Exception as e:
                     logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
             
@@ -1004,43 +826,11 @@ class GameService:
                 else:
                     current_states = None
                 
-                # 获取场景图片URL（如果场景切换时已生成）
+                # 获取场景图片URL（数据库优先，文件回退）
                 scene_image_url = None
                 next_scene = next_event.get('scene')
                 if next_scene:
-                    try:
-                        import os
-                        import config
-                        from urllib.parse import quote
-                        
-                        # 查找最新的场景图片
-                        scene_image_path = self.image_service.get_latest_scene_image_path(next_scene)
-                        if scene_image_path and os.path.exists(scene_image_path):
-                            # URL编码文件名，确保中文文件名能正确访问
-                            encoded_filename = quote(os.path.basename(scene_image_path), safe='')
-                            
-                            # 判断图片来自哪个目录，使用对应的URL路径
-                            if hasattr(config, 'SMALL_SCENE_IMAGE_SAVE_DIR'):
-                                if os.path.isabs(config.SMALL_SCENE_IMAGE_SAVE_DIR):
-                                    small_scene_dir = os.path.normpath(config.SMALL_SCENE_IMAGE_SAVE_DIR)
-                                else:
-                                    backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-                                    small_scene_dir = os.path.normpath(os.path.join(backend_dir, config.SMALL_SCENE_IMAGE_SAVE_DIR))
-                                
-                                # 标准化路径后进行比较，确保路径格式一致
-                                normalized_scene_path = os.path.normpath(os.path.abspath(scene_image_path))
-                                normalized_small_scene_dir = os.path.normpath(os.path.abspath(small_scene_dir))
-                                
-                                # 检查文件是否在smallscenes目录中
-                                if os.path.exists(small_scene_dir) and normalized_scene_path.startswith(normalized_small_scene_dir):
-                                    scene_image_url = f"/static/images/smallscenes/{encoded_filename}"
-                                else:
-                                    scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                            else:
-                                scene_image_url = f"/static/images/scenes/{encoded_filename}"
-                            logger.debug(f"找到场景图片: {scene_image_url} (路径: {scene_image_path})")
-                    except Exception as e:
-                        logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
+                    scene_image_url = self.image_service.get_scene_image_url(next_scene)
                 
                 # 验证返回的composite_image_url（如果存在且不是None）
                 validated_composite_url = None

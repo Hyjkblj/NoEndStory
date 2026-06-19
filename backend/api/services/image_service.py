@@ -183,14 +183,25 @@ class ImageService:
     
     def get_latest_scene_image_path(self, scene_id: str) -> Optional[str]:
         """获取场景图片本地路径（从smallscenes目录通过场景名称匹配，随机选择一个）
-        
+
         Args:
             scene_id: 场景ID
-            
+
         Returns:
             匹配的图片本地路径，如果不存在返回None
         """
         return self.storage_service.get_latest_scene_image_path(scene_id)
+
+    def get_scene_image_url(self, scene_id: str) -> Optional[str]:
+        """获取场景图片URL（数据库优先，文件回退）
+
+        Args:
+            scene_id: 场景ID
+
+        Returns:
+            图片URL（如 /static/images/smallscenes/xxx.jpg），未找到返回None
+        """
+        return self.storage_service.get_scene_image_url(scene_id)
     
     # ========== 向后兼容：内部方法（已迁移到子服务） ==========
     
