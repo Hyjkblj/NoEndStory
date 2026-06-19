@@ -370,7 +370,7 @@ function CharacterSelection() {
     : characters[0]?.imageUrl;
 
   return (
-    <div className={`character-selection-container ${step === 'voice' ? 'voice-step-active' : ''}`}>
+    <div className={`character-selection-container ${step === 'voice' ? 'voice-step-active' : 'image-step-active'}`}>
       {/* 背景图片 - 与设计图一致保持同一背景 */}
       <div
         className="character-selection-background"
@@ -493,15 +493,20 @@ function CharacterSelection() {
         </div>
       ) : (
       /* 主内容区域 - 选择人物图片 */
-      <div className="character-selection-content">
-        <h2 className="selection-title">选择角色</h2>
+      <div className="character-selection-content image-selection-layout">
+        <div className="image-selection-header">
+          <div className="selection-title-wrap">
+            <h2 className="selection-title">选择角色</h2>
+            <p className="selection-subtitle">挑选最适合初见的形象，下一步将为角色设定声音</p>
+          </div>
+        </div>
         
         {/* 角色选项列表 - 三选一组图 */}
         {characters.length > 0 && characters[0].imageUrls && characters[0].imageUrls.length >= 3 ? (
           // 如果有组图（3张图片），显示三选一界面
           <div className="character-options-grid">
             {characters[0].imageUrls.map((imageUrl, index) => (
-              <div 
+              <div
                 key={index}
                 className={`character-option-card ${selectedCharacter === characters[0].id && selectedImageIndex === index ? 'selected' : ''}`}
                 onClick={() => handleSelectImage(characters[0].id, index)}
@@ -537,6 +542,7 @@ function CharacterSelection() {
                 {/* 选择按钮（点击即选择并进入音色选择界面） */}
                 <Button
                   className="character-choice-button"
+                  aria-label={`选择角色形象 ${index + 1}`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -553,9 +559,10 @@ function CharacterSelection() {
           // 如果没有组图，使用旧逻辑（单张图片）
           <div className="character-options-grid">
             {characters.map((character) => (
-              <div 
-                key={character.id} 
+              <div
+                key={character.id}
                 className={`character-option-card ${selectedCharacter === character.id ? 'selected' : ''}`}
+                onClick={() => handleSelectImage(character.id, 0)}
               >
                 {/* 角色图片 */}
                 <div className="character-image-container">
@@ -588,6 +595,7 @@ function CharacterSelection() {
                 {/* 选择按钮（点击即选择并进入音色选择界面） */}
                 <Button
                   className="character-choice-button"
+                  aria-label={`选择角色形象 ${character.name}`}
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
