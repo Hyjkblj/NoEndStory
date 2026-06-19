@@ -382,7 +382,18 @@ class OrchestratorV2:
             await self._handle_event_end(state)
             state.event_round_count = 0
 
-        # Step 10: 构建响应
+        # Step 10: 获取场景图片URL
+        scene_image_url = None
+        composite_image_url = None
+        try:
+            from api.services.image.image_service import ImageService
+            image_service = ImageService()
+            if image_service.enabled and output.scene:
+                scene_image_url = image_service.get_scene_image_url(output.scene)
+        except Exception as e:
+            logger.debug(f"获取场景图片失败（非致命）: {e}")
+
+        # Step 11: 构建响应
         response = {
             "thread_id": thread_id,
             "character_dialogue": output.character_dialogue,
@@ -391,6 +402,8 @@ class OrchestratorV2:
                 for o in output.player_options
             ],
             "scene": output.scene,
+            "scene_image_url": scene_image_url,
+            "composite_image_url": composite_image_url,
             "current_states": state.emotion.to_dict(),
             "state_changes": state.output_emotion_changes,
             "phase": output.phase,
