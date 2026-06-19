@@ -19,9 +19,79 @@ logger = get_logger(__name__)
 class PgMemoryStore:
     """PostgreSQL 长期记忆存储"""
 
+    _tables_initialized = False  # 类级别标记，避免重复初始化
+
     def __init__(self, db_manager):
         self.db = db_manager
-        self._init_tables()
+
+    @classmethod
+    def init_tables(cls, db_manager):
+        """初始化表结构（应在应用启动时调用一次）
+
+        Args:
+            db_manager: DatabaseManager 实例
+        """
+        if cls._tables_initialized:
+            return
+
+        try:
+            with db_manager.get_session() as session:
+                # 创建 game_events 表
+                session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS game_events (
+                        id SERIAL PRIMARY KEY,
+                        character_id INTEGER NOT NULL,
+                        thread_id VARCHAR(100) NOT NULL,
+                        event_type VARCHAR(50) NOT NULL,
+                        event_summary TEXT,
+                        scene VARCHAR(50),
+                        emotion_start JSONB,
+                        emotion_end JSONB,
+                        emotion_delta JSONB,
+                        round_count INTEGER DEFAULT 0,
+                        player_choices JSONB,
+                        world_state JSONB,
+                        game_round_start INTEGER,
+                        game_round_end INTEGER,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+                # 创建 character_knowledge 表
+                session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS character_knowledge (
+                        id SERIAL PRIMARY KEY,
+                        character_id INTEGER NOT NULL,
+                        knowledge_type VARCHAR(50) NOT NULL,
+                        content TEXT NOT NULL,
+                        importance FLOAT DEFAULT 0.5,
+                        source_event_id INTEGER,
+                        source_thread_id VARCHAR(100),
+                        access_count INTEGER DEFAULT 0,
+                        last_accessed TIMESTAMP,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+
+                # 创建 player_preferences 表
+                session.execute(text("""
+                    CREATE TABLE IF NOT EXISTS player_preferences (
+                        id SERIAL PRIMARY KEY,
+                        character_id INTEGER NOT NULL,
+                        preference_type VARCHAR(50) NOT NULL,
+                        preference_value JSONB,
+                        sample_count INTEGER DEFAULT 1,
+                        confidence FLOAT DEFAULT 0.5,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW(),
+                        UNIQUE(character_id, preference_type)
+                    )
+                """))
+
+                cls._tables_initialized = True
+                logger.info("PostgreSQL 记忆表初始化完成")
+        except Exception as e:
+            logger.warning(f"PostgreSQL 记忆表初始化失败（非致命）: {e}")
 
     def _init_tables(self):
         """初始化表结构（如果不存在）"""

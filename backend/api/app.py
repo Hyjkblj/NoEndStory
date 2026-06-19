@@ -37,7 +37,7 @@ async def startup_event():
     """应用启动时执行（W8: 关键服务失败返回503）"""
     global _startup_failed
     _startup_failed = False
-    
+
     try:
         logger.info("正在初始化数据库...")
         db_manager = DatabaseManager()
@@ -48,7 +48,14 @@ async def startup_event():
         _startup_failed = True
         # 数据库是关键服务，失败时标记为不可用并阻止应用启动
         raise RuntimeError(f"关键服务启动失败: {e}") from e
-    
+
+    # 初始化 PostgreSQL 记忆表（game_events, character_knowledge, player_preferences）
+    try:
+        from game.agents.pg_memory import PgMemoryStore
+        PgMemoryStore.init_tables(db_manager)
+    except Exception as e:
+        logger.warning(f"PostgreSQL 记忆表初始化失败（不影响服务）: {e}")
+
     # W11: 安装 Token 追踪（monkey-patch LLMService）
     try:
         install_token_tracking()

@@ -4,6 +4,7 @@ import sys
 import os
 from datetime import datetime
 import re
+import threading
 
 # 添加backend目录到路径
 backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -14,6 +15,21 @@ import config
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+# ImagePoolService 单例（避免每次请求创建新实例）
+_pool_service_instance = None
+_pool_service_lock = threading.Lock()
+
+
+def _get_pool_service():
+    """获取 ImagePoolService 单例"""
+    global _pool_service_instance
+    if _pool_service_instance is None:
+        with _pool_service_lock:
+            if _pool_service_instance is None:
+                from api.services.image.image_pool_service import ImagePoolService
+                _pool_service_instance = ImagePoolService()
+    return _pool_service_instance
 
 # 尝试导入依赖
 try:
@@ -345,10 +361,9 @@ class ImageStorageService:
         try:
             from urllib.parse import quote
 
-            # 1. 从数据库获取
+            # 1. 从数据库获取（使用单例）
             try:
-                from api.services.image.image_pool_service import ImagePoolService
-                pool = ImagePoolService()
+                pool = _get_pool_service()
                 image = pool.get_random_image(scene_id)
                 if image and image.get('image_url'):
                     logger.debug(f"场景 {scene_id} 从数据库获取图片: {image['image_url']}")
@@ -383,8 +398,12 @@ class ImageStorageService:
             else:
                 image_url = f"/static/images/scenes/{encoded_filename}"
 
-            # 4. 异步注册到数据库
-            self._register_to_pool(scene_id, image_url, file_path)
+            # 4. 后台注册到数据库（不阻塞当前请求）
+            threading.Thread(
+                target=self._register_to_pool,
+                args=(scene_id, image_url, file_path),
+                daemon=True
+            ).start()
 
             logger.debug(f"场景 {scene_id} 从文件系统获取图片: {image_url}")
             return image_url
@@ -394,10 +413,9 @@ class ImageStorageService:
             return None
 
     def _register_to_pool(self, scene_id: str, image_url: str, image_path: str) -> None:
-        """将文件系统中的图片注册到数据库池（后台执行）"""
+        """将文件系统中的图片注册到数据库池（后台线程执行）"""
         try:
-            from api.services.image.image_pool_service import ImagePoolService
-            pool = ImagePoolService()
+            pool = _get_pool_service()
             pool.add_image_to_pool(
                 scene_id=scene_id,
                 image_url=image_url,
