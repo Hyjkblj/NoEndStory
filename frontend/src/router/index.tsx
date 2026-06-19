@@ -7,6 +7,9 @@ import CharacterSetting from '@/pages/CharacterSetting';
 import CharacterSelection from '@/pages/CharacterSelection';
 import FirstMeetingSelection from '@/pages/FirstMeetingSelection';
 import Game from '@/pages/Game';
+import EndingArchive from '@/pages/EndingArchive';
+import CharacterImageLoadingDemo from '@/pages/CharacterImageLoadingDemo';
+import LoadingDemo from '@/pages/LoadingDemo';
 import NotFound from '@/pages/NotFound';
 
 const routes = [
@@ -20,6 +23,9 @@ const routes = [
       { path: 'characterselection', element: <CharacterSelection /> },
       { path: 'firstmeeting', element: <FirstMeetingSelection /> },
       { path: 'game', element: <Game /> },
+      { path: 'endingarchive', element: <EndingArchive /> },
+      { path: 'loading-demo', element: <LoadingDemo /> },
+      { path: 'character-image-demo', element: <CharacterImageLoadingDemo /> },
       { path: '*', element: <NotFound /> },
     ],
   },

@@ -1,25 +1,97 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, App as AntdApp } from 'antd';
-import { BookOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { BookOutlined, HeartOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/image.png';
 import LoadingScreen from '@/components/loading';
+import { useRouteTransition } from '@/hooks/useRouteTransition';
 import { checkServerHealth } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
-import type { StoredMainSave } from '@/types/game';
-import { getSaveSummary } from '@/utils/game';
+import type { EndingRecord } from '@/types/game';
 import './Home.css';
+
+type StoredMainSave = {
+  id?: string;
+  threadId?: string;
+  characterId?: string;
+  characterName?: string;
+  lastScene?: string;
+  lastMessage?: string;
+  lastPlayed?: string;
+  timestamp?: number;
+};
+
+type SaveSummary = {
+  characterName: string;
+  lastScene: string;
+  lastPlayed: string;
+  excerpt?: string;
+  threadId?: string;
+  characterId?: string;
+};
+
+type EndingSummary = {
+  characterName: string;
+  title: string;
+  typeLabel: string;
+  lastPlayed: string;
+  excerpt?: string;
+};
+
+const formatLastPlayed = (value?: string | number) => {
+  if (!value) return '上次故事';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '上次故事';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+};
+
+const getSaveSummary = (save: StoredMainSave | null): SaveSummary | null => {
+  if (!save) return null;
+  return {
+    characterName: save.characterName || '未命名角色',
+    lastScene: save.lastScene || '故事进行中',
+    lastPlayed: formatLastPlayed(save.lastPlayed || save.timestamp),
+    excerpt: save.lastMessage,
+    threadId: save.threadId || save.id,
+    characterId: save.characterId,
+  };
+};
+
+const getEndingSummary = (record?: EndingRecord): EndingSummary | null => {
+  if (!record) return null;
+  return {
+    characterName: record.characterName || '未命名角色',
+    title: record.title || '故事落幕',
+    typeLabel: record.typeLabel || '特别结局',
+    lastPlayed: formatLastPlayed(record.createdAt),
+    excerpt: record.finalDialogue || record.description,
+  };
+};
 
 function Home() {
   const navigate = useNavigate();
+  const { transitionTo } = useRouteTransition();
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('故事正在展开...');
-  const saveSummary = useMemo(
-    () => getSaveSummary(gameStorage.getMainGameSave() as unknown as StoredMainSave | null),
-    []
+  const [saveSummary, setSaveSummary] = useState<SaveSummary | null>(() =>
+    getSaveSummary(gameStorage.getMainGameSave() as unknown as StoredMainSave | null)
   );
+  const [endingSummary, setEndingSummary] = useState<EndingSummary | null>(() =>
+    getEndingSummary(gameStorage.getEndingRecords()[0])
+  );
+
+  useEffect(() => {
+    gameStorage.cleanupGuestOldGameData();
+    setSaveSummary(getSaveSummary(gameStorage.getMainGameSave() as unknown as StoredMainSave | null));
+    setEndingSummary(getEndingSummary(gameStorage.getEndingRecords()[0]));
+  }, []);
 
   const handleBegin = async () => {
     setLoadingMessage('故事正在展开...');
@@ -48,17 +120,29 @@ function Home() {
     setLoadingMessage('故事正在继续...');
     setLoading(true);
     try {
-      const isHealthy = await checkServerHealth();
-      if (!isHealthy) {
-        message.error('故事暂时无法继续，请稍后再试。');
-        return;
+      const didNavigate = await transitionTo({
+        to: ROUTES.GAME,
+        variant: 'story',
+        disableReadyFallback: true,
+        work: async ({ animateTo, setProgress }) => {
+          setProgress(16);
+          const isHealthy = await checkServerHealth();
+          if (!isHealthy) {
+            message.error('故事暂时无法继续，请稍后再试。');
+            return false;
+          }
+          await animateTo(52, 520);
+          gameStorage.setRestoreThreadId(saveSummary.threadId);
+          if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
+          await animateTo(88, 620);
+        },
+      });
+
+      if (!didNavigate) {
+        setLoading(false);
       }
-      gameStorage.setRestoreThreadId(saveSummary.threadId);
-      if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
-      navigate(ROUTES.GAME);
     } catch {
       message.error('故事暂时无法继续，请稍后再试。');
-    } finally {
       setLoading(false);
     }
   };
@@ -116,6 +200,29 @@ function Home() {
               </span>
               {saveSummary.excerpt && (
                 <span className="home-save-excerpt">{saveSummary.excerpt}</span>
+              )}
+            </span>
+          </button>
+        )}
+
+        {endingSummary && (
+          <button
+            type="button"
+            className="home-save-card home-ending-card"
+            onClick={() => navigate(ROUTES.ENDING_ARCHIVE)}
+            aria-label={`查看 ${endingSummary.characterName} 的结局回忆`}
+          >
+            <span className="home-save-icon home-ending-icon" aria-hidden="true">
+              <HeartOutlined />
+            </span>
+            <span className="home-save-copy">
+              <span className="home-save-label">最近封存的结局</span>
+              <span className="home-save-title">{endingSummary.title}</span>
+              <span className="home-save-meta">
+                {endingSummary.characterName} · {endingSummary.typeLabel} · {endingSummary.lastPlayed}
+              </span>
+              {endingSummary.excerpt && (
+                <span className="home-save-excerpt">{endingSummary.excerpt}</span>
               )}
             </span>
           </button>

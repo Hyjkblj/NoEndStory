@@ -4,11 +4,20 @@ import { Button, App as AntdApp } from 'antd';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
+import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { checkServerHealth, initGame, initializeStory, getScenes, getStaticAssetUrl } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
-import type { PlayerOption, SceneOption } from '@/types/game';
+import { preloadImages } from '@/utils/preload';
+import type { PlayerOption } from '@/types/game';
 import './FirstMeetingSelection.css';
+
+interface SceneOption {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl?: string;
+}
 
 interface SceneApiItem {
   id?: string;
@@ -47,6 +56,7 @@ const normalizeScene = (scene: unknown, index: number): SceneOption => {
 
 function FirstMeetingSelection() {
   const navigate = useNavigate();
+  const { transitionTo } = useRouteTransition();
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('加载场景中...');
@@ -100,6 +110,8 @@ function FirstMeetingSelection() {
 
   const currentScene = sceneOptions.length > 0 ? sceneOptions[currentSceneIndex] : null;
 
+  useRouteTransitionReady(!loading && sceneOptions.length > 0, { delayMs: 120 });
+
   const handlePreviousScene = () => {
     setCurrentSceneIndex((prev) => (prev === 0 ? sceneOptions.length - 1 : prev - 1));
   };
@@ -139,57 +151,86 @@ function FirstMeetingSelection() {
       return;
     }
 
+    let redirectToCharacterSetting = false;
+
+    setLoading(true);
+    setLoadingMessage('正在初始化游戏...');
+
     try {
-      const isHealthy = await checkServerHealth();
-      if (!isHealthy) {
-        message.error('服务暂不可用，请稍后重试');
-        return;
-      }
+      const didNavigate = await transitionTo({
+        to: ROUTES.GAME,
+        variant: 'story',
+        disableReadyFallback: true,
+        work: async ({ animateTo, setProgress }) => {
+          setProgress(14);
+          const isHealthy = await checkServerHealth();
+          if (!isHealthy) {
+            message.error('服务暂不可用，请稍后重试');
+            return false;
+          }
 
-      const characterData = gameStorage.getCharacterData();
-      if (!characterData?.characterId) {
-        message.error('请先创建角色');
-        navigate(ROUTES.CHARACTER_SETTING);
-        return;
-      }
+          await animateTo(28, 420);
 
-      const characterId = characterData.characterId;
-      gameStorage.setCharacterData({ ...characterData, selectedScene });
+          const characterData = gameStorage.getCharacterData();
+          if (!characterData?.characterId) {
+            message.error('请先创建角色');
+            redirectToCharacterSetting = true;
+            return false;
+          }
 
-      setLoading(true);
-      setLoadingMessage('正在初始化游戏...');
+          const characterId = characterData.characterId;
+          gameStorage.setCharacterData({ ...characterData, selectedScene });
 
-      const initResponse = await initGame({
-        game_mode: 'solo',
-        character_id: characterId,
+          const initResponse = await initGame({
+            game_mode: 'solo',
+            character_id: characterId,
+          });
+
+          const threadId = initResponse?.thread_id as string | undefined;
+          if (!threadId) throw new Error('初始化失败：未获取到会话ID');
+
+          await animateTo(52, 560);
+
+          const characterImageUrl =
+            characterData.selectedImageUrl || characterData.originalImageUrl || characterData.imageUrl;
+
+          const storyResponse = (await initializeStory(
+            threadId,
+            characterId,
+            selectedScene.id,
+            characterImageUrl
+          )) as StoryInitResponse;
+
+          await animateTo(78, 620);
+
+          gameStorage.cleanupGuestOldGameData({
+            keepThreadId: threadId,
+            keepLatestEnding: false,
+          });
+          gameStorage.setInitialGameData({
+            character_dialogue: storyResponse.character_dialogue,
+            player_options: Array.isArray(storyResponse.player_options)
+              ? storyResponse.player_options
+              : [],
+            composite_image_url: storyResponse.composite_image_url,
+            scene_image_url: storyResponse.scene_image_url,
+            scene: storyResponse.scene,
+          });
+          gameStorage.setGameIds(threadId, characterId);
+
+          await preloadImages([
+            storyResponse.composite_image_url,
+            storyResponse.scene_image_url,
+            characterImageUrl,
+          ], 10000);
+          await animateTo(90, 420);
+        },
       });
 
-      const threadId = initResponse?.thread_id as string | undefined;
-      if (!threadId) throw new Error('初始化失败：未获取到会话ID');
-
-      setLoadingMessage('正在准备初遇场景...');
-
-      const characterImageUrl =
-        characterData.selectedImageUrl || characterData.originalImageUrl || characterData.imageUrl;
-
-      const storyResponse = (await initializeStory(
-        threadId,
-        characterId,
-        selectedScene.id,
-        characterImageUrl
-      )) as StoryInitResponse;
-
-      gameStorage.setInitialGameData({
-        character_dialogue: storyResponse.character_dialogue,
-        player_options: Array.isArray(storyResponse.player_options)
-          ? storyResponse.player_options
-          : [],
-        composite_image_url: storyResponse.composite_image_url,
-        scene_image_url: storyResponse.scene_image_url,
-        scene: storyResponse.scene,
-      });
-      gameStorage.setGameIds(threadId, characterId);
-      navigate(ROUTES.GAME);
+      if (!didNavigate) {
+        setLoading(false);
+        if (redirectToCharacterSetting) navigate(ROUTES.CHARACTER_SETTING);
+      }
     } catch (error: unknown) {
       const err = error as { message?: string; response?: { data?: { message?: string } } };
       let errorMessage = '选择场景失败，请重试';

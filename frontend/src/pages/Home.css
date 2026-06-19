@@ -179,6 +179,11 @@
   font-size: 22px;
 }
 
+.home-ending-icon {
+  background: rgba(255, 190, 171, 0.18);
+  color: #ffc3a3;
+}
+
 .home-save-copy {
   min-width: 0;
   display: flex;

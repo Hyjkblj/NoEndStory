@@ -1,0 +1,127 @@
+.sakura-sway {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+  contain: layout paint;
+}
+
+.sakura-sway-branch-frame {
+  position: absolute;
+  top: clamp(-18px, 1vw, 18px);
+  right: clamp(-36px, -2vw, -12px);
+  width: clamp(1320px, calc(90vw + 160px), 1660px);
+  transform-origin: 88% 12%;
+  animation: sakura-branch-sway 7.6s ease-in-out infinite;
+  will-change: transform;
+}
+
+.sakura-sway-branch {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  transform-origin: 88% 12%;
+  animation: sakura-bloom-breath 5.8s ease-in-out infinite;
+  filter:
+    drop-shadow(0 18px 38px rgba(75, 28, 38, 0.24))
+    saturate(1.04);
+}
+
+.sakura-sway-petals {
+  position: absolute;
+  inset: 0;
+}
+
+.sakura-sway-petal {
+  position: absolute;
+  top: -36px;
+  left: var(--sakura-left);
+  width: var(--sakura-width);
+  height: var(--sakura-height);
+  border-radius: 74% 36% 72% 42%;
+  background:
+    radial-gradient(circle at 30% 32%, rgba(255, 255, 255, 0.72), transparent 32%),
+    linear-gradient(135deg, rgba(255, 239, 244, 0.95), rgba(255, 178, 203, 0.86));
+  box-shadow: 0 3px 10px rgba(89, 33, 48, 0.16);
+  opacity: 0;
+  transform-origin: 54% 48%;
+  animation: sakura-petal-drift var(--sakura-duration) linear infinite;
+  animation-delay: var(--sakura-delay);
+  will-change: transform, opacity;
+}
+
+.sakura-sway-petal:nth-child(3n) {
+  filter: blur(0.2px);
+}
+
+.sakura-sway-petal:nth-child(4n) {
+  width: var(--sakura-wide-width);
+  height: var(--sakura-wide-height);
+  background:
+    radial-gradient(circle at 28% 32%, rgba(255, 255, 255, 0.68), transparent 34%),
+    linear-gradient(135deg, rgba(255, 229, 238, 0.9), rgba(255, 197, 214, 0.76));
+}
+
+@keyframes sakura-branch-sway {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) rotate(-0.9deg);
+  }
+  45% {
+    transform: translate3d(-10px, 8px, 0) rotate(1.2deg);
+  }
+  72% {
+    transform: translate3d(6px, -3px, 0) rotate(0.2deg);
+  }
+}
+
+@keyframes sakura-bloom-breath {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.012);
+  }
+}
+
+@keyframes sakura-petal-drift {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, -8vh, 0) rotate(0deg);
+  }
+  10% {
+    opacity: var(--sakura-opacity);
+  }
+  52% {
+    opacity: var(--sakura-opacity);
+    transform: translate3d(var(--sakura-mid-drift), 54vh, 0) rotate(var(--sakura-mid-spin));
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--sakura-drift), 110vh, 0) rotate(var(--sakura-spin));
+  }
+}
+
+@media (max-width: 720px) {
+  .sakura-sway-branch-frame {
+    top: -20px;
+    right: 0px;
+    width: 1060px;
+    opacity: 0.86;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sakura-sway-branch-frame,
+  .sakura-sway-branch,
+  .sakura-sway-petal {
+    animation: none;
+  }
+
+  .sakura-sway-petal {
+    display: none;
+  }
+}

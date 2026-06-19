@@ -1,8 +1,8 @@
 /** 游戏相关类型定义 */
 
 export interface GameMessage {
-  id?: string;
-  role: 'assistant' | 'user' | 'system';
+  id: string;
+  role: 'character' | 'player' | 'system';
   content: string;
   timestamp?: string;
 }
@@ -62,52 +62,11 @@ export interface InitialGameData {
   voiceConfig?: VoiceConfig;
 }
 
-// ========== 存档相关类型 ==========
-
-export interface StoredMainSave {
-  threadId?: string;
-  characterId?: string;
-  characterName?: string;
-  lastMessage?: string;
-  timestamp?: number;
-}
-
-export interface SaveSummary {
-  threadId: string;
-  characterId?: string;
-  characterName: string;
-  lastMessage: string;
-  timeAgo: string;
-}
-
-// ========== 角色选择相关类型 ==========
-
-export interface CharacterOption {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  imageUrls?: string[];
-  gender?: string;
-}
-
-// ========== 场景选择相关类型 ==========
-
-export interface SceneOption {
-  id: string;
-  name: string;
-  description?: string;
-  imageUrl?: string;
-}
-
-// ========== 结局相关类型 ==========
-
-export type EndingTone = 'warm' | 'soft' | 'tense' | 'neutral';
-
 export interface EndingRelationshipMetric {
   key: string;
   label: string;
-  tone: EndingTone;
   value: number | null;
+  tone?: 'warm' | 'soft' | 'tense' | 'quiet';
 }
 
 export interface EndingMemory {
@@ -117,14 +76,23 @@ export interface EndingMemory {
 }
 
 export interface EndingRecord {
-  endingType: string;
-  endingTypeLabel: string;
-  endingTitle: string;
-  endingDescription: string;
-  sceneName: string;
+  id: string;
+  threadId: string;
+  characterId?: string;
+  characterName: string;
+  title: string;
+  type: string;
+  typeLabel: string;
+  description: string;
   finalDialogue: string;
-  lastChoice?: string;
-  relationshipMetrics: EndingRelationshipMetric[];
-  memories: EndingMemory[];
-  savedAt: number;
+  sceneId?: string;
+  sceneName?: string;
+  createdAt: number;
+  relationship: EndingRelationshipMetric[];
+  keyMemories: EndingMemory[];
+  visual: {
+    compositeImageUrl?: string | null;
+    sceneImageUrl?: string | null;
+    characterImageUrl?: string | null;
+  };
 }
