@@ -673,8 +673,6 @@ class GameService:
             current_scene = session.story_engine.current_event.get('scene') if session.story_engine.current_event else None
             if current_scene:
                 scene_image_url = self.image_service.get_scene_image_url(current_scene)
-                except Exception as e:
-                    logger.warning(f"获取场景图片URL失败: {e}", exc_info=True)
             
             # 计算 TTS 情感参数
             tts_emotion = self._compute_tts_emotion(character_id, states)
