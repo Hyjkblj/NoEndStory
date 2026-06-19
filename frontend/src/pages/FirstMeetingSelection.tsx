@@ -7,15 +7,8 @@ import LoadingScreen from '@/components/loading';
 import { checkServerHealth, initGame, initializeStory, getScenes, getStaticAssetUrl } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
-import type { PlayerOption } from '@/types/game';
+import type { PlayerOption, SceneOption } from '@/types/game';
 import './FirstMeetingSelection.css';
-
-interface SceneOption {
-  id: string;
-  name: string;
-  description: string;
-  imageUrl?: string;
-}
 
 interface SceneApiItem {
   id?: string;

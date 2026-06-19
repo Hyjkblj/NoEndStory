@@ -3,6 +3,7 @@
  */
 import * as gameStorage from '@/storage/gameStorage';
 import { getSceneNameById } from '@/config/scenes';
+import type { StoredMainSave, SaveSummary } from '@/types/game';
 
 /** 从存储中按优先级解析角色图片 URL（透明图 > 原图，排除已删除的 portrait_img） */
 export function getCharacterImageFromStorage(): string | undefined {
@@ -30,4 +31,29 @@ export function getFallbackSceneImageUrls(sceneId: string): string[] {
     `/static/images/scenes/${sceneId}_${encoded}.jpg`,
     `/static/images/scenes/${sceneId}_${encoded}.png`,
   ];
+}
+
+/** 格式化最后游玩时间 */
+export function formatLastPlayed(value?: string | number): string {
+  if (!value) return '上次故事';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '上次故事';
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(date);
+}
+
+/** 从存档数据中提取摘要信息 */
+export function getSaveSummary(save: StoredMainSave | null): SaveSummary | null {
+  if (!save) return null;
+  return {
+    threadId: save.threadId || save.id || '',
+    characterId: save.characterId,
+    characterName: save.characterName || '未命名角色',
+    lastMessage: save.lastMessage || '',
+    timeAgo: formatLastPlayed(save.lastPlayed || save.timestamp),
+  };
 }

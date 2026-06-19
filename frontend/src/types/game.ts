@@ -61,3 +61,70 @@ export interface InitialGameData {
   characterImageUrl: string;
   voiceConfig?: VoiceConfig;
 }
+
+// ========== 存档相关类型 ==========
+
+export interface StoredMainSave {
+  threadId?: string;
+  characterId?: string;
+  characterName?: string;
+  lastMessage?: string;
+  timestamp?: number;
+}
+
+export interface SaveSummary {
+  threadId: string;
+  characterId?: string;
+  characterName: string;
+  lastMessage: string;
+  timeAgo: string;
+}
+
+// ========== 角色选择相关类型 ==========
+
+export interface CharacterOption {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  imageUrls?: string[];
+  gender?: string;
+}
+
+// ========== 场景选择相关类型 ==========
+
+export interface SceneOption {
+  id: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+}
+
+// ========== 结局相关类型 ==========
+
+export type EndingTone = 'warm' | 'soft' | 'tense' | 'neutral';
+
+export interface EndingRelationshipMetric {
+  key: string;
+  label: string;
+  tone: EndingTone;
+  value: number | null;
+}
+
+export interface EndingMemory {
+  title: string;
+  description: string;
+  choice?: string;
+}
+
+export interface EndingRecord {
+  endingType: string;
+  endingTypeLabel: string;
+  endingTitle: string;
+  endingDescription: string;
+  sceneName: string;
+  finalDialogue: string;
+  lastChoice?: string;
+  relationshipMetrics: EndingRelationshipMetric[];
+  memories: EndingMemory[];
+  savedAt: number;
+}

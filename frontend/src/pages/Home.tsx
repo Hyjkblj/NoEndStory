@@ -7,51 +7,9 @@ import LoadingScreen from '@/components/loading';
 import { checkServerHealth } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
+import type { StoredMainSave } from '@/types/game';
+import { getSaveSummary } from '@/utils/game';
 import './Home.css';
-
-type StoredMainSave = {
-  id?: string;
-  threadId?: string;
-  characterId?: string;
-  characterName?: string;
-  lastScene?: string;
-  lastMessage?: string;
-  lastPlayed?: string;
-  timestamp?: number;
-};
-
-type SaveSummary = {
-  characterName: string;
-  lastScene: string;
-  lastPlayed: string;
-  excerpt?: string;
-  threadId?: string;
-  characterId?: string;
-};
-
-const formatLastPlayed = (value?: string | number) => {
-  if (!value) return '上次故事';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '上次故事';
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).format(date);
-};
-
-const getSaveSummary = (save: StoredMainSave | null): SaveSummary | null => {
-  if (!save) return null;
-  return {
-    characterName: save.characterName || '未命名角色',
-    lastScene: save.lastScene || '故事进行中',
-    lastPlayed: formatLastPlayed(save.lastPlayed || save.timestamp),
-    excerpt: save.lastMessage,
-    threadId: save.threadId || save.id,
-    characterId: save.characterId,
-  };
-};
 
 function Home() {
   const navigate = useNavigate();

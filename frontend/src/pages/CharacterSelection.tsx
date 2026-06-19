@@ -7,15 +7,9 @@ import LoadingScreen from '@/components/loading';
 import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
+import type { CharacterOption } from '@/types/game';
+import { VOICE_TYPE_LABELS, ERROR_MESSAGES, DEFAULT_VALUES } from '@/constants';
 import './CharacterSelection.css';
-
-interface CharacterOption {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  imageUrls?: string[];  // 组图URL列表（3张图片）
-  gender: 'male' | 'female';
-}
 
 interface RemoveBackgroundResultPayload {
   transparent_url?: string;
@@ -26,10 +20,7 @@ interface RemoveBackgroundResultPayload {
   };
 }
 
-const EMOTION_VOICE_GROUPS = [
-  { key: 'female' as const, title: '多情感女声' },
-  { key: 'male' as const, title: '多情感男声' },
-];
+const EMOTION_VOICE_GROUPS = VOICE_TYPE_LABELS;
 
 const isEmotionVoiceForGender = (voice: PresetVoiceItem, gender: 'female' | 'male') => (
   voice.id.startsWith(`emo_${gender}_`) || (voice.id.startsWith('emo_') && voice.gender === gender)
@@ -43,7 +34,7 @@ function CharacterSelection() {
   const navigate = useNavigate();
   const { message } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState('正在加载角色...');
+  const [loadingMessage, setLoadingMessage] = useState(DEFAULT_VALUES.LOADING_MESSAGE);
   const [characters, setCharacters] = useState<CharacterOption[]>([]);
   const [selectedCharacter, setSelectedCharacter] = useState<string | null>(null);
   const [selectedImageIndex, setSelectedImageIndex] = useState<number | null>(null);  // 选中的图片索引（0, 1, 2）
@@ -85,9 +76,9 @@ function CharacterSelection() {
         const err = error as { response?: { status?: number }; message?: string };
         const is503 = err.response?.status === 503;
         if (is503) {
-          message.warning('TTS 服务暂不可用，但您仍可选择音色（游戏中使用时需确保 TTS 服务已启用）');
+          message.warning(ERROR_MESSAGES.VOICE_SERVICE_UNAVAILABLE);
         } else {
-          message.error('获取音色列表失败，请检查后端服务');
+          message.error(ERROR_MESSAGES.VOICE_LIST_LOAD_FAILED);
         }
         setPresetVoices([]);
       })
@@ -107,15 +98,15 @@ function CharacterSelection() {
         audio.onended = () => setPreviewingVoiceId(null);
         audio.onerror = () => {
           setPreviewingVoiceId(null);
-          message.warning('试听音频播放失败');
+          message.warning(ERROR_MESSAGES.VOICE_PREVIEW_FAILED);
         };
         audio.play().catch(() => {
           setPreviewingVoiceId(null);
-          message.warning('试听音频播放失败');
+          message.warning(ERROR_MESSAGES.VOICE_PREVIEW_FAILED);
         });
       } else {
         setPreviewingVoiceId(null);
-        message.warning('试听功能暂不可用（TTS 服务未启用），但您仍可选择此音色');
+        message.warning(ERROR_MESSAGES.VOICE_PREVIEW_UNAVAILABLE);
       }
     } catch (error: unknown) {
       setPreviewingVoiceId(null);

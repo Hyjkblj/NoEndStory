@@ -12,16 +12,10 @@ import { logger } from '@/utils/logger';
 import { useGameState, useGameInit, useGameTts, useTtsControls } from '@/hooks';
 import type { PlayerOption } from '@/types/game';
 import { ROUTES } from '@/config/routes';
+import { LOADING_TIPS, ERROR_MESSAGES, SUCCESS_MESSAGES, DEFAULT_VALUES } from '@/constants';
 import './Game.css';
 
 const { Text } = Typography;
-
-const LOADING_TIPS = [
-  '正在构思剧情...',
-  '角色正在思考...',
-  '整理对话中...',
-  '即将呈现...',
-];
 
 function Game() {
   const navigate = useNavigate();
@@ -37,7 +31,7 @@ function Game() {
   const [tipIndex, setTipIndex] = useState(0);
   // 游戏结束状态
   const [gameFinished, setGameFinished] = useState(false);
-  const [endingTitle, setEndingTitle] = useState('故事落幕');
+  const [endingTitle, setEndingTitle] = useState(DEFAULT_VALUES.ENDING_TITLE);
   // TTS 情感参数（从后端响应中获取）
   const [ttsEmotionParams, setTtsEmotionParams] = useState<Record<string, unknown> | null>(null);
 
@@ -151,7 +145,7 @@ function Game() {
     if (responseData.is_game_finished) {
       setGameFinished(true);
       state.setCurrentOptions([]);
-      const title = responseData.event_title || '故事落幕';
+      const title = responseData.event_title || DEFAULT_VALUES.ENDING_TITLE;
       setEndingTitle(title);
     }
   };
@@ -175,17 +169,17 @@ function Game() {
       const responseThreadId = response?.thread_id;
       if (responseThreadId && responseThreadId !== state.threadId) {
         state.setThreadId(responseThreadId);
-        message.info('游戏会话已恢复');
+        message.info(SUCCESS_MESSAGES.GAME_SESSION_RECOVERED);
       }
       handleGameResponse(response);
     } catch (error: unknown) {
       const err = error as { response?: { data?: { message?: string } }; message?: string };
       logger.error('处理选项失败', err);
-      let errorMessage = '处理选项失败，请稍后重试';
+      let errorMessage = ERROR_MESSAGES.PROCESS_OPTION_FAILED;
       const errorMsg = err.response?.data?.message || err.message || '';
 
       if (errorMsg.includes('会话已过期') || errorMsg.includes('not found') || errorMsg.includes('无法恢复')) {
-        errorMessage = '游戏会话已过期。正在尝试恢复...';
+        errorMessage = ERROR_MESSAGES.GAME_SESSION_RECOVERING;
         message.warning(errorMessage);
         const charId = state.characterId || gameStorage.getCurrentCharacterId();
         if (charId) {
@@ -195,17 +189,17 @@ function Game() {
             if (newThreadId) {
               state.setThreadId(newThreadId);
               gameStorage.setGameIds(newThreadId, charId);
-              message.success('游戏会话已恢复，请重新选择选项');
+              message.success(ERROR_MESSAGES.GAME_SESSION_RECOVERED);
               return;
             }
           } catch (recoverError) {
             logger.error('[游戏恢复] 恢复失败', recoverError);
-            errorMessage = '游戏会话已过期且无法恢复，请返回重新开始游戏';
+            errorMessage = ERROR_MESSAGES.GAME_SESSION_RECOVER_FAILED;
           }
-        } else errorMessage = '游戏会话已过期，请返回重新开始游戏';
+        } else errorMessage = ERROR_MESSAGES.GAME_SESSION_NOT_FOUND;
         message.error(errorMessage);
       } else if (err.message?.includes('超时')) {
-        message.error('处理选项超时，AI生成可能需要更长时间。请稍后重试，或检查网络连接。');
+        message.error(ERROR_MESSAGES.PROCESS_OPTION_TIMEOUT);
       } else if (err.response?.data?.message) {
         message.error(err.response.data.message);
       } else {
@@ -225,7 +219,7 @@ function Game() {
   };
 
   // 获取角色名称
-  const characterName = gameStorage.getCharacterData()?.name || '角色';
+  const characterName = gameStorage.getCharacterData()?.name || DEFAULT_VALUES.CHARACTER_NAME;
 
   return (
     <div className="game-scene-container">
