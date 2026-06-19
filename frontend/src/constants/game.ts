@@ -9,16 +9,13 @@ export const LOADING_TIPS = [
   '即将呈现...',
 ];
 
-// ========== 结局类型标签 ==========
+// ========== 结局类型标签（对齐后端 classify_ending） ==========
 
 export const ENDING_TYPE_LABELS: Record<string, string> = {
-  good_ending: '甜蜜结局',
-  sweet_ending: '甜蜜结局',
-  neutral_ending: '暧昧未满',
-  open_ending: '未完待续',
-  bad_ending: '遗憾结局',
-  distant_ending: '疏离结局',
-  fragile_ending: '摇晃结局',
+  happy_ending: '甜蜜结局',      // favorability >= 70, hostility <= 20
+  bad_ending: '遗憾结局',        // hostility >= 50 or favorability <= 20
+  neutral_ending: '暧昧未满',    // favorability >= 40, trust >= 50
+  open_ending: '未完待续',       // 默认
 };
 
 // ========== 关系指标标签 ==========
@@ -38,14 +35,12 @@ export const VOICE_TYPE_LABELS = [
   { key: 'male' as const, title: '多情感男声' },
 ];
 
-// ========== 结局描述模板 ==========
+// ========== 结局描述模板（对齐后端 classify_ending） ==========
 
 export const ENDING_DESCRIPTIONS: Record<string, string> = {
-  sweet_ending: '你们把一段关系慢慢推近，许多未说出口的话终于有了回应。',
-  good_ending: '你们把一段关系慢慢推近，许多未说出口的话终于有了回应。',
-  distant_ending: '有些靠近停在了半路，但那些选择依然成为这段故事真实的痕迹。',
+  happy_ending: '你们把一段关系慢慢推近，许多未说出口的话终于有了回应。',
   bad_ending: '有些靠近停在了半路，但那些选择依然成为这段故事真实的痕迹。',
-  fragile_ending: '心跳和不安交错在一起，这段关系停在了仍需确认的地方。',
+  neutral_ending: '心跳和不安交错在一起，这段关系停在了仍需确认的地方。',
   open_ending: '这段故事暂时收束，但你们之间仍留下了可以被重新打开的余温。',
 };
 
