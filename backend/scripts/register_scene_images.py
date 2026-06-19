@@ -21,7 +21,7 @@ if backend_dir not in sys.path:
 import config
 from database.db_manager import DatabaseManager
 from models.character import SceneImage
-from data.scenes import SUB_SCENES
+from data.scenes import SUB_SCENES, MAJOR_SCENES
 from utils.logger import setup_logger
 
 logger = setup_logger(__name__)
@@ -58,6 +58,30 @@ def find_scene_id_by_name(filename: str) -> str:
         scene_name = scene_info.get('name', '')
         if scene_name and scene_name in filename:
             return scene_id
+    return ''
+
+
+def get_major_scene_id(scene_id: str) -> str:
+    """获取小场景对应的大场景ID
+
+    Args:
+        scene_id: 小场景ID
+
+    Returns:
+        大场景ID，如果没有对应的大场景则返回空字符串
+    """
+    # 方法1: 从 SUB_SCENES 的 major_scene 字段获取
+    scene_info = SUB_SCENES.get(scene_id, {})
+    major_scene = scene_info.get('major_scene', '')
+    if major_scene:
+        return major_scene
+
+    # 方法2: 从 MAJOR_SCENES 的 sub_scenes 列表反查
+    for major_id, major_info in MAJOR_SCENES.items():
+        sub_scenes = major_info.get('sub_scenes', [])
+        if scene_id in sub_scenes:
+            return major_id
+
     return ''
 
 
@@ -115,9 +139,13 @@ def register_images_from_directory(directory: str, source_type: str, db_manager:
                 skipped_count += 1
                 continue
 
+            # 获取大场景ID
+            major_scene_id = get_major_scene_id(scene_id)
+
             # 创建记录
             scene_image = SceneImage(
                 scene_id=scene_id,
+                major_scene_id=major_scene_id if major_scene_id else None,
                 image_url=image_url,
                 image_path=image_path,
                 quality_score=3.0,

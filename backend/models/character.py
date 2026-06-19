@@ -149,6 +149,7 @@ class SceneImage(Base):
     __tablename__ = 'scene_images'
     __table_args__ = (
         Index('idx_scene_images_scene_id', 'scene_id'),
+        Index('idx_scene_images_major_scene', 'major_scene_id'),
         Index('idx_scene_images_status', 'status'),
         Index('idx_scene_images_scene_status', 'scene_id', 'status'),
         CheckConstraint("status IN ('active', 'inactive', 'pending')", name='chk_scene_images_status'),
@@ -156,7 +157,8 @@ class SceneImage(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    scene_id = Column(String(50), nullable=False, comment='场景ID')
+    scene_id = Column(String(50), nullable=False, comment='小场景ID')
+    major_scene_id = Column(String(50), nullable=True, comment='大场景ID（用于初遇场景回退）')
     image_url = Column(Text, nullable=False, comment='图片URL')
     image_path = Column(Text, nullable=True, comment='图片本地路径')
     quality_score = Column(Float, default=3.0, comment='质量分数(0-5)')
@@ -173,6 +175,7 @@ class SceneImage(Base):
         return {
             'id': self.id,
             'scene_id': self.scene_id,
+            'major_scene_id': self.major_scene_id,
             'image_url': self.image_url,
             'image_path': self.image_path,
             'quality_score': self.quality_score,

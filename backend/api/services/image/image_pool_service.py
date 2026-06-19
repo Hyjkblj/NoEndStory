@@ -44,20 +44,47 @@ class ImagePoolService:
         """从场景图片池中随机抽取一张图片
 
         使用加权随机抽取，权重基于质量分数。
+        如果小场景没有图片，会尝试使用大场景的图片。
 
         Args:
-            scene_id: 场景ID
+            scene_id: 场景ID（小场景）
 
         Returns:
             图片信息字典，如果没有可用图片返回None
         """
         try:
             with self.db_manager.get_session() as session:
+                # 1. 先查找小场景的图片
                 images = session.query(SceneImage).filter(
                     SceneImage.scene_id == scene_id,
                     SceneImage.status == 'active',
                     SceneImage.quality_score >= MIN_QUALITY_SCORE
                 ).all()
+
+                # 2. 如果小场景没有图片，查找大场景的图片
+                if not images:
+                    logger.debug(f"小场景 {scene_id} 没有可用图片，尝试查找大场景图片")
+                    images = session.query(SceneImage).filter(
+                        SceneImage.major_scene_id == scene_id,
+                        SceneImage.status == 'active',
+                        SceneImage.quality_score >= MIN_QUALITY_SCORE
+                    ).all()
+
+                # 3. 如果仍然没有图片，尝试通过 SUB_SCENES 查找对应的大场景
+                if not images:
+                    try:
+                        from data.scenes import SUB_SCENES
+                        scene_info = SUB_SCENES.get(scene_id, {})
+                        major_scene = scene_info.get('major_scene', '')
+                        if major_scene:
+                            logger.debug(f"通过 SUB_SCENES 查找大场景 {major_scene} 的图片")
+                            images = session.query(SceneImage).filter(
+                                SceneImage.major_scene_id == major_scene,
+                                SceneImage.status == 'active',
+                                SceneImage.quality_score >= MIN_QUALITY_SCORE
+                            ).all()
+                    except Exception as e:
+                        logger.debug(f"查找大场景图片失败: {e}")
 
                 if not images:
                     logger.warning(f"场景 {scene_id} 没有可用的图片")
