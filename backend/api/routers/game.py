@@ -1,5 +1,6 @@
 """游戏管理API路由"""
 import re
+import os
 from fastapi import APIRouter, HTTPException, Depends, Request
 from api.schemas import (
     GameInitRequest,
@@ -21,6 +22,18 @@ from utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# 游客结局限制 IP 白名单（逗号分隔，支持精确匹配和 CIDR）
+_GUEST_ENDING_IP_WHITELIST: set[str] = {
+    ip.strip()
+    for ip in os.getenv("GUEST_ENDING_IP_WHITELIST", "127.0.0.1,::1").split(",")
+    if ip.strip()
+}
+
+
+def _is_ip_whitelisted(client_ip: str) -> bool:
+    """检查 IP 是否在游客结局限制白名单中"""
+    return client_ip in _GUEST_ENDING_IP_WHITELIST
+
 router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
 
@@ -35,7 +48,7 @@ async def init_game(
     is_guest = not request.headers.get("Authorization")
     if is_guest:
         client_ip = get_client_ip(request)
-        if GameService.has_guest_ended_today(client_ip):
+        if not _is_ip_whitelisted(client_ip) and GameService.has_guest_ended_today(client_ip):
             raise HTTPException(
                 status_code=403,
                 detail={
@@ -163,11 +176,12 @@ async def process_input(
             is_guest = not http_request.headers.get("Authorization")
             if is_guest:
                 client_ip = get_client_ip(http_request)
-                game_service.log_guest_ending(
-                    client_ip=client_ip,
-                    thread_id=result.get("thread_id", body.thread_id),
-                    ending_type=result.get("ending_type"),
-                )
+                if not _is_ip_whitelisted(client_ip):
+                    game_service.log_guest_ending(
+                        client_ip=client_ip,
+                        thread_id=result.get("thread_id", body.thread_id),
+                        ending_type=result.get("ending_type"),
+                    )
 
         return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
