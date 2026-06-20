@@ -75,19 +75,18 @@ function Ensure-DockerReady {
     Invoke-Docker -Args @("info") -ErrorContext "docker engine is unavailable" -Silent
 }
 
-function Wait-BackendHealthy {
+function Wait-WebHealthy {
     param(
-        [Parameter(Mandatory = $true)][int]$Port,
+        [Parameter(Mandatory = $true)][string]$Url,
         [int]$TimeoutSec = 120
     )
 
-    $healthUrl = "http://127.0.0.1:$Port/health"
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
 
     while ((Get-Date) -lt $deadline) {
         try {
-            $resp = Invoke-RestMethod -Uri $healthUrl -Method Get -TimeoutSec 3
-            if ($resp.status -eq "healthy") {
+            $resp = Invoke-RestMethod -Uri $Url -Method Get -TimeoutSec 3
+            if ($null -ne $resp) {
                 return $true
             }
         } catch {
@@ -176,8 +175,10 @@ try {
     }
 
     $backendImage = Get-EnvValue -FilePath $envFile -Key "BACKEND_IMAGE" -DefaultValue "ghcr.io/no-end-story/no-end-story-backend:latest"
-    $backendPort = Get-EnvValue -FilePath $envFile -Key "BACKEND_PORT" -DefaultValue "8000"
-    $backendPortInt = [int]$backendPort
+    $frontendImage = Get-EnvValue -FilePath $envFile -Key "FRONTEND_IMAGE" -DefaultValue "ghcr.io/no-end-story/no-end-story-frontend:latest"
+    $httpPort = Get-EnvValue -FilePath $envFile -Key "HTTP_PORT" -DefaultValue "80"
+    $appDomain = Get-EnvValue -FilePath $envFile -Key "APP_DOMAIN" -DefaultValue "hyjkblj.online"
+    $localHealthUrl = "http://127.0.0.1:$httpPort/health"
 
     $composeArgs = @(
         "--project-name", "noendstory",
@@ -186,26 +187,30 @@ try {
     )
 
     if (-not $SkipPull) {
-        Write-Host "3) Pull image: $backendImage" -ForegroundColor Yellow
-        Invoke-Docker -Args (@("compose") + $composeArgs + @("pull")) -ErrorContext "docker compose pull failed"
+        Write-Host "3) Pull images when available: $backendImage / $frontendImage" -ForegroundColor Yellow
+        try {
+            Invoke-Docker -Args (@("compose") + $composeArgs + @("pull")) -ErrorContext "docker compose pull failed"
+        } catch {
+            Write-Host "Image pull failed or is unavailable; continuing with local source build." -ForegroundColor DarkYellow
+        }
     }
 
-    Write-Host "4) Start PostgreSQL + backend containers" -ForegroundColor Yellow
-    Invoke-Docker -Args (@("compose") + $composeArgs + @("up", "-d")) -ErrorContext "docker compose up failed"
+    Write-Host "4) Start PostgreSQL + Redis + backend + Nginx containers" -ForegroundColor Yellow
+    Invoke-Docker -Args (@("compose") + $composeArgs + @("up", "-d", "--build")) -ErrorContext "docker compose up failed"
 
     Write-Host "5) Sync default scene images" -ForegroundColor Yellow
     Sync-DefaultSceneImages -RootDir $rootDir
 
-    Write-Host "6) Wait for backend health" -ForegroundColor Yellow
-    if (Wait-BackendHealthy -Port $backendPortInt -TimeoutSec 120) {
-        Write-Host "Backend is healthy: http://127.0.0.1:$backendPortInt/health" -ForegroundColor Green
+    Write-Host "6) Wait for web entry health" -ForegroundColor Yellow
+    if (Wait-WebHealthy -Url $localHealthUrl -TimeoutSec 120) {
+        Write-Host "Web entry is healthy: http://$appDomain/" -ForegroundColor Green
         exit 0
     }
 
-    Write-Host "Backend health check timed out. Showing container status and logs..." -ForegroundColor Red
+    Write-Host "Web health check timed out. Showing container status and logs..." -ForegroundColor Red
     try {
         & docker compose @composeArgs ps
-        & docker compose @composeArgs logs --tail 80 backend postgres
+        & docker compose @composeArgs logs --tail 80 frontend backend redis postgres
     } catch {
         Write-Host "Failed to fetch docker status/logs: $($_.Exception.Message)" -ForegroundColor Yellow
     }

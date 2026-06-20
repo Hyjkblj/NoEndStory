@@ -2,27 +2,58 @@ name: noendstory
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: noendstory-postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-noendstory}
       POSTGRES_USER: ${DB_USER:-noendstory}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
+      - "${DB_BIND:-127.0.0.1}:${DB_PORT:-5432}:5432"
     volumes:
       - noendstory_pgdata:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-noendstory} -d ${DB_NAME:-noendstory}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: noendstory-redis
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ]; then
+        exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD";
+      else
+        exec redis-server --appendonly yes;
+      fi'
+    ports:
+      - "${REDIS_BIND:-127.0.0.1}:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - noendstory_redisdata:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi"
+        ]
       interval: 10s
       timeout: 5s
       retries: 12
       start_period: 10s
 
   backend:
-    image: ${BACKEND_IMAGE:-ghcr.io/no-end-story/no-end-story-backend:latest}
+    image: ${BACKEND_IMAGE:-noendstory-backend:latest}
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
     container_name: noendstory-backend
     restart: unless-stopped
     env_file:
@@ -30,24 +61,33 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
-      ENV: ${ENV:-dev}
+      ENV: ${ENV:-prod}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?ALLOWED_ORIGINS is required in prod}
 
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ${DB_NAME:-noendstory}
       DB_USER: ${DB_USER:-noendstory}
-      DB_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+      DB_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
 
       VECTOR_DB_PATH: /data/vector_db
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text2vec-chinese}
 
+      IMAGE_SAVE_ENABLED: ${IMAGE_SAVE_ENABLED:-true}
       IMAGE_SAVE_DIR: /data/images/characters
       SCENE_IMAGE_SAVE_DIR: /data/images/scenes
       SMALL_SCENE_IMAGE_SAVE_DIR: /data/images/smallscenes
       COMPOSITE_IMAGE_SAVE_DIR: /data/images/composite
-      IMAGE_SAVE_ENABLED: ${IMAGE_SAVE_ENABLED:-true}
+      AUDIO_CACHE_DIR: /data/audio/cache
 
       TTS_PROVIDER: ${TTS_PROVIDER:-volcengine}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -56,13 +96,13 @@ services:
       DASHSCOPE_TTS_MODEL: ${DASHSCOPE_TTS_MODEL:-sambert-zhichu-v1}
       VOLCENGINE_ARK_API_KEY: ${VOLCENGINE_ARK_API_KEY:-}
       VOLCENGINE_REGION: ${VOLCENGINE_REGION:-cn-beijing}
-      # Unified text model switch (edit LLM_TEXT_MODEL in player.env only).
       LLM_TEXT_MODEL: ${LLM_TEXT_MODEL:-deepseek-v3-250324}
-      # Backward-compatible bridge: old code reads VOLCENGINE_TEXT_MODEL,
-      # unified switch uses LLM_TEXT_MODEL (edit one place in player.env).
       VOLCENGINE_TEXT_MODEL: ${LLM_TEXT_MODEL:-deepseek-v3-250324}
       VOLCENGINE_IMAGE_MODEL: ${VOLCENGINE_IMAGE_MODEL:-doubao-seedream-4-0-250828}
       VOLCENGINE_IMAGE_SIZE: ${VOLCENGINE_IMAGE_SIZE:-2K}
+      VECTORENGINE_API_KEY: ${VECTORENGINE_API_KEY:-}
+      VECTORENGINE_BASE_URL: ${VECTORENGINE_BASE_URL:-https://api.vectorengine.ai}
+      VECTORENGINE_IMAGE_MODEL: ${VECTORENGINE_IMAGE_MODEL:-gpt-image-2}
       VOLCENGINE_TTS_APP_ID: ${VOLCENGINE_TTS_APP_ID:-}
       VOLCENGINE_TTS_ACCESS_TOKEN: ${VOLCENGINE_TTS_ACCESS_TOKEN:-}
       VOLCENGINE_TTS_SECRET_KEY: ${VOLCENGINE_TTS_SECRET_KEY:-}
@@ -73,19 +113,45 @@ services:
       VOLCENGINE_TTS_ENABLE_TIMESTAMP: ${VOLCENGINE_TTS_ENABLE_TIMESTAMP:-false}
       VOLCENGINE_TTS_ENABLE_CACHE: ${VOLCENGINE_TTS_ENABLE_CACHE:-true}
       VOLCENGINE_TTS_ENABLE_EMOTION: ${VOLCENGINE_TTS_ENABLE_EMOTION:-true}
-    ports:
-      - "127.0.0.1:${BACKEND_PORT:-8000}:8000"
+    expose:
+      - "8000"
     volumes:
-      - noendstory_data:/data
-      - noendstory_audio:/app/audio/cache
+      - noendstory_vector_db:/data/vector_db
+      - noendstory_runtime_images:/data/images
+      - noendstory_runtime_audio:/data/audio/cache
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/health || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5).read()\""
+        ]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 15s
+      start_period: 20s
+
+  frontend:
+    image: ${FRONTEND_IMAGE:-noendstory-frontend:latest}
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: noendstory-nginx
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
 volumes:
   noendstory_pgdata:
-  noendstory_data:
-  noendstory_audio:
+  noendstory_redisdata:
+  noendstory_vector_db:
+  noendstory_runtime_images:
+  noendstory_runtime_audio:

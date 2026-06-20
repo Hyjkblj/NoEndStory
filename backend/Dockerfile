@@ -2,29 +2,27 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# 安装系统依赖（使用国内镜像加速）
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    libpq-dev \
-    gcc \
-    ffmpeg \
+      ffmpeg \
+      gcc \
+      libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# 复制依赖文件
 COPY requirements.txt .
-
-# 安装 Python 依赖（使用国内镜像加速）
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
-# 复制应用代码
 COPY . .
 
-# 创建必要目录
-RUN mkdir -p images/characters images/scenes images/composite audio
+RUN mkdir -p \
+      /data/images/characters \
+      /data/images/scenes \
+      /data/images/smallscenes \
+      /data/images/composite \
+      /data/audio/cache \
+      /data/vector_db
 
-# 暴露端口
 EXPOSE 8000
 
-# 启动命令
 CMD ["uvicorn", "api.app:app", "--host", "0.0.0.0", "--port", "8000"]

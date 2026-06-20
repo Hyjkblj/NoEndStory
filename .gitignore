@@ -52,6 +52,7 @@ deploy/player.env
 chroma_db/
 vector_db/
 *.sql
+!deploy/postgres-init/*.sql
 
 # 日志
 logs/
