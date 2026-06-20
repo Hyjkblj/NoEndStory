@@ -5,7 +5,14 @@ import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
 import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
-import { checkServerHealth, initGame, initializeStory, getScenes, getStaticAssetUrl } from '@/services/api';
+import {
+  checkServerHealth,
+  initGame,
+  initializeStory,
+  getScenes,
+  getStaticAssetUrl,
+  isGuestEndingLimitError,
+} from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
 import { preloadImages } from '@/utils/preload';
@@ -232,6 +239,18 @@ function FirstMeetingSelection() {
         if (redirectToCharacterSetting) navigate(ROUTES.CHARACTER_SETTING);
       }
     } catch (error: unknown) {
+      if (isGuestEndingLimitError(error)) {
+        gameStorage.cleanupGuestOldGameData({
+          keepThreadId: null,
+          keepLatestEnding: true,
+          clearCharacterData: true,
+          clearSession: true,
+        });
+        message.warning(error.message || '今天的冒险已经结束啦，明天再来吧。');
+        navigate(ROUTES.FIRST_STEP, { replace: true });
+        return;
+      }
+
       const err = error as { message?: string; response?: { data?: { message?: string } } };
       let errorMessage = '选择场景失败，请重试';
       if (err.message?.includes('timeout')) {

@@ -726,6 +726,46 @@
   color: #6d2f13 !important;
 }
 
+.game-guest-limit-modal .ant-modal-content {
+  border: 1px solid rgba(255, 236, 194, 0.42);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 232, 0.98), rgba(255, 232, 190, 0.96)),
+    rgba(255, 248, 232, 0.98);
+  box-shadow:
+    0 24px 70px rgba(49, 24, 11, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.game-guest-limit-modal .ant-modal-title {
+  color: #3a1b08;
+  font-weight: 850;
+}
+
+.game-guest-limit-modal .ant-modal-confirm-body .ant-modal-confirm-content,
+.game-guest-limit-content p {
+  color: rgba(58, 27, 8, 0.68);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.game-guest-limit-content p {
+  margin: 0;
+}
+
+.game-guest-limit-icon {
+  color: #c9742f;
+}
+
+.game-guest-limit-modal .ant-modal-confirm-btns .ant-btn-primary {
+  border: 1px solid rgba(255, 230, 167, 0.88);
+  border-radius: 999px;
+  background: linear-gradient(135deg, #ffe08a 0%, #f2a23b 48%, #d86837 100%);
+  color: #2f1607;
+  font-weight: 800;
+  box-shadow: 0 12px 28px rgba(83, 34, 12, 0.22);
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }

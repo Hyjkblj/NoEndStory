@@ -224,13 +224,27 @@ class GameService:
                             'caution': states.caution,
                         }
 
+                # 将大场景ID转换为小场景ID（如果需要）
+                initial_scene = scene_id
+                try:
+                    from data.scenes import MAJOR_SCENES, SUB_SCENES
+                    if scene_id in MAJOR_SCENES and scene_id not in SUB_SCENES:
+                        # 是大场景，随机选择一个小场景
+                        import random
+                        sub_scenes = MAJOR_SCENES[scene_id].get('sub_scenes', [])
+                        if sub_scenes:
+                            initial_scene = random.choice(sub_scenes)
+                            logger.info(f"大场景 {scene_id} 转换为小场景 {initial_scene}")
+                except Exception as e:
+                    logger.debug(f"场景转换失败（使用原场景）: {e}")
+
                 # 直接 await（已在 async 上下文中）
                 state = await orchestrator.init_session(
                     thread_id=thread_id,
                     character_id=character_id,
                     character_name=character_name,
                     character_personality={'keywords': personality_keywords},
-                    initial_scene=scene_id,
+                    initial_scene=initial_scene,
                     initial_states=initial_states,
                 )
 
@@ -1321,4 +1335,61 @@ class GameService:
             return await self._process_input_legacy(session, user_input, option_id)
 
         return response_data
+
+    # ── 游客结局限制 ──────────────────────────────────────────────
+
+    def log_guest_ending(
+        self, client_ip: str, thread_id: str, ending_type: Optional[str] = None
+    ) -> None:
+        """记录游客结局（幂等：同 thread_id 不重复插入）
+
+        Args:
+            client_ip: 客户端 IP
+            thread_id: 游戏会话 ID
+            ending_type: 结局类型（good_ending / bad_ending / ...）
+        """
+        from datetime import date as date_cls
+        from models.character import GuestEndingLog
+
+        try:
+            db_manager = self.session_manager._db_manager
+            with db_manager.get_session() as db:
+                existing = db.query(GuestEndingLog).filter_by(thread_id=thread_id).first()
+                if existing:
+                    return
+                db.add(GuestEndingLog(
+                    client_ip=client_ip,
+                    thread_id=thread_id,
+                    ending_type=ending_type,
+                    date_key=date_cls.today(),
+                ))
+                db.commit()
+                logger.info(f"游客结局已记录: ip={client_ip}, thread={thread_id}, type={ending_type}")
+        except Exception as e:
+            logger.error(f"记录游客结局失败: {e}", exc_info=True)
+
+    @staticmethod
+    def has_guest_ended_today(client_ip: str) -> bool:
+        """检查指定 IP 今天是否已有游客结局记录
+
+        Args:
+            client_ip: 客户端 IP
+
+        Returns:
+            bool: 今天是否已有结局
+        """
+        from datetime import date as date_cls
+        from models.character import GuestEndingLog
+        from database.db_manager import DatabaseManager
+
+        try:
+            db_manager = DatabaseManager()
+            with db_manager.get_session() as db:
+                return db.query(GuestEndingLog).filter(
+                    GuestEndingLog.client_ip == client_ip,
+                    GuestEndingLog.date_key == date_cls.today(),
+                ).first() is not None
+        except Exception as e:
+            logger.error(f"查询游客结局记录失败: {e}", exc_info=True)
+            return False
 

@@ -49,16 +49,20 @@
 }
 
 .home-hero {
-  width: min(100%, 960px);
+  --home-hero-offset-x: clamp(0px, calc(8.4vw - 90px), 66px);
+
+  width: min(34vw, 680px);
+  min-width: 560px;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 28px;
   animation: home-enter 650ms ease both;
+  transform: translateX(var(--home-hero-offset-x));
 }
 
 .home-title-block {
-  max-width: 720px;
+  max-width: 680px;
 }
 
 .home-kicker {
@@ -74,7 +78,7 @@
 .home-title {
   margin: 0;
   color: #fff9ec;
-  font-size: clamp(64px, 12vw, 128px);
+  font-size: clamp(72px, 7vw, 118px);
   line-height: 0.94;
   font-weight: 900;
   text-wrap: balance;
@@ -84,7 +88,7 @@
 }
 
 .home-subtitle {
-  max-width: 560px;
+  max-width: 640px;
   margin: 22px 0 0;
   color: rgba(255, 248, 232, 0.88);
   font-size: clamp(18px, 2vw, 24px);
@@ -128,7 +132,7 @@
 }
 
 .home-save-card {
-  width: min(100%, 430px);
+  width: min(100%, 520px);
   display: flex;
   align-items: center;
   gap: 16px;
@@ -222,14 +226,105 @@
   -webkit-box-orient: vertical;
 }
 
+.home-guest-badge {
+  position: absolute;
+  top: clamp(18px, 3vw, 34px);
+  right: clamp(20px, 4vw, 56px);
+  z-index: 3;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 17px;
+  border: 1px solid rgba(255, 236, 194, 0.38);
+  border-radius: 999px;
+  background: rgba(24, 15, 12, 0.42);
+  color: #fff8e8;
+  font-size: 14px;
+  font-weight: 800;
+  line-height: 1;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.home-guest-badge .anticon {
+  color: #ffdc91;
+  font-size: 17px;
+}
+
+.home-guest-confirm-modal .ant-modal-content {
+  border: 1px solid rgba(255, 236, 194, 0.42);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 232, 0.98), rgba(255, 232, 190, 0.96)),
+    rgba(255, 248, 232, 0.98);
+  box-shadow:
+    0 24px 70px rgba(49, 24, 11, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.home-guest-confirm-modal .ant-modal-title {
+  color: #3a1b08;
+  font-weight: 850;
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-body .ant-modal-confirm-content {
+  color: rgba(58, 27, 8, 0.68);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn {
+  min-height: 40px;
+  padding-inline: 18px;
+  border-radius: 999px;
+  font-weight: 800;
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-primary {
+  border: 1px solid rgba(255, 230, 167, 0.88);
+  background: linear-gradient(135deg, #ffe08a 0%, #f2a23b 48%, #d86837 100%);
+  color: #2f1607;
+  box-shadow: 0 12px 28px rgba(83, 34, 12, 0.22);
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-primary:hover,
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-primary:focus-visible {
+  border-color: rgba(255, 230, 167, 0.95) !important;
+  background: linear-gradient(135deg, #ffe8a4 0%, #f4aa45 48%, #df7540 100%) !important;
+  color: #2f1607 !important;
+  box-shadow:
+    0 14px 30px rgba(83, 34, 12, 0.26),
+    0 0 0 4px rgba(201, 116, 47, 0.12);
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-default {
+  border-color: rgba(58, 27, 8, 0.16);
+  background: rgba(255, 248, 232, 0.84);
+  color: #5b3116;
+}
+
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-default:hover,
+.home-guest-confirm-modal .ant-modal-confirm-btns .ant-btn-default:focus-visible {
+  border-color: rgba(201, 116, 47, 0.42) !important;
+  background: rgba(255, 234, 194, 0.92) !important;
+  color: #3a1b08 !important;
+  box-shadow: 0 0 0 4px rgba(201, 116, 47, 0.12);
+}
+
+.home-guest-confirm-icon {
+  color: #c9742f;
+}
+
 @keyframes home-enter {
   from {
     opacity: 0;
-    transform: translateY(18px);
+    transform: translate(var(--home-hero-offset-x), 18px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(var(--home-hero-offset-x), 0);
   }
 }
 
@@ -253,9 +348,14 @@
   }
 
   .home-hero {
+    --home-hero-offset-x: 0px;
+
+    width: min(100%, 560px);
+    min-width: 0;
     align-items: center;
     text-align: center;
     gap: 24px;
+    transform: translateX(var(--home-hero-offset-x));
   }
 
   .home-title {
@@ -275,6 +375,14 @@
   .home-save-card {
     width: min(100%, 340px);
     min-height: 88px;
+  }
+
+  .home-guest-badge {
+    top: 18px;
+    right: 20px;
+    min-height: 40px;
+    padding-inline: 14px;
+    font-size: 13px;
   }
 }
 

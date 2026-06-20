@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Button, App as AntdApp } from 'antd';
 import { CheckOutlined, LeftOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
+import { useBackgroundMusicScope } from '@/contexts/BackgroundMusicScopeContext';
 import LoadingScreen from '@/components/loading';
 import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { checkServerHealth, getCharacterImages, removeCharacterBackground, getPresetVoices, setVoiceConfig, getVoicePreviewAudio, getStaticAssetUrl, type PresetVoiceItem } from '@/services/api';
@@ -57,6 +58,8 @@ function CharacterSelection() {
   const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   const [voicesLoading, setVoicesLoading] = useState(false);
   const [previewingVoiceId, setPreviewingVoiceId] = useState<string | null>(null);
+
+  useBackgroundMusicScope(step === 'voice');
 
   // 进入音色选择时拉取预设音色（拉取全部，前端按性别分组展示）
   useEffect(() => {

@@ -56,10 +56,6 @@ export function useGameProgress() {
   return { loading, setLoading, actNumber, setActNumber, messagesEndRef, scrollToBottom };
 }
 
-// ======== 向后兼容：聚合 Hook ========
-export type { GameStateBag };
-import type { GameStateBag as _GameStateBag } from './useGameState';
-
 export interface GameStateBag {
   messages: GameMessage[];
   setMessages: React.Dispatch<React.SetStateAction<GameMessage[]>>;
@@ -101,8 +97,8 @@ export function useGameState(): GameStateBag {
   const scene = useSceneState();
   const progress = useGameProgress();
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  return useMemo(() => ({
+  /* eslint-disable react-hooks/exhaustive-deps */
+  const gameState = useMemo(() => ({
     ...dialogue,
     ...session,
     ...scene,
@@ -113,4 +109,7 @@ export function useGameState(): GameStateBag {
        scene.characterImageUrl, scene.shouldUseComposite, scene.showTransition,
        scene.transitionSceneName,
        progress.loading, progress.actNumber]);
+  /* eslint-enable react-hooks/exhaustive-deps */
+
+  return gameState;
 }

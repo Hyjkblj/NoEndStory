@@ -1,9 +1,9 @@
 """角色相关数据库模型"""
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text, JSON, CheckConstraint, UniqueConstraint, Index
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Text, JSON, CheckConstraint, UniqueConstraint, Index, Date
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
-from datetime import datetime
+from datetime import datetime, date
 import uuid
 
 Base = declarative_base()
@@ -212,4 +212,24 @@ class VoiceConfig(Base):
 
     # 关联关系
     character = relationship('Character', foreign_keys=[character_id])
+
+
+class GuestEndingLog(Base):
+    """游客结局记录表
+
+    记录游客用户（无 Authorization header）达成的结局，用于每日一次限制。
+    以 IP + 日期为粒度，同一天内同一 IP 只能触发一次结局。
+    """
+    __tablename__ = 'guest_ending_log'
+    __table_args__ = (
+        Index('idx_guest_ending_ip_date', 'client_ip', 'date_key'),
+        Index('idx_guest_ending_thread_id', 'thread_id', unique=True),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    client_ip = Column(String(45), nullable=False, comment='客户端 IP（IPv4/IPv6）')
+    thread_id = Column(String(64), nullable=False, unique=True, comment='关联的游戏会话 ID')
+    ending_type = Column(String(32), nullable=True, comment='结局类型: good_ending / bad_ending / neutral_ending / open_ending')
+    created_at = Column(DateTime, default=datetime.utcnow, comment='结局时间')
+    date_key = Column(Date, default=date.today, comment='冗余日期字段，方便索引查询')
 

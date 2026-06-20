@@ -12,6 +12,8 @@ export type {
   SelectedScene,
   CharacterData,
   InitialGameData,
+  StoredMainSave,
+  SaveSummary,
 } from './game';
 
 // 向后兼容：重新导出 game.ts 中的类型

@@ -5,6 +5,7 @@ from typing import Dict, Optional, Tuple
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
+from api.utils.network import get_client_ip
 from utils.logger import setup_logger
 import os
 
@@ -78,7 +79,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         app,
         default_max_requests: int = 100,
         default_window_seconds: int = 3600,
-        guest_max_plays_per_day: int = 3,
+        guest_max_plays_per_day: int = 100,
         excluded_paths: list = None
     ):
         """
@@ -149,30 +150,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 logger.warning(f"环境变量 GUEST_MAX_FREE_PLAYS_PER_IP_PER_DAY 格式错误: {ip_daily_limit}")
     
     def _get_client_ip(self, request: Request) -> str:
-        """
-        获取客户端真实IP地址
-        
-        Args:
-            request: FastAPI请求对象
-            
-        Returns:
-            str: 客户端IP地址
-        """
-        # 检查代理头
-        forwarded_for = request.headers.get("X-Forwarded-For")
-        if forwarded_for:
-            # 取第一个IP（客户端真实IP）
-            return forwarded_for.split(",")[0].strip()
-        
-        real_ip = request.headers.get("X-Real-IP")
-        if real_ip:
-            return real_ip.strip()
-        
-        # 直接连接
-        if request.client:
-            return request.client.host
-        
-        return "unknown"
+        """获取客户端真实 IP 地址（委托给公共函数）"""
+        return get_client_ip(request)
     
     def _is_excluded_path(self, path: str) -> bool:
         """
@@ -399,7 +378,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 def create_rate_limit_middleware(
     default_max_requests: int = 100,
     default_window_seconds: int = 3600,
-    guest_max_plays_per_day: int = 3,
+    guest_max_plays_per_day: int = 100,
     excluded_paths: list = None
 ):
     """
