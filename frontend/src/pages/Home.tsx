@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button, App as AntdApp } from 'antd';
-import { BookOutlined, HeartOutlined, PlayCircleOutlined } from '@ant-design/icons';
+import { BookOutlined, HeartOutlined, PlayCircleOutlined, UserOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/image.png';
 import LoadingScreen from '@/components/loading';
 import { useRouteTransition } from '@/hooks/useRouteTransition';
@@ -77,7 +77,7 @@ const getEndingSummary = (record?: EndingRecord): EndingSummary | null => {
 function Home() {
   const navigate = useNavigate();
   const { transitionTo } = useRouteTransition();
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
   const [loading, setLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState('故事正在展开...');
   const [saveSummary, setSaveSummary] = useState<SaveSummary | null>(() =>
@@ -93,7 +93,7 @@ function Home() {
     setEndingSummary(getEndingSummary(gameStorage.getEndingRecords()[0]));
   }, []);
 
-  const handleBegin = async () => {
+  const enterStoryIndex = async () => {
     setLoadingMessage('故事正在展开...');
     setLoading(true);
 
@@ -111,8 +111,29 @@ function Home() {
     }
   };
 
+  const handleBegin = async () => {
+    const hasGuestHistory = Boolean(saveSummary?.threadId || endingSummary);
+
+    if (hasGuestHistory) {
+      modal.confirm({
+        title: '继续以游客身份开始新故事？',
+        content: '游客模式只保留最新一局。再次开始后，当前游客身份下的角色、进度和结局记录可能会被覆盖。',
+        okText: '继续开始',
+        cancelText: '先不开始',
+        className: 'home-guest-confirm-modal',
+        icon: <PlayCircleOutlined className="home-guest-confirm-icon" />,
+        onOk: enterStoryIndex,
+      });
+      return;
+    }
+
+    await enterStoryIndex();
+  };
+
   const handleContinue = async () => {
-    if (!saveSummary?.threadId) {
+    const restoreThreadId = saveSummary?.threadId;
+    const restoreCharacterId = saveSummary?.characterId;
+    if (!restoreThreadId) {
       navigate(ROUTES.FIRST_STEP);
       return;
     }
@@ -132,8 +153,8 @@ function Home() {
             return false;
           }
           await animateTo(52, 520);
-          gameStorage.setRestoreThreadId(saveSummary.threadId);
-          if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
+          gameStorage.setRestoreThreadId(restoreThreadId);
+          if (restoreCharacterId) gameStorage.setRestoreCharacterId(restoreCharacterId);
           await animateTo(88, 620);
         },
       });
@@ -159,6 +180,10 @@ function Home() {
     >
       <div className="home-overlay" />
       <div className="home-vignette" />
+      <div className="home-guest-badge" aria-label="当前身份：游客登录">
+        <UserOutlined aria-hidden="true" />
+        <span>游客登录</span>
+      </div>
 
       <section className="home-hero" aria-labelledby="home-title">
         <div className="home-title-block">

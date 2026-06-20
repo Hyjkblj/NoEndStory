@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { App as AntdApp, Button } from 'antd';
 import {
   BookOutlined,
+  ExclamationCircleOutlined,
   HomeOutlined,
   PlayCircleOutlined,
 } from '@ant-design/icons';
@@ -10,10 +11,10 @@ import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
 import SakuraSway from '@/components/SakuraSway';
 import { useRouteTransition } from '@/hooks/useRouteTransition';
-import { checkServerHealth } from '@/services/api';
+import { checkServerHealth, initGame, isGuestEndingLimitError } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
-import type { StoredMainSave } from '@/types/game';
+import type { SaveSummary, StoredMainSave } from '@/types/game';
 import { getSaveSummary } from '@/utils/game';
 import './FirstStep.css';
 
@@ -29,8 +30,29 @@ function FirstStep() {
 
   const hasSave = Boolean(saveSummary?.threadId);
 
+  const showEndingLimitModal = (messageText?: string) => {
+    modal.info({
+      title: '今天的冒险已经结束啦',
+      content: (
+        <div className="first-step-ending-limit-content">
+          <p>{messageText || '游客每天只能完成一次完整故事，明天可以继续开启新的相遇。'}</p>
+          <ul>
+            <li>注册账号后可解锁更多旅程</li>
+            <li>保存更多结局与回忆</li>
+            <li>后续可同步不同设备的故事进度</li>
+          </ul>
+        </div>
+      ),
+      okText: '我知道了',
+      className: 'first-step-confirm-modal first-step-ending-limit-modal',
+      icon: <ExclamationCircleOutlined className="first-step-confirm-icon" />,
+    });
+  };
+
   const handleContinueGame = async () => {
-    if (!saveSummary?.threadId) return;
+    const restoreThreadId = saveSummary?.threadId;
+    const restoreCharacterId = saveSummary?.characterId;
+    if (!restoreThreadId) return;
 
     setLoading(true);
     setLoadingMessage('故事正在继续...');
@@ -47,8 +69,8 @@ function FirstStep() {
             return false;
           }
           await animateTo(52, 520);
-          gameStorage.setRestoreThreadId(saveSummary.threadId);
-          if (saveSummary.characterId) gameStorage.setRestoreCharacterId(saveSummary.characterId);
+          gameStorage.setRestoreThreadId(restoreThreadId);
+          if (restoreCharacterId) gameStorage.setRestoreCharacterId(restoreCharacterId);
           setLoadingMessage('正在翻到上次停下的那一页...');
           await animateTo(88, 620);
         },
@@ -63,7 +85,7 @@ function FirstStep() {
     }
   };
 
-  const handleNewStory = () => {
+  const handleNewStory = async () => {
     const hasEnding = gameStorage.getEndingRecords().length > 0;
     const startNewStory = () => {
       gameStorage.cleanupGuestOldGameData({
@@ -74,6 +96,17 @@ function FirstStep() {
       });
       navigate(ROUTES.CHARACTER_SETTING);
     };
+
+    if (hasEnding) {
+      try {
+        await initGame({ game_mode: 'solo', character_id: '__guest_limit_probe__' });
+      } catch (error: unknown) {
+        if (isGuestEndingLimitError(error)) {
+          showEndingLimitModal(error.message);
+          return;
+        }
+      }
+    }
 
     if (!hasSave && !hasEnding) {
       startNewStory();

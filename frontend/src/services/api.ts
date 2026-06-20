@@ -1,6 +1,23 @@
 import axios from 'axios';
 import type { PlayerOption } from '@/types/game';
 
+const GUEST_ENDING_LIMIT_CODE = 'GUEST_ENDING_LIMIT';
+
+export class GuestEndingLimitError extends Error {
+  code = GUEST_ENDING_LIMIT_CODE;
+  hint?: string;
+
+  constructor(message = '今天的冒险已经结束啦！注册账号可解锁更多旅程。', hint?: string) {
+    super(message);
+    this.name = 'GuestEndingLimitError';
+    this.hint = hint;
+  }
+}
+
+export const isGuestEndingLimitError = (error: unknown): error is GuestEndingLimitError =>
+  error instanceof GuestEndingLimitError ||
+  (error instanceof Error && error.name === 'GuestEndingLimitError');
+
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
@@ -40,6 +57,19 @@ const getErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
+const getGuestEndingLimitError = (data: unknown): GuestEndingLimitError | null => {
+  if (!isRecord(data)) return null;
+  const detail = data.detail;
+  if (!isRecord(detail) || detail.code !== GUEST_ENDING_LIMIT_CODE) return null;
+
+  const message =
+    typeof detail.message === 'string' && detail.message.trim()
+      ? detail.message
+      : undefined;
+  const hint = typeof detail.hint === 'string' ? detail.hint : undefined;
+  return new GuestEndingLimitError(message, hint);
+};
+
 const isTimeoutError = (error: unknown): boolean => {
   if (axios.isAxiosError(error)) {
     return error.code === 'ECONNABORTED' || Boolean(error.message?.includes('timeout'));
@@ -53,6 +83,11 @@ api.interceptors.response.use(
   (error) => {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
+      const guestLimitError = status === 403 ? getGuestEndingLimitError(error.response?.data) : null;
+      if (guestLimitError) {
+        return Promise.reject(guestLimitError);
+      }
+
       if (status === 401) {
         console.warn('Unauthorized request.');
       } else if (status === 403) {
@@ -286,6 +321,7 @@ export interface ProcessGameInputResponse {
   ending_title?: string;
   ending_type?: string;
   ending_description?: string;
+  guest_ending_limited?: boolean;
   [key: string]: unknown;
 }
 

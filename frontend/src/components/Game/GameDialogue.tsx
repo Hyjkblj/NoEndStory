@@ -13,8 +13,6 @@ export interface GameDialogueProps {
   typeSpeed?: number;
 }
 
-const CHINESE_NUMS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
-
 export default function GameDialogue({
   currentDialogue,
   currentOptions,

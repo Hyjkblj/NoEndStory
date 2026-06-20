@@ -1,8 +1,10 @@
 import { useEffect, useCallback, useRef } from 'react';
 import { App as AntdApp } from 'antd';
-import { initGame, initializeStory, getCharacterImages } from '@/services/api';
+import { useNavigate } from 'react-router-dom';
+import { GuestEndingLimitError, initGame, initializeStory, getCharacterImages } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
 import { getSceneNameById } from '@/config/scenes';
+import { ROUTES } from '@/config/routes';
 import { getCharacterLayerImageFromStorage, getFallbackSceneImageUrls, isLikelyTransparentCharacterLayer } from '@/utils/game';
 import { logger } from '@/utils/logger';
 import type { GameMessage, PlayerOption } from '@/types/game';
@@ -25,6 +27,7 @@ interface StoryData {
 
 export function useGameInit(state: GameStateBag): UseGameInitResult {
   const { message } = AntdApp.useApp();
+  const navigate = useNavigate();
   const {
     setMessages,
     setThreadId,
@@ -241,6 +244,19 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         }
         setMessages(initialMessages);
       } catch (error: unknown) {
+        if (error instanceof GuestEndingLimitError) {
+          logger.warn('[game] guest ending limit blocked game initialization');
+          gameStorage.cleanupGuestOldGameData({
+            keepThreadId: null,
+            keepLatestEnding: true,
+            clearCharacterData: true,
+            clearSession: true,
+          });
+          message.warning(error.message || '今天的冒险已经结束啦，明天再来吧。');
+          navigate(ROUTES.FIRST_STEP, { replace: true });
+          return;
+        }
+
         logger.error('failed to initialize game', error);
         message.error('Failed to initialize game.');
       }
@@ -250,6 +266,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
     applyStoryData,
     loadGameSave,
     message,
+    navigate,
     setCharacterId,
     setCharacterImage,
     setMessages,

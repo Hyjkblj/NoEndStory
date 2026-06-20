@@ -76,7 +76,8 @@ export function getSaveSummary(save: StoredMainSave | null): SaveSummary | null 
     threadId: save.threadId || save.id || '',
     characterId: save.characterId,
     characterName: save.characterName || '未命名角色',
-    lastMessage: save.lastMessage || '',
-    timeAgo: formatLastPlayed(save.lastPlayed || save.timestamp),
+    lastScene: save.lastScene || '故事进行中',
+    lastPlayed: formatLastPlayed(save.lastPlayed || save.timestamp),
+    excerpt: save.lastMessage || '',
   };
 }

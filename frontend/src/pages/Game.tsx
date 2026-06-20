@@ -7,9 +7,10 @@ import {
   SaveOutlined,
   ReloadOutlined,
   HomeOutlined,
+  UserAddOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { processGameInput, initGame, getStaticAssetUrl } from '@/services/api';
+import { processGameInput, initGame, getStaticAssetUrl, isGuestEndingLimitError } from '@/services/api';
 import SceneTransition from '@/components/SceneTransition';
 import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { GameSceneBackground, GameDialogue } from '@/components/Game';
@@ -48,6 +49,7 @@ type GameResponseData = {
   current_states?: Record<string, number> | null;
   state_changes?: Record<string, number>;
   tts_emotion?: Record<string, unknown> | null;
+  guest_ending_limited?: boolean;
 };
 
 const ENDING_TYPE_LABELS: Record<string, string> = {
@@ -71,6 +73,11 @@ const RELATIONSHIP_LABELS: Array<{ key: string; label: string; tone: EndingRelat
 const getNumericState = (states: Record<string, number> | null | undefined, key: string): number | null => {
   const value = states?.[key];
   return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(100, value)) : null;
+};
+
+const formatMetricValue = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(Math.max(0, Math.min(100, value)));
 };
 
 const inferEndingType = (states: Record<string, number> | null | undefined): string => {
@@ -159,7 +166,7 @@ const buildEndingMemories = (
 
 function Game() {
   const navigate = useNavigate();
-  const { message } = AntdApp.useApp();
+  const { message, modal } = AntdApp.useApp();
   const state = useGameState();
   const { saveGameProgress, setCharacterImage } = useGameInit(state);
   const { activeTransitionId, failRouteTransition } = useRouteTransition();
@@ -176,6 +183,7 @@ function Game() {
   const [endingTitle, setEndingTitle] = useState('故事落幕');
   const [endingRecord, setEndingRecord] = useState<EndingRecord | null>(null);
   const [endingSaved, setEndingSaved] = useState(false);
+  const [isGuestEndingLimited, setIsGuestEndingLimited] = useState(false);
   // 场景/角色分层画面渲染异常时停止当前交互
   const [visualError, setVisualError] = useState<string | null>(null);
   const [visualReady, setVisualReady] = useState(false);
@@ -350,6 +358,7 @@ function Game() {
 
   const handleGameResponse = (responseData: GameResponseData, lastChoice?: string) => {
     setVisualError(null);
+    if (!responseData.is_game_finished) setIsGuestEndingLimited(false);
 
     // 更新 TTS 情感参数
     if (responseData.tts_emotion) {
@@ -399,6 +408,7 @@ function Game() {
       state.setCurrentOptions([]);
       const title = record.title || '故事落幕';
       setEndingTitle(title);
+      setIsGuestEndingLimited(responseData.guest_ending_limited !== false);
     }
   };
 
@@ -445,6 +455,11 @@ function Game() {
               return;
             }
           } catch (recoverError) {
+            if (isGuestEndingLimitError(recoverError)) {
+              message.warning(recoverError.message || '今天的冒险已经结束啦，明天再来吧。');
+              navigate(ROUTES.FIRST_STEP, { replace: true });
+              return;
+            }
             logger.error('[游戏恢复] 恢复失败', recoverError);
             errorMessage = '游戏会话已过期且无法恢复，请返回重新开始游戏';
           }
@@ -479,6 +494,11 @@ function Game() {
   };
 
   const handleRestartAfterEnding = () => {
+    if (isGuestEndingLimited) {
+      showRegisterHint();
+      return;
+    }
+
     stopTts();
     gameStorage.cleanupGuestOldGameData({
       keepThreadId: null,
@@ -487,6 +507,20 @@ function Game() {
       clearSession: true,
     });
     navigate(ROUTES.CHARACTER_SETTING);
+  };
+
+  const showRegisterHint = () => {
+    modal.info({
+      title: '注册后可以继续新的旅程',
+      content: (
+        <div className="game-guest-limit-content">
+          <p>游客模式今天已经完成一段故事。注册账号后，可以继续开启更多相遇，并保留更多结局回忆。</p>
+        </div>
+      ),
+      okText: '我知道了',
+      className: 'game-guest-limit-modal',
+      icon: <UserAddOutlined className="game-guest-limit-icon" />,
+    });
   };
 
   const handleBackHomeAfterEnding = () => {
@@ -641,17 +675,21 @@ function Game() {
                     <strong>最终关系</strong>
                   </div>
                   <div className="ending-metrics">
-                    {(endingRecord?.relationship || []).map((metric) => (
-                      <div key={metric.key} className={`ending-metric ending-metric-${metric.tone || 'quiet'}`}>
-                        <div className="ending-metric-row">
-                          <span>{metric.label}</span>
-                          <strong>{metric.value == null ? '--' : metric.value}</strong>
+                    {(endingRecord?.relationship || []).map((metric) => {
+                      const metricValue = formatMetricValue(metric.value);
+
+                      return (
+                        <div key={metric.key} className={`ending-metric ending-metric-${metric.tone || 'quiet'}`}>
+                          <div className="ending-metric-row">
+                            <span>{metric.label}</span>
+                            <strong>{metricValue == null ? '--' : metricValue}</strong>
+                          </div>
+                          <div className="ending-metric-track">
+                            <span style={{ width: `${metricValue ?? 0}%` }} />
+                          </div>
                         </div>
-                        <div className="ending-metric-track">
-                          <span style={{ width: `${metric.value ?? 0}%` }} />
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
 
@@ -685,15 +723,27 @@ function Game() {
                 >
                   {endingSaved ? '已保存' : '保存回忆'}
                 </Button>
-                <Button
-                  type="primary"
-                  size="large"
-                  icon={<ReloadOutlined />}
-                  onClick={handleRestartAfterEnding}
-                  className="ending-primary-button"
-                >
-                  再来一局
-                </Button>
+                {isGuestEndingLimited ? (
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<UserAddOutlined />}
+                    onClick={showRegisterHint}
+                    className="ending-primary-button"
+                  >
+                    注册解锁更多旅程
+                  </Button>
+                ) : (
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<ReloadOutlined />}
+                    onClick={handleRestartAfterEnding}
+                    className="ending-primary-button"
+                  >
+                    再来一局
+                  </Button>
+                )}
                 <Button
                   size="large"
                   icon={<HomeOutlined />}

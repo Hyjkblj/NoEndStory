@@ -270,6 +270,21 @@
   line-height: 1.65;
 }
 
+.first-step-ending-limit-content p {
+  margin: 0 0 12px;
+}
+
+.first-step-ending-limit-content ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.first-step-ending-limit-content li::marker {
+  color: #c9742f;
+}
+
 .first-step-confirm-modal .ant-modal-confirm-btns .ant-btn-primary {
   border: 1px solid rgba(255, 230, 167, 0.88);
   border-radius: 999px;

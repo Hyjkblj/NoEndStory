@@ -16,6 +16,11 @@ const formatArchiveDate = (value: number) => new Intl.DateTimeFormat('zh-CN', {
   minute: '2-digit',
 }).format(new Date(value));
 
+const formatMetricValue = (value: number | null | undefined) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return Math.round(Math.max(0, Math.min(100, value)));
+};
+
 function EndingArchive() {
   const navigate = useNavigate();
   const records = useMemo(() => gameStorage.getEndingRecords(), []);
@@ -155,17 +160,21 @@ function EndingArchiveDetail({ record }: { record: EndingRecord }) {
             <strong>最终关系</strong>
           </div>
           <div className="ending-archive-metrics">
-            {record.relationship.map((metric) => (
-              <div key={metric.key} className={`ending-archive-metric metric-${metric.tone || 'quiet'}`}>
-                <div>
-                  <span>{metric.label}</span>
-                  <strong>{metric.value == null ? '--' : metric.value}</strong>
+            {record.relationship.map((metric) => {
+              const metricValue = formatMetricValue(metric.value);
+
+              return (
+                <div key={metric.key} className={`ending-archive-metric metric-${metric.tone || 'quiet'}`}>
+                  <div>
+                    <span>{metric.label}</span>
+                    <strong>{metricValue == null ? '--' : metricValue}</strong>
+                  </div>
+                  <em>
+                    <i style={{ width: `${metricValue ?? 0}%` }} />
+                  </em>
                 </div>
-                <em>
-                  <i style={{ width: `${metric.value ?? 0}%` }} />
-                </em>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
