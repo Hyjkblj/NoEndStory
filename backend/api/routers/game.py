@@ -1,6 +1,6 @@
 """游戏管理API路由"""
 import re
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from api.schemas import (
     GameInitRequest,
     GameInitData,
@@ -16,6 +16,7 @@ from api.schemas import (
 )
 from api.services.game_service import GameService
 from api.dependencies import get_game_service
+from api.utils.network import get_client_ip
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,27 +26,42 @@ router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
 @router.post("/init", response_model=GameInitApiResponse)
 async def init_game(
-    request: GameInitRequest,
+    body: GameInitRequest,
+    request: Request,
     game_service: GameService = Depends(get_game_service)
 ):
     """初始化游戏"""
+    # ── 游客结局限制检查 ──
+    is_guest = not request.headers.get("Authorization")
+    if is_guest:
+        client_ip = get_client_ip(request)
+        if GameService.has_guest_ended_today(client_ip):
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "code": "GUEST_ENDING_LIMIT",
+                    "message": "今天的冒险已经结束啦！注册账号可解锁无限旅程。",
+                    "hint": "register",
+                },
+            )
+
     try:
-        logger.info(f"收到初始化请求: user_id={request.user_id}, character_id={request.character_id}, game_mode={request.game_mode}")
-        
+        logger.info(f"收到初始化请求: user_id={body.user_id}, character_id={body.character_id}, game_mode={body.game_mode}")
+
         character_id = None
-        if request.character_id:
-            character_id = int(request.character_id)
+        if body.character_id:
+            character_id = int(body.character_id)
         else:
             logger.error("character_id is required")
             raise HTTPException(status_code=400, detail="character_id is required")
-        
+
         logger.info("开始初始化游戏会话...")
         result = game_service.init_game(
-            user_id=request.user_id,
+            user_id=body.user_id,
             character_id=character_id,
-            game_mode=request.game_mode
+            game_mode=body.game_mode
         )
-        
+
         logger.info(f"游戏初始化成功: thread_id={result.get('thread_id')}, user_id={result.get('user_id')}")
         return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
@@ -55,14 +71,15 @@ async def init_game(
 
 @router.post("/input", response_model=GameInputApiResponse)
 async def process_input(
-    request: GameInputRequest,
+    body: GameInputRequest,
+    http_request: Request,
     game_service: GameService = Depends(get_game_service)
 ):
     """处理玩家输入"""
     try:
         # 尝试从user_input中解析option_id（仅接受严格格式: option:<number>）
         option_id = None
-        user_input = (request.user_input or "").strip()
+        user_input = (body.user_input or "").strip()
 
         option_match = re.fullmatch(r"option:(\d+)", user_input, flags=re.IGNORECASE)
         if option_match:
@@ -91,32 +108,32 @@ async def process_input(
 
         try:
             result = await _process_with_session_lock(
-                target_thread_id=request.thread_id,
+                target_thread_id=body.thread_id,
                 input_text=user_input,
                 input_option_id=option_id
             )
         except ValueError as e:
             # 如果会话不存在，尝试自动恢复
-            if "not found" in str(e).lower() and request.character_id:
+            if "not found" in str(e).lower() and body.character_id:
                 try:
                     # 重新初始化游戏会话
-                    character_id_int = int(request.character_id)
+                    character_id_int = int(body.character_id)
                     init_result = game_service.init_game(
-                        user_id=request.user_id,
+                        user_id=body.user_id,
                         character_id=character_id_int,
                         game_mode='solo'
                     )
                     new_thread_id = init_result['thread_id']
-                    
+
                     # 初始化故事
-                    restored_story = game_service.initialize_story(new_thread_id, character_id_int)
+                    restored_story = await game_service.initialize_story(new_thread_id, character_id_int)
 
                     # 关键修复：旧会话的选项不重放到新会话，避免"选了A却执行新会话的A"错配
                     if option_id is not None:
                         restored_story['thread_id'] = new_thread_id
                         restored_story['session_restored'] = True
                         restored_story['need_reselect_option'] = True
-                        restored_story['restored_from_thread_id'] = request.thread_id
+                        restored_story['restored_from_thread_id'] = body.thread_id
                         return {
                             "code": 200,
                             "message": "会话已恢复，请重新选择选项",
@@ -129,7 +146,7 @@ async def process_input(
                         input_text=user_input,
                         input_option_id=option_id
                     )
-                    
+
                     # 在响应中返回新的thread_id，让前端更新
                     result['thread_id'] = new_thread_id
                     result['session_restored'] = True
@@ -140,7 +157,18 @@ async def process_input(
                     )
             else:
                 raise
-        
+
+        # ── 游客结局记录 ──
+        if result.get("is_game_finished"):
+            is_guest = not http_request.headers.get("Authorization")
+            if is_guest:
+                client_ip = get_client_ip(http_request)
+                game_service.log_guest_ending(
+                    client_ip=client_ip,
+                    thread_id=result.get("thread_id", body.thread_id),
+                    ending_type=result.get("ending_type"),
+                )
+
         return {"code": 200, "message": "ok", "data": result}
     except ValueError as e:
         logger.error(f"参数错误: {str(e)}", exc_info=True)
