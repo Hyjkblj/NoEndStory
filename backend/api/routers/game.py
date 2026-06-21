@@ -1,6 +1,5 @@
 """游戏管理API路由"""
 import re
-import os
 from fastapi import APIRouter, HTTPException, Depends, Request
 from api.schemas import (
     GameInitRequest,
@@ -18,21 +17,14 @@ from api.schemas import (
 from api.services.game_service import GameService
 from api.dependencies import get_game_service
 from api.utils.network import get_client_ip
+from api.utils.guest_limit import (
+    ensure_guest_ending_allowed,
+    is_guest_ending_ip_whitelisted,
+    is_guest_request,
+)
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
-
-# 游客结局限制 IP 白名单（逗号分隔，支持精确匹配和 CIDR）
-_GUEST_ENDING_IP_WHITELIST: set[str] = {
-    ip.strip()
-    for ip in os.getenv("GUEST_ENDING_IP_WHITELIST", "127.0.0.1,::1").split(",")
-    if ip.strip()
-}
-
-
-def _is_ip_whitelisted(client_ip: str) -> bool:
-    """检查 IP 是否在游客结局限制白名单中"""
-    return client_ip in _GUEST_ENDING_IP_WHITELIST
 
 router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
@@ -44,19 +36,7 @@ async def init_game(
     game_service: GameService = Depends(get_game_service)
 ):
     """初始化游戏"""
-    # ── 游客结局限制检查 ──
-    is_guest = not request.headers.get("Authorization")
-    if is_guest:
-        client_ip = get_client_ip(request)
-        if not _is_ip_whitelisted(client_ip) and GameService.has_guest_ended_today(client_ip):
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "code": "GUEST_ENDING_LIMIT",
-                    "message": "今天的冒险已经结束啦！注册账号可解锁无限旅程。",
-                    "hint": "register",
-                },
-            )
+    ensure_guest_ending_allowed(request)
 
     try:
         logger.info(f"收到初始化请求: user_id={body.user_id}, character_id={body.character_id}, game_mode={body.game_mode}")
@@ -90,6 +70,8 @@ async def process_input(
 ):
     """处理玩家输入"""
     try:
+        ensure_guest_ending_allowed(http_request)
+
         # 尝试从user_input中解析option_id（仅接受严格格式: option:<number>）
         option_id = None
         user_input = (body.user_input or "").strip()
@@ -173,10 +155,9 @@ async def process_input(
 
         # ── 游客结局记录 ──
         if result.get("is_game_finished"):
-            is_guest = not http_request.headers.get("Authorization")
-            if is_guest:
+            if is_guest_request(http_request):
                 client_ip = get_client_ip(http_request)
-                if not _is_ip_whitelisted(client_ip):
+                if not is_guest_ending_ip_whitelisted(client_ip):
                     game_service.log_guest_ending(
                         client_ip=client_ip,
                         thread_id=result.get("thread_id", body.thread_id),

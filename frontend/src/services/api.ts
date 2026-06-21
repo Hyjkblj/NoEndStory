@@ -7,7 +7,7 @@ export class GuestEndingLimitError extends Error {
   code = GUEST_ENDING_LIMIT_CODE;
   hint?: string;
 
-  constructor(message = '今天的冒险已经结束啦！注册账号可解锁更多旅程。', hint?: string) {
+  constructor(message = '这次游客体验已经完成，24小时后可再次开启。注册账号可解锁更多旅程。', hint?: string) {
     super(message);
     this.name = 'GuestEndingLimitError';
     this.hint = hint;

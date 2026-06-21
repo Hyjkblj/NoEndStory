@@ -32,10 +32,10 @@ function FirstStep() {
 
   const showEndingLimitModal = (messageText?: string) => {
     modal.info({
-      title: '今天的冒险已经结束啦',
+      title: '这次游客体验已经完成',
       content: (
         <div className="first-step-ending-limit-content">
-          <p>{messageText || '游客每天只能完成一次完整故事，明天可以继续开启新的相遇。'}</p>
+          <p>{messageText || '游客在24小时内只能完成一次完整故事，之后可以继续开启新的相遇。'}</p>
           <ul>
             <li>注册账号后可解锁更多旅程</li>
             <li>保存更多结局与回忆</li>

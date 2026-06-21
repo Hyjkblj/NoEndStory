@@ -1370,24 +1370,25 @@ class GameService:
 
     @staticmethod
     def has_guest_ended_today(client_ip: str) -> bool:
-        """检查指定 IP 今天是否已有游客结局记录
+        """检查指定 IP 过去 24 小时内是否已有游客结局记录
 
         Args:
             client_ip: 客户端 IP
 
         Returns:
-            bool: 今天是否已有结局
+            bool: 过去 24 小时内是否已有结局
         """
-        from datetime import date as date_cls
+        from datetime import datetime, timedelta
         from models.character import GuestEndingLog
         from database.db_manager import DatabaseManager
 
         try:
+            cutoff = datetime.utcnow() - timedelta(hours=24)
             db_manager = DatabaseManager()
             with db_manager.get_session() as db:
                 return db.query(GuestEndingLog).filter(
                     GuestEndingLog.client_ip == client_ip,
-                    GuestEndingLog.date_key == date_cls.today(),
+                    GuestEndingLog.created_at >= cutoff,
                 ).first() is not None
         except Exception as e:
             logger.error(f"查询游客结局记录失败: {e}", exc_info=True)

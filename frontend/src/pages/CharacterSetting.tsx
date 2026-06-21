@@ -12,7 +12,7 @@ import {
 import backgroundImage from '@/assets/images/settingcharacterbackground.png';
 import { useRouteTransition } from '@/hooks/useRouteTransition';
 import { ROUTES } from '@/config/routes';
-import { checkServerHealth, createCharacter } from '@/services/api';
+import { checkServerHealth, createCharacter, isGuestEndingLimitError } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
 import { preloadImages } from '@/utils/preload';
 import './CharacterSetting.css';
@@ -329,6 +329,18 @@ function CharacterSetting() {
         setLoading(false);
       }
     } catch (error: unknown) {
+      if (isGuestEndingLimitError(error)) {
+        gameStorage.cleanupGuestOldGameData({
+          keepThreadId: null,
+          keepLatestEnding: true,
+          clearCharacterData: true,
+          clearSession: true,
+        });
+        messageApi.warning(error.message || '这次游客体验已经完成，24小时后可再次开启。');
+        navigate(ROUTES.FIRST_STEP, { replace: true });
+        return;
+      }
+
       const err = error as { response?: { data?: { detail?: string } }; message?: string };
       messageApi.error(err.response?.data?.detail || err.message || '创建角色失败，请稍后重试。');
       setLoading(false);

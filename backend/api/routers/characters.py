@@ -1,5 +1,5 @@
 """角色管理API路由"""
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List
 from api.schemas import (
     CreateCharacterRequest,
@@ -22,6 +22,7 @@ from api.schemas import (
 from api.services.character_service import CharacterService
 from api.services.game_service import GameService
 from api.dependencies import get_character_service, get_game_service, get_image_service
+from api.utils.guest_limit import ensure_guest_ending_allowed
 from api.services.image_service import ImageService
 from utils.logger import get_logger
 
@@ -33,10 +34,13 @@ router = APIRouter(prefix="/v1/characters", tags=["角色管理"])
 @router.post("/create", response_model=CreateCharacterApiResponse)
 async def create_character(
     request: CreateCharacterRequest,
+    http_request: Request,
     character_service: CharacterService = Depends(get_character_service)
 ):
     """创建新角色"""
     try:
+        ensure_guest_ending_allowed(http_request)
+
         import json
         logger.info("收到创建角色请求，开始处理...")
         # 转换请求数据
@@ -326,6 +330,7 @@ async def get_character_images(
 @router.post("/{character_id}/remove-background", response_model=RemoveBackgroundApiResponse)
 async def remove_character_background(
     character_id: str,
+    http_request: Request,
     request: RemoveBackgroundRequest = RemoveBackgroundRequest(),
     character_service: CharacterService = Depends(get_character_service),
     image_service: ImageService = Depends(get_image_service)
@@ -342,6 +347,8 @@ async def remove_character_background(
         request: 请求体，包含image_url（可选）、image_urls（所有图片URL列表）、selected_index（选中的索引）
     """
     try:
+        ensure_guest_ending_allowed(http_request)
+
         image_url = request.image_url if request else None
         image_urls = request.image_urls if request else None
         selected_index = request.selected_index if request else None
@@ -402,10 +409,13 @@ async def remove_character_background(
 @router.post("/initialize-story", response_model=InitializeStoryApiResponse)
 async def initialize_story(
     request: InitializeStoryRequest,
+    http_request: Request,
     game_service: GameService = Depends(get_game_service)
 ):
     """初始化故事（触发初遇场景）"""
     try:
+        ensure_guest_ending_allowed(http_request)
+
         if not request.thread_id:
             logger.error("thread_id 为空")
             raise HTTPException(status_code=422, detail="thread_id 是必填参数")

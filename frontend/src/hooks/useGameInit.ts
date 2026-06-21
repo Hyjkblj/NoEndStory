@@ -255,7 +255,7 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
             clearCharacterData: true,
             clearSession: true,
           });
-          message.warning(error.message || '今天的冒险已经结束啦，明天再来吧。');
+          message.warning(error.message || '这次游客体验已经完成，24小时后可再次开启。');
           navigate(ROUTES.FIRST_STEP, { replace: true });
           return;
         }

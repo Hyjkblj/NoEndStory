@@ -1,10 +1,11 @@
 """TTS语音合成API路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from api.response import success_response, error_response
 from api.services.tts_service import TTSService
 from api.dependencies import get_tts_service
+from api.utils.guest_limit import ensure_guest_ending_allowed
 from fastapi import Depends
 from utils.logger import get_logger
 
@@ -66,6 +67,7 @@ class VoiceConfigRequest(BaseModel):
 @router.post("/generate")
 async def generate_speech(
     request: TTSGenerateRequest,
+    http_request: Request,
     tts_service: TTSService = Depends(get_tts_service)
 ):
     """生成语音
@@ -73,6 +75,8 @@ async def generate_speech(
     根据文本和角色ID生成语音，支持情绪参数和缓存。
     """
     try:
+        ensure_guest_ending_allowed(http_request)
+
         if not tts_service.enabled:
             return error_response(
                 code=503,
@@ -93,6 +97,8 @@ async def generate_speech(
             'cached': audio_info.get('cached', False)
         })
     
+    except HTTPException:
+        raise
     except ValueError as e:
         return error_response(code=400, message=str(e))
     except Exception as e:
@@ -104,6 +110,7 @@ async def generate_speech(
 @router.post("/voice-design/create")
 async def create_voice_design(
     request: VoiceDesignRequest,
+    http_request: Request,
     tts_service: TTSService = Depends(get_tts_service)
 ):
     """创建自定义音色（Voice Design）
@@ -111,6 +118,8 @@ async def create_voice_design(
     通过文本描述生成自定义音色。
     """
     try:
+        ensure_guest_ending_allowed(http_request)
+
         if not tts_service.voice_design_enabled:
             return error_response(
                 code=503,
@@ -133,6 +142,8 @@ async def create_voice_design(
                 message=result['message']
             )
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Voice Design API错误: {e}", exc_info=True)
         return error_response(code=500, message=f"创建自定义音色失败: {str(e)}")
@@ -141,6 +152,7 @@ async def create_voice_design(
 @router.post("/voice/config")
 async def set_voice_config(
     request: VoiceConfigRequest,
+    http_request: Request,
     tts_service: TTSService = Depends(get_tts_service)
 ):
     """设置角色音色配置
@@ -148,6 +160,8 @@ async def set_voice_config(
     设置角色的音色类型、预设音色ID或Voice Design描述。
     """
     try:
+        ensure_guest_ending_allowed(http_request)
+
         # 构建配置
         voice_config = {
             'voice_type': request.voice_type,
@@ -165,6 +179,8 @@ async def set_voice_config(
             'message': '音色配置已保存'
         })
     
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"音色配置API错误: {e}", exc_info=True)
         return error_response(code=500, message=f"保存音色配置失败: {str(e)}")
@@ -240,10 +256,13 @@ class TTSPreviewRequest(BaseModel):
 @router.post("/preview")
 async def preview_voice(
     request: TTSPreviewRequest,
+    http_request: Request,
     tts_service: TTSService = Depends(get_tts_service)
 ):
     """试听预设音色：根据 preset_voice_id 合成一段语音并返回 audio_url"""
     try:
+        ensure_guest_ending_allowed(http_request)
+
         from data.preset_voices import get_preset_voice
         voice = get_preset_voice(request.preset_voice_id)
         if not voice:
@@ -270,6 +289,8 @@ async def preview_voice(
             "audio_url": audio_info["audio_url"],
             "duration": audio_info.get("duration", 0),
         })
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"TTS Preview错误: {e}", exc_info=True)
         code, message = _tts_error_response(e, provider=tts_service.provider)
