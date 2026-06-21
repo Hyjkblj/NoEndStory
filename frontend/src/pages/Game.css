@@ -165,15 +165,16 @@
   right: 0 !important;
   top: auto !important;
   z-index: 10;
-  padding: 20px 32px 24px 32px;
+  padding: 14px 32px 18px 32px;
   background: rgba(255, 228, 181, 0.96);
   border-top: 2px solid rgba(139, 69, 19, 0.5);
   box-shadow: 0 -4px 20px rgba(139, 69, 19, 0.15);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 280px;
-  max-height: 65vh;
+  justify-content: flex-start;
+  gap: 10px;
+  min-height: 150px;
+  max-height: 42vh;
   overflow-y: auto;
   width: 100% !important;
   margin: 0 !important;
@@ -191,6 +192,7 @@
 }
 
 .dialogue-header {
+  display: none;
   font-size: 20px;
   font-weight: bold;
   color: #654321;
@@ -202,6 +204,7 @@
   font-size: 18px;
   line-height: 1.8;
   color: #333;
+  text-align: left;
   white-space: pre-wrap;
   word-wrap: break-word;
   text-shadow: 0 1px 2px rgba(255, 255, 255, 0.3);
@@ -287,9 +290,9 @@
 /* 响应式设计 */
 @media (max-width: 768px) {
   .game-dialogue-container {
-    padding: 16px 20px 20px 20px;
-    min-height: 240px;
-    max-height: 60vh;
+    padding: 12px 18px 16px 18px;
+    min-height: 136px;
+    max-height: 46vh;
   }
   
   .game-dialogue-box {
@@ -362,60 +365,6 @@
   text-align: right;
   margin-top: 8px;
   cursor: pointer;
-}
-
-/* ======== 对话历史 ======== */
-.dialogue-history {
-  max-height: 30vh;
-  overflow-y: auto;
-  padding-bottom: 12px;
-  border-bottom: 1px solid rgba(139, 69, 19, 0.2);
-  margin-bottom: 12px;
-}
-
-.history-message {
-  margin-bottom: 8px;
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.history-story-bg {
-  color: rgba(101, 67, 33, 0.6);
-  font-style: italic;
-  text-align: center;
-  padding: 4px 0;
-}
-
-.history-char {
-  display: flex;
-  gap: 8px;
-}
-
-.history-speaker {
-  color: #8b4513;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.history-text {
-  color: rgba(51, 51, 51, 0.8);
-}
-
-.history-user {
-  color: rgba(139, 69, 19, 0.82);
-  text-align: right;
-  padding-right: 8px;
-}
-
-.history-user::before {
-  content: '';
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  margin-right: 6px;
-  border-radius: 999px;
-  background: rgba(139, 69, 19, 0.52);
-  vertical-align: middle;
 }
 
 /* ======== 结局覆盖层 ======== */

@@ -70,8 +70,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     功能：
     1. IP级别请求频率限制
     2. 端点差异化配置
-    3. 游客免费次数限制（24h/3次）
-    4. 滑动窗口算法
+    3. 滑动窗口算法
+
+    游客完整结局限制不在这里处理。它由 /api/v1/game/init
+    基于 GuestEndingLog 做 403 拦截，避免同一局内的多次
+    /game/input 被错误计算成多局游戏。
     """
     
     def __init__(
@@ -117,37 +120,27 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # IP级别的滑动窗口计数器
         self.ip_counter = SlidingWindowCounter(window_size=self.default_window_seconds)
         
-        # 游客游戏次数计数器（24小时窗口）
-        self.guest_play_counter = SlidingWindowCounter(window_size=86400)  # 24小时
-        
         # 端点特定计数器
         self.endpoint_counters: Dict[str, SlidingWindowCounter] = {}
         
         # 从环境变量读取配置
         self._load_config_from_env()
         
-        logger.info(f"频率限制中间件初始化完成: 默认限制={default_max_requests}/{default_window_seconds}s, 游客限制={guest_max_plays_per_day}次/天")
+        logger.info(
+            "频率限制中间件初始化完成: 默认限制=%s/%ss，游客结局限制由 game/init 处理",
+            default_max_requests,
+            default_window_seconds,
+        )
     
     def _load_config_from_env(self):
         """从环境变量加载配置"""
-        # 游客免费次数
-        guest_free_plays = os.getenv('GUEST_FREE_PLAYS')
-        if guest_free_plays:
-            try:
-                self.guest_max_plays_per_day = int(guest_free_plays)
-                logger.info(f"从环境变量加载游客免费次数限制: {self.guest_max_plays_per_day}")
-            except ValueError:
-                logger.warning(f"环境变量 GUEST_FREE_PLAYS 格式错误: {guest_free_plays}")
-        
-        # IP级别每日免费次数
-        ip_daily_limit = os.getenv('GUEST_MAX_FREE_PLAYS_PER_IP_PER_DAY')
-        if ip_daily_limit:
-            try:
-                # 更新游客游戏次数限制
-                self.guest_max_plays_per_day = int(ip_daily_limit)
-                logger.info(f"从环境变量加载IP每日免费次数限制: {self.guest_max_plays_per_day}")
-            except ValueError:
-                logger.warning(f"环境变量 GUEST_MAX_FREE_PLAYS_PER_IP_PER_DAY 格式错误: {ip_daily_limit}")
+        legacy_keys = ("GUEST_FREE_PLAYS", "GUEST_MAX_FREE_PLAYS_PER_IP_PER_DAY")
+        active_legacy = [key for key in legacy_keys if os.getenv(key)]
+        if active_legacy:
+            logger.info(
+                "已忽略旧游客次数配置 %s；游客限制改由 GuestEndingLog 在完整结局后生效",
+                ",".join(active_legacy),
+            )
     
     def _get_client_ip(self, request: Request) -> str:
         """获取客户端真实 IP 地址（委托给公共函数）"""
@@ -179,42 +172,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if path.startswith(pattern):
                 return pattern
         return None
-    
-    def _is_guest_play_endpoint(self, path: str) -> bool:
-        """
-        检查是否是游客游戏端点
-        
-        Args:
-            path: 请求路径
-            
-        Returns:
-            bool: 是否是游客游戏端点
-        """
-        # 游客游戏端点（需要消耗免费次数）
-        guest_play_paths = [
-            "/api/v1/game/init",
-            "/api/v1/game/input"
-        ]
-        return any(path.startswith(p) for p in guest_play_paths)
-    
-    def _is_guest_user(self, request: Request) -> bool:
-        """
-        检查是否是游客用户
-        
-        Args:
-            request: FastAPI请求对象
-            
-        Returns:
-            bool: 是否是游客用户
-        """
-        # 检查Authorization头
-        auth_header = request.headers.get("Authorization")
-        if not auth_header:
-            return True  # 没有认证头，视为游客
-        
-        # 检查是否是游客token（简单检查，实际应该验证token类型）
-        # 这里简化处理，实际应该解析JWT token
-        return False
     
     async def _check_ip_limit(self, client_ip: str) -> Tuple[bool, int, int]:
         """
@@ -252,21 +209,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return await counter.is_allowed(
             f"endpoint:{endpoint_key}:{client_ip}",
             max_requests
-        )
-    
-    async def _check_guest_play_limit(self, client_ip: str) -> Tuple[bool, int, int]:
-        """
-        检查游客游戏次数限制
-        
-        Args:
-            client_ip: 客户端IP
-            
-        Returns:
-            Tuple[bool, int, int]: (是否允许, 当前计数, 剩余配额)
-        """
-        return await self.guest_play_counter.is_allowed(
-            f"guest_play:{client_ip}",
-            self.guest_max_plays_per_day
         )
     
     async def dispatch(self, request: Request, call_next):
@@ -338,28 +280,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                         "X-RateLimit-Remaining": "0",
                         "X-RateLimit-Reset": str(int(time.time()) + window_seconds),
                         "Retry-After": str(window_seconds)
-                    }
-                )
-        
-        # 检查游客游戏次数限制
-        if self._is_guest_play_endpoint(path) and self._is_guest_user(request):
-            guest_allowed, guest_count, guest_remaining = await self._check_guest_play_limit(client_ip)
-            if not guest_allowed:
-                logger.warning(f"游客游戏次数限制触发: IP={client_ip}, 次数={guest_count}")
-                return JSONResponse(
-                    status_code=429,
-                    content={
-                        "code": 429,
-                        "message": "游客免费游戏次数已用完，请注册账号继续游戏",
-                        "data": {
-                            "limit": self.guest_max_plays_per_day,
-                            "remaining": 0,
-                            "register_required": True
-                        }
-                    },
-                    headers={
-                        "X-GuestPlayLimit": str(self.guest_max_plays_per_day),
-                        "X-GuestPlayRemaining": "0"
                     }
                 )
         
