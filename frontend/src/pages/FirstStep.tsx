@@ -38,6 +38,14 @@ const formatCooldown = (seconds?: number) => {
   return `约 ${hours} 小时后可再开新局`;
 };
 
+const formatRecoveryText = (seconds?: number) => {
+  const cooldown = formatCooldown(seconds);
+  if (cooldown === '额度即将恢复') {
+    return '额度即将恢复，之后可以重新创建角色，写下新的开端。';
+  }
+  return `${cooldown}，之后可以重新创建角色，写下新的开端。`;
+};
+
 function FirstStep() {
   const navigate = useNavigate();
   const { transitionTo } = useRouteTransition();
@@ -55,6 +63,7 @@ function FirstStep() {
   const canContinueSave = hasSave && !hasGuestEndingRecord;
   const saveCardDisabled = !canContinueSave && !hasGuestEndingRecord;
   const endingCooldownText = formatCooldown(guestEndingStatus?.expires_in_seconds);
+  const endingRecoveryText = formatRecoveryText(guestEndingStatus?.expires_in_seconds);
 
   useEffect(() => {
     let mounted = true;
@@ -95,29 +104,25 @@ function FirstStep() {
     const expiresAt = formatStatusTime(status?.expires_at);
 
     modal.confirm({
-      title: '这次游客体验已经完成',
+      title: '这次故事已经抵达结局',
       content: (
         <div className="first-step-ending-limit-content">
-          <p>当前访问 IP 在过去 24 小时内已经完成过一个完整结局，继续开新局会被拦截。</p>
+          <p>你已经完成了一段完整的游客故事。为了避免重复生成角色与场景，新的相遇会在额度恢复后开放。</p>
           <dl className="first-step-ending-limit-record">
             <div>
-              <dt>查询字段</dt>
-              <dd>{status?.lookup_key || 'guest_ending_log.client_ip'}</dd>
-            </div>
-            <div>
-              <dt>当前 IP</dt>
-              <dd>{status?.client_ip_masked || '当前访问 IP'}</dd>
+              <dt>当前状态</dt>
+              <dd>游客故事已完结</dd>
             </div>
             {endedAt && (
               <div>
-                <dt>结局时间</dt>
+                <dt>完成时间</dt>
                 <dd>{endedAt}</dd>
               </div>
             )}
             {expiresAt && (
               <div>
-                <dt>恢复时间</dt>
-                <dd>{expiresAt}</dd>
+                <dt>再次开启</dt>
+                <dd>{expiresAt} 后</dd>
               </div>
             )}
           </dl>
@@ -261,7 +266,7 @@ function FirstStep() {
             disabled={saveCardDisabled}
             aria-label={
               hasGuestEndingRecord
-                ? '查看最近的游客结局'
+                ? '查看已完成的游客结局'
                 : hasSave
                   ? `继续 ${saveSummary?.characterName} 的故事`
                   : '暂无存档'
@@ -275,7 +280,7 @@ function FirstStep() {
             <span className="first-step-action-copy">
               <span className="first-step-action-label">
                 {hasGuestEndingRecord
-                  ? '已完成的游客结局'
+                  ? '这次故事已完结'
                   : hasSave
                     ? '继续这段故事'
                     : guestEndingStatusLoading
@@ -284,21 +289,21 @@ function FirstStep() {
               </span>
               <span className="first-step-action-title">
                 {hasGuestEndingRecord
-                  ? '查看最近的结局'
+                  ? '回看你的结局'
                   : hasSave
                     ? saveSummary?.characterName
                     : '先开启新的故事'}
               </span>
               <span className="first-step-action-meta">
                 {hasGuestEndingRecord
-                  ? `按当前访问 IP ${guestEndingStatus?.client_ip_masked || ''} 记录 · ${endingCooldownText}`
+                  ? '当前游客体验已完成，可先回顾本次故事的最后一页。'
                   : hasSave
                   ? `${saveSummary?.lastScene} · ${saveSummary?.lastPlayed}`
                   : '创建角色后，这里会保留最近的进度。'}
               </span>
               {hasGuestEndingRecord && (
                 <span className="first-step-action-excerpt">
-                  查询字段：{guestEndingStatus?.lookup_key || 'guest_ending_log.client_ip'}
+                  {endingRecoveryText}
                 </span>
               )}
               {!hasGuestEndingRecord && saveSummary?.excerpt && (
@@ -318,8 +323,14 @@ function FirstStep() {
             </span>
             <span className="first-step-action-copy">
               <span className="first-step-action-label">新的故事</span>
-              <span className="first-step-action-title">写下另一个开端</span>
-              <span className="first-step-action-meta">重新塑造角色，并选择初遇发生的地方。</span>
+              <span className="first-step-action-title">
+                {hasGuestEndingRecord ? '等待下一次相遇' : '写下另一个开端'}
+              </span>
+              <span className="first-step-action-meta">
+                {hasGuestEndingRecord
+                  ? `${endingCooldownText}，现在可以先查看已经完成的结局。`
+                  : '重新塑造角色，并选择初遇发生的地方。'}
+              </span>
             </span>
           </button>
         </div>
