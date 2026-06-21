@@ -612,7 +612,6 @@ function Game() {
         currentOptions={state.currentOptions}
         loading={state.loading || Boolean(visualError)}
         onOptionSelect={handleOptionSelect}
-        messages={messages}
         characterName={characterName}
         typeSpeed={30}
       />
