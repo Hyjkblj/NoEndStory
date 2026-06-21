@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Button, Empty } from 'antd';
+import { App as AntdApp, Button, Empty } from 'antd';
 import { HomeOutlined, ReloadOutlined } from '@ant-design/icons';
 import backgroundImage from '@/assets/images/image.png';
 import { ROUTES } from '@/config/routes';
-import { getStaticAssetUrl } from '@/services/api';
+import { getGuestEndingStatus, getStaticAssetUrl, type GuestEndingStatus } from '@/services/api';
 import * as gameStorage from '@/storage/gameStorage';
 import type { EndingRecord } from '@/types/game';
 import './EndingArchive.css';
@@ -21,13 +21,78 @@ const formatMetricValue = (value: number | null | undefined) => {
   return Math.round(Math.max(0, Math.min(100, value)));
 };
 
+const formatCooldown = (seconds?: number) => {
+  if (!seconds || seconds <= 0) return '额度即将恢复';
+  const hours = Math.ceil(seconds / 3600);
+  if (hours >= 24) return '约 24 小时后可再开新局';
+  return `约 ${hours} 小时后可再开新局`;
+};
+
 function EndingArchive() {
   const navigate = useNavigate();
+  const { message, modal } = AntdApp.useApp();
   const records = useMemo(() => gameStorage.getEndingRecords(), []);
   const [selectedId, setSelectedId] = useState(records[0]?.id);
+  const [guestEndingStatus, setGuestEndingStatus] = useState<GuestEndingStatus | null>(null);
+  const [guestEndingStatusLoading, setGuestEndingStatusLoading] = useState(true);
   const selectedRecord = records.find((record) => record.id === selectedId) || records[0];
+  const isGuestLimited = Boolean(guestEndingStatus?.limited);
+  const cooldownText = formatCooldown(guestEndingStatus?.expires_in_seconds);
 
-  const handleRestart = () => {
+  useEffect(() => {
+    let mounted = true;
+
+    setGuestEndingStatusLoading(true);
+    getGuestEndingStatus()
+      .then((status) => {
+        if (mounted) setGuestEndingStatus(status);
+      })
+      .catch(() => {
+        if (mounted) setGuestEndingStatus(null);
+      })
+      .finally(() => {
+        if (mounted) setGuestEndingStatusLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const refreshGuestEndingStatus = async () => {
+    setGuestEndingStatusLoading(true);
+    try {
+      const status = await getGuestEndingStatus();
+      setGuestEndingStatus(status);
+      return status;
+    } catch {
+      message.error('暂时无法确认游客额度，请稍后再试。');
+      return null;
+    } finally {
+      setGuestEndingStatusLoading(false);
+    }
+  };
+
+  const showLimitModal = (status?: GuestEndingStatus | null) => {
+    modal.info({
+      title: '这次故事已经抵达结局',
+      content: status?.thread_id || records.length
+        ? `${formatCooldown(status?.expires_in_seconds)}。现在可以先回看已经保存的结局。`
+        : '这次游客体验已经完成，但当前浏览器没有保存可回看的结局详情。可以回到故事目录查看状态，额度恢复后再开启新的故事。',
+      okText: '我知道了',
+      className: 'ending-archive-limit-modal',
+    });
+  };
+
+  const handleRestart = async () => {
+    const status = await refreshGuestEndingStatus();
+    if (!status) return;
+
+    if (status.limited) {
+      showLimitModal(status);
+      return;
+    }
+
     gameStorage.cleanupGuestOldGameData({
       keepThreadId: null,
       keepLatestEnding: false,
@@ -38,6 +103,13 @@ function EndingArchive() {
   };
 
   if (!records.length) {
+    const emptyDescription = isGuestLimited
+      ? '本机没有保存结局详情'
+      : '还没有被封存的结局';
+    const emptyCopy = isGuestLimited
+      ? '这次游客体验已经完成，但当前浏览器没有找到可回看的结局记录。可以回到故事目录查看状态，额度恢复后再开启新的故事。'
+      : '完成一次故事后，最终关系、关键回忆和最后一句对白会保存在这里。';
+
     return (
       <main
         className="ending-archive-page ending-archive-empty-page"
@@ -48,13 +120,29 @@ function EndingArchive() {
         <section className="ending-archive-empty">
           <Empty
             image={Empty.PRESENTED_IMAGE_SIMPLE}
-            description="还没有被封存的结局"
+            description={guestEndingStatusLoading ? '正在确认结局状态' : emptyDescription}
           />
-          <p>完成一次故事后，最终关系、关键回忆和最后一句对白会保存在这里。</p>
+          <p>{guestEndingStatusLoading ? '请稍等片刻，我们正在确认这次游客故事的状态。' : emptyCopy}</p>
+          {isGuestLimited && (
+            <p className="ending-archive-empty-note">
+              {cooldownText}。
+            </p>
+          )}
           <div className="ending-archive-empty-actions">
-            <Button type="primary" icon={<ReloadOutlined />} onClick={handleRestart}>
-              开始新故事
-            </Button>
+            {isGuestLimited ? (
+              <Button type="primary" onClick={() => navigate(ROUTES.FIRST_STEP)}>
+                回到故事目录
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                onClick={handleRestart}
+                loading={guestEndingStatusLoading}
+              >
+                开始新故事
+              </Button>
+            )}
             <Button icon={<HomeOutlined />} onClick={() => navigate(ROUTES.HOME)}>
               回到首页
             </Button>
@@ -82,8 +170,13 @@ function EndingArchive() {
             <Button icon={<HomeOutlined />} onClick={() => navigate(ROUTES.HOME)}>
               回到首页
             </Button>
-            <Button type="primary" icon={<ReloadOutlined />} onClick={handleRestart}>
-              再开一局
+            <Button
+              type="primary"
+              icon={<ReloadOutlined />}
+              onClick={handleRestart}
+              loading={guestEndingStatusLoading}
+            >
+              {isGuestLimited ? '等待下一次相遇' : '再开一局'}
             </Button>
           </div>
         </header>

@@ -449,10 +449,50 @@
   font-weight: 700;
 }
 
+.ending-archive-empty > .ending-archive-empty-note {
+  width: fit-content;
+  margin-top: -8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(139, 69, 19, 0.14);
+  border-radius: 8px;
+  background: rgba(255, 250, 235, 0.6);
+  color: #7a3516;
+  font-size: 14px;
+  font-weight: 900;
+}
+
 .ending-archive-empty-actions {
   display: flex;
   justify-content: center;
   gap: 10px;
+}
+
+.ending-archive-limit-modal .ant-modal-content {
+  border: 1px solid rgba(255, 236, 194, 0.42);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(255, 248, 232, 0.98), rgba(255, 232, 190, 0.96)),
+    rgba(255, 248, 232, 0.98);
+  box-shadow: 0 24px 70px rgba(49, 24, 11, 0.34);
+}
+
+.ending-archive-limit-modal .ant-modal-title {
+  color: #3a1b08;
+  font-weight: 850;
+}
+
+.ending-archive-limit-modal .ant-modal-confirm-content {
+  color: rgba(58, 27, 8, 0.68);
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+.ending-archive-limit-modal .ant-modal-confirm-btns .ant-btn-primary {
+  border-color: #8b4513 !important;
+  border-radius: 999px;
+  background: #8b4513 !important;
+  color: #fff7e8 !important;
+  font-weight: 800;
 }
 
 @media (max-width: 1100px) {
