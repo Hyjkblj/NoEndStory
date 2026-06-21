@@ -5,6 +5,11 @@ import { logger } from '@/utils/logger';
 /** TTS 音频控制状态（全局共享） */
 let _globalAudio: HTMLAudioElement | null = null;
 
+const stripSpeakerPrefix = (text: string): string =>
+  text.replace(/^[^:：]+[：:]/, '').trim();
+
+const hasReadableTtsText = (text: string): boolean => /[\p{L}\p{N}]/u.test(text);
+
 export function useTtsControls() {
   const [ttsEnabled, setTtsEnabled] = useState(() => {
     return localStorage.getItem('tts_enabled') !== 'false';
@@ -57,8 +62,8 @@ export function useGameTts(
     if (currentDialogue === lastTtsDialogueRef.current) return;
     lastTtsDialogueRef.current = currentDialogue;
 
-    const textForTts = currentDialogue.replace(/^[^:：]+[：:]/, '').trim() || currentDialogue;
-    if (!textForTts) return;
+    const textForTts = stripSpeakerPrefix(currentDialogue) || currentDialogue.trim();
+    if (!textForTts || !hasReadableTtsText(textForTts)) return;
 
     const charId = typeof characterId === 'string' ? characterId : String(characterId);
     if (charId === 'undefined' || charId === 'null' || charId === '') return;

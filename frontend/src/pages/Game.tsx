@@ -257,6 +257,9 @@ function Game() {
 
   const visualKey = `${state.compositeImageUrl ?? ''}|${state.sceneImageUrl ?? ''}|${state.characterImageUrl ?? ''}`;
   const expectedVisual = Boolean(state.compositeImageUrl || state.sceneImageUrl || state.characterImageUrl);
+  const hasStoryContent = Boolean(
+    state.currentDialogue || state.currentOptions.length > 0 || messages.length > 0
+  );
   const gameRouteReady = Boolean(
     gameFinished ||
     (!visualError && !state.loading && state.threadId && expectedVisual && visualReady)
@@ -288,7 +291,7 @@ function Game() {
 
   useEffect(() => {
     if (visualError || gameFinished) return;
-    if (state.loading || !state.threadId || expectedVisual) return;
+    if (state.loading || !state.threadId || !hasStoryContent || expectedVisual) return;
 
     const timer = window.setTimeout(() => {
       const errorMessage = '缺少可渲染的场景与角色画面，已停止进入游戏。';
@@ -309,6 +312,7 @@ function Game() {
     expectedVisual,
     failRouteTransition,
     gameFinished,
+    hasStoryContent,
     setCurrentOptions,
     setShowTransition,
     state.currentScene,
