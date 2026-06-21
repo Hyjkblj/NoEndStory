@@ -93,16 +93,17 @@ class VoiceModelService:
             logger.warning("requests未安装，火山引擎语音功能不可用")
             return
         
-        volcengine_key = config.VOLCENGINE_ARK_API_KEY.strip() if config.VOLCENGINE_ARK_API_KEY else ''
-        if not volcengine_key:
+        app_id = getattr(config, 'VOLCENGINE_TTS_APP_ID', '').strip()
+        access_token = getattr(config, 'VOLCENGINE_TTS_ACCESS_TOKEN', '').strip()
+        if not app_id or not access_token:
             from utils.logger import get_logger
             logger = get_logger(__name__)
-            logger.warning("未配置VOLCENGINE_ARK_API_KEY，火山引擎语音功能不可用")
+            logger.warning("未配置VOLCENGINE_TTS_APP_ID或VOLCENGINE_TTS_ACCESS_TOKEN，火山引擎语音功能不可用")
             return
         
-        self.api_key = volcengine_key
-        self.app_id = getattr(config, 'VOLCENGINE_TTS_APP_ID', '')
-        self.access_token = getattr(config, 'VOLCENGINE_TTS_ACCESS_TOKEN', '')
+        self.api_key = access_token
+        self.app_id = app_id
+        self.access_token = access_token
         self.region = getattr(config, 'VOLCENGINE_REGION', 'cn-beijing')
         self.model_name = getattr(config, 'VOLCENGINE_TTS_MODEL', 'doubao-tts-streaming')
         self.resource_id = getattr(config, 'VOLCENGINE_TTS_RESOURCE_ID', '')
@@ -188,7 +189,7 @@ class VoiceModelService:
             from utils.logger import get_logger
             logger = get_logger(__name__)
             logger.error(f"语音大模型合成失败: {e}", exc_info=True)
-            return None
+            raise
     
     def _clean_text_for_volcengine(self, text: str) -> str:
         """清理文本以符合火山引擎TTS API要求

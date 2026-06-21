@@ -313,12 +313,13 @@ class ImageStorageService:
             # 获取场景的中文名称（用于匹配文件名）
             scene_info = SUB_SCENES.get(scene_id, {})
             scene_name_cn = scene_info.get('name', '')  # 中文名称，如"食堂"、"教室"等
-            
-            if not scene_name_cn:
-                logger.warning(f"未找到场景 {scene_id} 的中文名称，无法匹配图片")
+
+            # 通过 scene_id 和中文名称双重匹配文件名，避免前后端/部署环境只保留其一时找不到图。
+            match_terms = [term for term in (scene_id, scene_name_cn) if term]
+            if not match_terms:
+                logger.warning(f"未找到场景 {scene_id} 的匹配关键字，无法匹配图片")
                 return None
-            
-            # 通过中文名称匹配文件名
+
             matching_files = []
             
             for filename in os.listdir(small_scene_dir):
@@ -326,18 +327,17 @@ class ImageStorageService:
                 if not filename.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
                     continue
                 
-                # 使用中文名称进行匹配
-                if scene_name_cn in filename:
+                if any(term in filename for term in match_terms):
                     filepath = os.path.join(small_scene_dir, filename)
                     matching_files.append(filepath)
             
             if not matching_files:
-                logger.warning(f"在smallscenes目录中未找到包含中文名称 '{scene_name_cn}' 的图片文件")
+                logger.warning(f"在smallscenes目录中未找到匹配场景 {scene_id} / {scene_name_cn or '-'} 的图片文件")
                 return None
 
             # 随机选择一个匹配的文件
             selected_file = random.choice(matching_files)
-            logger.debug(f"场景 {scene_id} (中文名称: {scene_name_cn}) 通过中文名称匹配到 {len(matching_files)} 个文件，随机选择: {os.path.basename(selected_file)}")
+            logger.debug(f"场景 {scene_id} (中文名称: {scene_name_cn}) 匹配到 {len(matching_files)} 个文件，随机选择: {os.path.basename(selected_file)}")
             return selected_file
 
         except Exception as e:

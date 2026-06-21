@@ -5,7 +5,7 @@ import { GuestEndingLimitError, initGame, initializeStory, getCharacterImages } 
 import * as gameStorage from '@/storage/gameStorage';
 import { getSceneNameById } from '@/config/scenes';
 import { ROUTES } from '@/config/routes';
-import { getCharacterLayerImageFromStorage, getFallbackSceneImageUrls, isLikelyTransparentCharacterLayer } from '@/utils/game';
+import { getCharacterLayerImageFromStorage, isLikelyTransparentCharacterLayer } from '@/utils/game';
 import { logger } from '@/utils/logger';
 import type { GameMessage, PlayerOption } from '@/types/game';
 import type { GameStateBag } from './useGameState';
@@ -132,7 +132,10 @@ export function useGameInit(state: GameStateBag): UseGameInitResult {
         setCharacterImage(characterId);
       } else if (storyData.scene) {
         setShouldUseComposite(false);
-        setSceneImageUrl(getFallbackSceneImageUrls(storyData.scene)[0]);
+        setSceneImageUrl(null);
+        logger.warn('[游戏初始化] 后端未返回场景图片，停止使用前端猜测路径', {
+          scene: storyData.scene,
+        });
         setCharacterImage(characterId);
       }
 

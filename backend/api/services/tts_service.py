@@ -308,6 +308,11 @@ class TTSService:
         # TODO: 根据角色ID选择合适的音色
         # 暂时返回中文女声
         return 'zh-CN-XiaoxiaoNeural'  # 微软Edge TTS的中文女声
+
+    def _get_dashscope_voice(self, character_id: int) -> str:
+        """获取DashScope TTS音色"""
+        # DashScope 基础 TTS 使用固定 voice 名称；角色音色配置中的火山音色不能直接复用。
+        return 'zhichu'
     
     def _generate_speech_http(
         self,

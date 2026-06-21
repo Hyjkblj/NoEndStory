@@ -241,7 +241,7 @@ export const initializeStory = async (
         scene_id: sceneId || 'school',
         character_image_url: characterImageUrl || undefined,
       },
-      { timeout: 60000 }
+      { timeout: 180000 }
     );
     return unwrapResponseData<InitializeStoryResponse>(response);
   } catch (error: unknown) {
@@ -327,7 +327,7 @@ export interface ProcessGameInputResponse {
 
 export const processGameInput = async (data: GameInputRequest): Promise<ProcessGameInputResponse> => {
   try {
-    const response = await api.post('/v1/game/input', data, { timeout: 90000 });
+    const response = await api.post('/v1/game/input', data, { timeout: 180000 });
     return unwrapResponseData<ProcessGameInputResponse>(response);
   } catch (error: unknown) {
     if (isTimeoutError(error)) throw new Error('Game input processing timed out.');

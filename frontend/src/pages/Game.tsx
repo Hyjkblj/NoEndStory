@@ -14,9 +14,8 @@ import { processGameInput, initGame, getStaticAssetUrl, isGuestEndingLimitError 
 import SceneTransition from '@/components/SceneTransition';
 import { useRouteTransition, useRouteTransitionReady } from '@/hooks/useRouteTransition';
 import { GameSceneBackground, GameDialogue } from '@/components/Game';
-import { SCENE_CONFIGS, getSceneImageUrl, buildSceneImageUrl, getSceneNameById } from '@/config/scenes';
+import { getSceneNameById } from '@/config/scenes';
 import * as gameStorage from '@/storage/gameStorage';
-import { getFallbackSceneImageUrls } from '@/utils/game';
 import { logger } from '@/utils/logger';
 import { useGameState, useGameInit, useGameTts, useTtsControls } from '@/hooks';
 import type { EndingMemory, EndingRecord, EndingRelationshipMetric, PlayerOption } from '@/types/game';
@@ -380,17 +379,11 @@ function Game() {
       ensureCharacterLayer();
     } else if (responseData.scene) {
       state.setCompositeImageUrl(null);
-      const sceneConfig = SCENE_CONFIGS.find((s) => s.id === responseData.scene);
-      if (sceneConfig) {
-        const sceneUrl = getSceneImageUrl(sceneConfig);
-        if (sceneUrl) state.setSceneImageUrl(sceneUrl);
-        else {
-          const ext = sceneConfig.imageExtensions?.[0] ?? '.jpeg';
-          state.setSceneImageUrl(buildSceneImageUrl(sceneConfig.id, sceneConfig.name, ext));
-        }
-      } else {
-        state.setSceneImageUrl(getFallbackSceneImageUrls(responseData.scene)[0]);
-      }
+      state.setShouldUseComposite(false);
+      state.setSceneImageUrl(null);
+      logger.warn('[游戏画面] 后端未返回场景图片，停止使用前端猜测路径', {
+        scene: responseData.scene,
+      });
       ensureCharacterLayer();
     }
     if (responseData.character_dialogue) {

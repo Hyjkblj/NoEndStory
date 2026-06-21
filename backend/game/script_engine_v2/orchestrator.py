@@ -386,10 +386,27 @@ class OrchestratorV2:
         scene_image_url = None
         composite_image_url = None
         try:
-            from api.services.image.image_service import ImageService
-            image_service = ImageService()
-            if image_service.enabled and output.scene:
+            from api.services.image_service import ImageService
+            from data.scenes import SUB_SCENES
+
+            image_service = self.image_service or ImageService()
+            if output.scene:
                 scene_image_url = image_service.get_scene_image_url(output.scene)
+                if not scene_image_url and image_service.enabled:
+                    scene_info = SUB_SCENES.get(output.scene, {})
+                    generated_url = image_service.generate_scene_image(
+                        {
+                            "scene_id": output.scene,
+                            "scene_name": scene_info.get("name", output.scene),
+                            "scene_description": scene_info.get("description", ""),
+                        },
+                        output.scene,
+                    )
+                    scene_image_url = image_service.get_scene_image_url(output.scene) or generated_url
+                    if scene_image_url:
+                        logger.info(f"场景 {output.scene} 缺失素材，已生成新场景图")
+                    else:
+                        logger.warning(f"场景 {output.scene} 缺失素材且生成失败，前端将停止画面渲染")
         except Exception as e:
             logger.debug(f"获取场景图片失败（非致命）: {e}")
 
