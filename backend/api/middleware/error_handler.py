@@ -17,13 +17,29 @@ async def http_exception_handler(request: Request, exc: HTTPException):
             "method": request.method
         }
     )
+    detail = exc.detail
+    content = {
+        "code": exc.status_code,
+        "message": str(detail),
+        "data": None,
+    }
+
+    if isinstance(detail, dict):
+        message = detail.get("message")
+        content["message"] = message if isinstance(message, str) else str(detail)
+        content["detail"] = detail
+
+        business_code = detail.get("code")
+        if isinstance(business_code, str):
+            content["error_code"] = business_code
+
+        if "hint" in detail:
+            content["hint"] = detail.get("hint")
+
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "code": exc.status_code,
-            "message": str(exc.detail),
-            "data": None
-        }
+        content=content,
+        headers=exc.headers,
     )
 
 

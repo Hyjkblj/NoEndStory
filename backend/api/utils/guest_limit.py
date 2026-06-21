@@ -52,6 +52,10 @@ def guest_ending_limit_exception() -> HTTPException:
             "message": GUEST_ENDING_LIMIT_MESSAGE,
             "hint": "register",
         },
+        headers={
+            "X-Error-Code": GUEST_ENDING_LIMIT_CODE,
+            "X-Guest-Ending-Limit": "1",
+        },
     )
 
 

@@ -27,8 +27,11 @@ const api = axios.create({
 });
 
 type ApiErrorData = {
+  code?: string | number;
+  error_code?: string;
   message?: string;
   detail?: unknown;
+  hint?: string;
   [key: string]: unknown;
 };
 
@@ -57,17 +60,54 @@ const getErrorMessage = (error: unknown): string => {
   return String(error);
 };
 
-const getGuestEndingLimitError = (data: unknown): GuestEndingLimitError | null => {
-  if (!isRecord(data)) return null;
-  const detail = data.detail;
-  if (!isRecord(detail) || detail.code !== GUEST_ENDING_LIMIT_CODE) return null;
+const getHeaderValue = (headers: unknown, key: string): string | undefined => {
+  const lowerKey = key.toLowerCase();
+  if (isRecord(headers)) {
+    const getter = headers.get;
+    if (typeof getter === 'function') {
+      const value = getter.call(headers, key) ?? getter.call(headers, lowerKey);
+      return typeof value === 'string' ? value : undefined;
+    }
 
-  const message =
-    typeof detail.message === 'string' && detail.message.trim()
-      ? detail.message
-      : undefined;
-  const hint = typeof detail.hint === 'string' ? detail.hint : undefined;
-  return new GuestEndingLimitError(message, hint);
+    const value = headers[key] ?? headers[lowerKey];
+    return typeof value === 'string' ? value : undefined;
+  }
+  return undefined;
+};
+
+const getGuestEndingLimitError = (data: unknown, headers?: unknown): GuestEndingLimitError | null => {
+  const headerCode = getHeaderValue(headers, 'X-Error-Code');
+  const headerLimit = getHeaderValue(headers, 'X-Guest-Ending-Limit');
+
+  if (isRecord(data)) {
+    const detail = isRecord(data.detail) ? data.detail : undefined;
+    const code = detail?.code ?? data.error_code ?? data.code ?? headerCode;
+    const isLimit =
+      code === GUEST_ENDING_LIMIT_CODE ||
+      headerLimit === '1';
+
+    if (!isLimit) return null;
+
+    const message =
+      typeof detail?.message === 'string' && detail.message.trim()
+        ? detail.message
+        : typeof data.message === 'string' && data.message.trim()
+          ? data.message
+          : undefined;
+    const hint =
+      typeof detail?.hint === 'string'
+        ? detail.hint
+        : typeof data.hint === 'string'
+          ? data.hint
+          : undefined;
+    return new GuestEndingLimitError(message, hint);
+  }
+
+  if (headerCode === GUEST_ENDING_LIMIT_CODE || headerLimit === '1') {
+    return new GuestEndingLimitError();
+  }
+
+  return null;
 };
 
 const isTimeoutError = (error: unknown): boolean => {
@@ -83,7 +123,9 @@ api.interceptors.response.use(
   (error) => {
     if (axios.isAxiosError(error)) {
       const status = error.response?.status;
-      const guestLimitError = status === 403 ? getGuestEndingLimitError(error.response?.data) : null;
+      const guestLimitError = status === 403
+        ? getGuestEndingLimitError(error.response?.data, error.response?.headers)
+        : null;
       if (guestLimitError) {
         return Promise.reject(guestLimitError);
       }
