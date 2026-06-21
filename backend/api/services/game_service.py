@@ -1394,3 +1394,70 @@ class GameService:
             logger.error(f"查询游客结局记录失败: {e}", exc_info=True)
             return False
 
+    @staticmethod
+    def _mask_client_ip(client_ip: str) -> str:
+        """Return a display-safe IP value for frontend status surfaces."""
+        if not client_ip or client_ip == "unknown":
+            return "unknown"
+
+        if "." in client_ip:
+            parts = client_ip.split(".")
+            if len(parts) == 4:
+                return f"{parts[0]}.{parts[1]}.*.{parts[3]}"
+
+        if ":" in client_ip:
+            parts = [part for part in client_ip.split(":") if part]
+            if len(parts) >= 2:
+                return f"{parts[0]}:*:{parts[-1]}"
+
+        return client_ip
+
+    @staticmethod
+    def get_guest_ending_status(client_ip: str) -> Dict[str, Any]:
+        """Return the latest guest ending record for an IP in the past 24 hours."""
+        from datetime import datetime, timedelta
+        from models.character import GuestEndingLog
+        from database.db_manager import DatabaseManager
+
+        lookup_key = "guest_ending_log.client_ip"
+        empty_status = {
+            "limited": False,
+            "lookup_key": lookup_key,
+            "client_ip": client_ip,
+            "client_ip_masked": GameService._mask_client_ip(client_ip),
+            "thread_id": None,
+            "ending_type": None,
+            "ended_at": None,
+            "expires_at": None,
+            "expires_in_seconds": 0,
+        }
+
+        try:
+            now = datetime.utcnow()
+            cutoff = now - timedelta(hours=24)
+            db_manager = DatabaseManager()
+            with db_manager.get_session() as db:
+                record = db.query(GuestEndingLog).filter(
+                    GuestEndingLog.client_ip == client_ip,
+                    GuestEndingLog.created_at >= cutoff,
+                ).order_by(GuestEndingLog.created_at.desc()).first()
+
+                if not record:
+                    return empty_status
+
+                expires_at = record.created_at + timedelta(hours=24)
+                return {
+                    "limited": True,
+                    "lookup_key": lookup_key,
+                    "client_ip": client_ip,
+                    "client_ip_masked": GameService._mask_client_ip(client_ip),
+                    "thread_id": record.thread_id,
+                    "ending_type": record.ending_type,
+                    "ended_at": record.created_at.isoformat() if record.created_at else None,
+                    "expires_at": expires_at.isoformat(),
+                    "expires_in_seconds": max(0, int((expires_at - now).total_seconds())),
+                }
+        except Exception as e:
+            logger.error(f"查询游客结局状态失败: {e}", exc_info=True)
+            return empty_status
+

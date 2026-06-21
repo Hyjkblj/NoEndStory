@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { App as AntdApp, Button } from 'antd';
 import {
@@ -11,12 +11,32 @@ import backgroundImage from '@/assets/images/firstbackgound.jpg';
 import LoadingScreen from '@/components/loading';
 import SakuraSway from '@/components/SakuraSway';
 import { useRouteTransition } from '@/hooks/useRouteTransition';
-import { checkServerHealth, initGame, isGuestEndingLimitError } from '@/services/api';
+import { checkServerHealth, getGuestEndingStatus, type GuestEndingStatus } from '@/services/api';
 import { ROUTES } from '@/config/routes';
 import * as gameStorage from '@/storage/gameStorage';
 import type { SaveSummary, StoredMainSave } from '@/types/game';
 import { getSaveSummary } from '@/utils/game';
 import './FirstStep.css';
+
+const formatStatusTime = (value?: string | null) => {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+};
+
+const formatCooldown = (seconds?: number) => {
+  if (!seconds || seconds <= 0) return '额度即将恢复';
+  const hours = Math.ceil(seconds / 3600);
+  if (hours >= 24) return '约 24 小时后可再开新局';
+  return `约 ${hours} 小时后可再开新局`;
+};
 
 function FirstStep() {
   const navigate = useNavigate();
@@ -27,25 +47,93 @@ function FirstStep() {
   const [saveSummary] = useState<SaveSummary | null>(() =>
     getSaveSummary(gameStorage.getMainGameSave() as unknown as StoredMainSave | null)
   );
+  const [guestEndingStatus, setGuestEndingStatus] = useState<GuestEndingStatus | null>(null);
+  const [guestEndingStatusLoading, setGuestEndingStatusLoading] = useState(true);
 
   const hasSave = Boolean(saveSummary?.threadId);
+  const hasGuestEndingRecord = Boolean(guestEndingStatus?.limited);
+  const canContinueSave = hasSave && !hasGuestEndingRecord;
+  const saveCardDisabled = !canContinueSave && !hasGuestEndingRecord;
+  const endingCooldownText = formatCooldown(guestEndingStatus?.expires_in_seconds);
 
-  const showEndingLimitModal = (messageText?: string) => {
-    modal.info({
+  useEffect(() => {
+    let mounted = true;
+
+    setGuestEndingStatusLoading(true);
+    getGuestEndingStatus()
+      .then((status) => {
+        if (mounted) setGuestEndingStatus(status);
+      })
+      .catch(() => {
+        if (mounted) setGuestEndingStatus(null);
+      })
+      .finally(() => {
+        if (mounted) setGuestEndingStatusLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const refreshGuestEndingStatus = async () => {
+    setGuestEndingStatusLoading(true);
+    try {
+      const status = await getGuestEndingStatus();
+      setGuestEndingStatus(status);
+      return status;
+    } catch {
+      message.error('暂时无法确认游客额度，请稍后再试。');
+      return null;
+    } finally {
+      setGuestEndingStatusLoading(false);
+    }
+  };
+
+  const showEndingLimitModal = (status?: GuestEndingStatus | null) => {
+    const endedAt = formatStatusTime(status?.ended_at);
+    const expiresAt = formatStatusTime(status?.expires_at);
+
+    modal.confirm({
       title: '这次游客体验已经完成',
       content: (
         <div className="first-step-ending-limit-content">
-          <p>{messageText || '游客在24小时内只能完成一次完整故事，之后可以继续开启新的相遇。'}</p>
-          <ul>
-            <li>注册账号后可解锁更多旅程</li>
-            <li>保存更多结局与回忆</li>
-            <li>后续可同步不同设备的故事进度</li>
-          </ul>
+          <p>当前访问 IP 在过去 24 小时内已经完成过一个完整结局，继续开新局会被拦截。</p>
+          <dl className="first-step-ending-limit-record">
+            <div>
+              <dt>查询字段</dt>
+              <dd>{status?.lookup_key || 'guest_ending_log.client_ip'}</dd>
+            </div>
+            <div>
+              <dt>当前 IP</dt>
+              <dd>{status?.client_ip_masked || '当前访问 IP'}</dd>
+            </div>
+            {endedAt && (
+              <div>
+                <dt>结局时间</dt>
+                <dd>{endedAt}</dd>
+              </div>
+            )}
+            {expiresAt && (
+              <div>
+                <dt>恢复时间</dt>
+                <dd>{expiresAt}</dd>
+              </div>
+            )}
+          </dl>
         </div>
       ),
-      okText: '我知道了',
+      okText: '查看结局',
+      cancelText: '回到首页',
       className: 'first-step-confirm-modal first-step-ending-limit-modal',
       icon: <ExclamationCircleOutlined className="first-step-confirm-icon" />,
+      maskClosable: false,
+      onOk: () => {
+        navigate(ROUTES.ENDING_ARCHIVE);
+      },
+      onCancel: () => {
+        navigate(ROUTES.HOME);
+      },
     });
   };
 
@@ -85,7 +173,18 @@ function FirstStep() {
     }
   };
 
+  const handleViewEnding = () => {
+    navigate(ROUTES.ENDING_ARCHIVE);
+  };
+
   const handleNewStory = async () => {
+    const latestGuestStatus = await refreshGuestEndingStatus();
+    if (!latestGuestStatus) return;
+    if (latestGuestStatus.limited) {
+      showEndingLimitModal(latestGuestStatus);
+      return;
+    }
+
     const hasEnding = gameStorage.getEndingRecords().length > 0;
     const startNewStory = () => {
       gameStorage.cleanupGuestOldGameData({
@@ -96,17 +195,6 @@ function FirstStep() {
       });
       navigate(ROUTES.CHARACTER_SETTING);
     };
-
-    if (hasEnding) {
-      try {
-        await initGame({ game_mode: 'solo', character_id: '__guest_limit_probe__' });
-      } catch (error: unknown) {
-        if (isGuestEndingLimitError(error)) {
-          showEndingLimitModal(error.message);
-          return;
-        }
-      }
-    }
 
     if (!hasSave && !hasEnding) {
       startNewStory();
@@ -164,27 +252,58 @@ function FirstStep() {
         <div className="first-step-actions" aria-label="故事操作">
           <button
             type="button"
-            className={`first-step-action-card first-step-action-card-save${hasSave ? '' : ' is-disabled'}`}
-            onClick={handleContinueGame}
-            disabled={!hasSave}
-            aria-label={hasSave ? `继续 ${saveSummary?.characterName} 的故事` : '暂无存档'}
+            className={[
+              'first-step-action-card first-step-action-card-save',
+              hasGuestEndingRecord ? 'first-step-action-card-ending' : '',
+              saveCardDisabled ? 'is-disabled' : '',
+            ].filter(Boolean).join(' ')}
+            onClick={hasGuestEndingRecord ? handleViewEnding : handleContinueGame}
+            disabled={saveCardDisabled}
+            aria-label={
+              hasGuestEndingRecord
+                ? '查看最近的游客结局'
+                : hasSave
+                  ? `继续 ${saveSummary?.characterName} 的故事`
+                  : '暂无存档'
+            }
+            data-lookup-key={guestEndingStatus?.lookup_key || 'guest_ending_log.client_ip'}
+            data-client-ip={guestEndingStatus?.client_ip_masked || undefined}
           >
             <span className="first-step-action-icon" aria-hidden="true">
               <BookOutlined />
             </span>
             <span className="first-step-action-copy">
               <span className="first-step-action-label">
-                {hasSave ? '继续这段故事' : '暂无可继续的故事'}
+                {hasGuestEndingRecord
+                  ? '已完成的游客结局'
+                  : hasSave
+                    ? '继续这段故事'
+                    : guestEndingStatusLoading
+                      ? '正在确认游客记录'
+                      : '暂无可继续的故事'}
               </span>
               <span className="first-step-action-title">
-                {hasSave ? saveSummary?.characterName : '先开启新的故事'}
+                {hasGuestEndingRecord
+                  ? '查看最近的结局'
+                  : hasSave
+                    ? saveSummary?.characterName
+                    : '先开启新的故事'}
               </span>
               <span className="first-step-action-meta">
-                {hasSave
+                {hasGuestEndingRecord
+                  ? `按当前访问 IP ${guestEndingStatus?.client_ip_masked || ''} 记录 · ${endingCooldownText}`
+                  : hasSave
                   ? `${saveSummary?.lastScene} · ${saveSummary?.lastPlayed}`
                   : '创建角色后，这里会保留最近的进度。'}
               </span>
-              {saveSummary?.excerpt && <span className="first-step-action-excerpt">{saveSummary.excerpt}</span>}
+              {hasGuestEndingRecord && (
+                <span className="first-step-action-excerpt">
+                  查询字段：{guestEndingStatus?.lookup_key || 'guest_ending_log.client_ip'}
+                </span>
+              )}
+              {!hasGuestEndingRecord && saveSummary?.excerpt && (
+                <span className="first-step-action-excerpt">{saveSummary.excerpt}</span>
+              )}
             </span>
           </button>
 

@@ -336,6 +336,22 @@ export interface GameInitResponse {
   [key: string]: unknown;
 }
 
+export interface GuestEndingStatus {
+  limited: boolean;
+  is_guest?: boolean;
+  whitelisted?: boolean;
+  has_record?: boolean;
+  lookup_key?: string;
+  client_ip?: string;
+  client_ip_masked?: string;
+  client_ip_source?: string;
+  thread_id?: string | null;
+  ending_type?: string | null;
+  ended_at?: string | null;
+  expires_at?: string | null;
+  expires_in_seconds?: number;
+}
+
 export const initGame = async (data: GameInitRequest): Promise<GameInitResponse> => {
   try {
     const response = await api.post('/v1/game/init', data, { timeout: 60000 });
@@ -344,6 +360,11 @@ export const initGame = async (data: GameInitRequest): Promise<GameInitResponse>
     if (isTimeoutError(error)) throw new Error('Game initialization timed out.');
     throw error;
   }
+};
+
+export const getGuestEndingStatus = async (): Promise<GuestEndingStatus> => {
+  const response = await api.get('/v1/game/guest-ending-status', { timeout: 10000 });
+  return unwrapResponseData<GuestEndingStatus>(response);
 };
 
 export interface ProcessGameInputResponse {

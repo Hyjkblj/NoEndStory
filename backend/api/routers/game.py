@@ -29,6 +29,26 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/v1/game", tags=["游戏管理"])
 
 
+@router.get("/guest-ending-status")
+async def guest_ending_status(request: Request):
+    """查询当前访问者的游客结局额度状态，不做 403 拦截。"""
+    client_ip = get_client_ip(request)
+    is_guest = is_guest_request(request)
+    whitelisted = is_guest_ending_ip_whitelisted(client_ip) if is_guest else False
+
+    status = GameService.get_guest_ending_status(client_ip)
+    if not is_guest or whitelisted:
+        status["limited"] = False
+
+    status.update({
+        "is_guest": is_guest,
+        "whitelisted": whitelisted,
+        "has_record": bool(status.get("thread_id")),
+        "client_ip_source": "X-Forwarded-For > X-Real-IP > request.client.host",
+    })
+    return {"code": 200, "message": "ok", "data": status}
+
+
 @router.post("/init", response_model=GameInitApiResponse)
 async def init_game(
     body: GameInitRequest,
