@@ -395,9 +395,9 @@ def install_token_tracking():
         original_call_with_retry = LLMService.call_with_retry
         original_chat_completion = LLMService.chat_completion
         
-        async def tracked_call_with_retry(self, messages, max_tokens=None,
-                                          temperature=None, max_retries=3,
-                                          retry_delay=1.0, **kwargs):
+        def tracked_call_with_retry(self, messages, max_tokens=None,
+                                    temperature=None, max_retries=3,
+                                    retry_delay=1.0, **kwargs):
             """带 token 追踪 + 额度检查的 call_with_retry"""
             from llm.providers.base import LLMResponse
             from llm.exceptions import LLMQuotaExceeded

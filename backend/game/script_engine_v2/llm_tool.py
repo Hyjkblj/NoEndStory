@@ -3,6 +3,7 @@
 统一的 LLM 调用接口，封装 TextGenerationService。
 """
 from typing import Optional
+import asyncio
 from utils.logger import get_logger
 
 logger = get_logger("llm_tool")
@@ -33,18 +34,28 @@ class LLMTool:
             生成的文本，失败返回 None
         """
         try:
-            from llm.call_config import get_call_params
-            p = get_call_params(call_type)
-
-            result = self.text_gen._call_text_generation(
+            result = await asyncio.to_thread(
+                self.generate_sync,
                 prompt,
-                max_tokens=p.max_tokens or max_tokens,
-                temperature=p.temperature or temperature,
-                call_type=call_type
+                max_tokens,
+                temperature,
+                call_type,
             )
-            return result
+            if result:
+                return result
+            logger.warning(
+                "LLM 生成返回空结果: call_type=%s, prompt_len=%s",
+                call_type,
+                len(prompt),
+            )
         except Exception as e:
-            logger.warning(f"LLM 生成失败: {e}")
+            logger.warning(
+                "LLM 生成失败: call_type=%s, prompt_len=%s, error=%s",
+                call_type,
+                len(prompt),
+                e,
+                exc_info=True,
+            )
             return None
 
     def generate_sync(self, prompt: str, max_tokens: int = 200,
@@ -71,5 +82,11 @@ class LLMTool:
                 call_type=call_type
             )
         except Exception as e:
-            logger.warning(f"LLM 生成失败: {e}")
+            logger.warning(
+                "LLM 同步生成失败: call_type=%s, prompt_len=%s, error=%s",
+                call_type,
+                len(prompt),
+                e,
+                exc_info=True,
+            )
             return None

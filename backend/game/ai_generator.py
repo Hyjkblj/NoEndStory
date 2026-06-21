@@ -95,6 +95,7 @@ class TextGenerationService:
                 max_tokens=max_tokens,
                 temperature=temperature,
                 system_message=system_message,
+                call_type=call_type,
                 use_retry=True
             )
         except LLMException as e:

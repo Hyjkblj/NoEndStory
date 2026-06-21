@@ -9,7 +9,9 @@
   - OptionGenerator: 选项生成（LLM + 规则）
   - EmotionCalculator: 数值变化计算
 """
+import json
 import random
+import re
 from typing import Dict, List, Optional, Any
 from utils.logger import get_logger
 from .models import RoundOutput, Option
@@ -188,15 +190,41 @@ class DialogueGenerator:
 
         if self.llm:
             try:
+                logger.info(f"[LLM台词] 开始生成: prompt长度={len(prompt)}, character={state.character_name}")
                 result = await self.llm.generate(
                     prompt, max_tokens=100, temperature=0.9, call_type="dialogue"
                 )
-                if result:
+                logger.info(f"[LLM台词] 生成完成: result长度={len(result) if result else 0}, 前50字={result[:50] if result else 'None'}")
+                if result and self._has_readable_text(result):
                     return result.strip()
+                logger.warning("[LLM台词] 返回空结果或不可读文本，使用回退文本")
             except Exception as e:
-                logger.warning(f"LLM 台词生成失败: {e}")
+                logger.warning(f"[LLM台词] 生成异常: {e}", exc_info=True)
+        else:
+            logger.warning("[LLM台词] LLM未初始化，使用回退文本")
 
-        return f"{state.character_name}: ..."
+        return self._fallback_dialogue(state, event_description)
+
+    def _fallback_dialogue(self, state, event_description: str) -> str:
+        name = state.character_name or "角色"
+        last_input = (getattr(state, "last_player_input", "") or "").strip()
+
+        if last_input and not last_input.startswith("["):
+            return f"{name}: 我听见了。只是这一刻有点突然，让我想把你的话再认真想一想。"
+
+        if "初次" in event_description or "介绍" in event_description:
+            return f"{name}: 没想到会在这里遇见你。刚才有点走神，不过看到你来了，心里反而安定了一点。"
+
+        if "冲突" in event_description or "误会" in event_description or "分歧" in event_description:
+            return f"{name}: 我不是想把气氛弄僵，只是有些话如果不说清楚，我会一直在意。"
+
+        if "秘密" in event_description or "透露" in event_description:
+            return f"{name}: 这件事我很少和别人说，但如果是你的话，我好像愿意多相信一点。"
+
+        return f"{name}: 刚刚那一瞬间，我有点不知道该怎么开口。你愿意再陪我待一会儿吗？"
+
+    def _has_readable_text(self, text: str) -> bool:
+        return bool(re.search(r"[\w\u4e00-\u9fff]", text or ""))
 
     def _build_prompt(self, state, event_description: str) -> str:
         """构建 prompt"""
@@ -252,11 +280,11 @@ class OptionGenerator:
     """选项生成"""
 
     DEFAULT_OPTIONS = [
-        Option(id=0, text="积极回应", direction="positive",
+        Option(id=0, text="温柔回应，主动靠近一点", direction="positive",
                state_changes={"favorability": 5, "trust": 3, "happiness": 3}),
-        Option(id=1, text="中性回应", direction="neutral",
+        Option(id=1, text="先听TA说完，再轻声追问", direction="neutral",
                state_changes={"favorability": 1, "trust": 1}),
-        Option(id=2, text="消极回应", direction="negative",
+        Option(id=2, text="保持距离，只给出简短回应", direction="negative",
                state_changes={"favorability": -3, "trust": -2, "stress": 2}),
     ]
 
@@ -269,27 +297,29 @@ class OptionGenerator:
             options = await self._generate_with_llm(state, dialogue)
             if options:
                 return options
-        return self.DEFAULT_OPTIONS.copy()
+        return self._fallback_options(state, dialogue)
 
     async def _generate_with_llm(self, state, dialogue: str) -> List[Option]:
         """LLM 生成选项"""
         try:
-            prompt = f"""根据以下对话，为玩家生成 3 个选项。
+            prompt = f"""根据以下对话，为恋爱剧情游戏玩家生成 3 个回复选项。
 
 角色台词：{dialogue}
 当前情绪：好感度{state.emotion.favorability:.0f}，信任度{state.emotion.trust:.0f}
 
 要求：
-1. 每个选项 10-20 字
-2. 第一个偏积极，第二个偏中性，第三个偏消极
-3. 直接输出 3 行，不要编号"""
+1. 每个选项 10-24 个中文字，必须像玩家真正会点击的回复
+2. 第一个偏积极，第二个偏中性，第三个偏疏离或消极
+3. 必须回应角色台词和当前情绪，不要脱离场景
+4. 不要输出“积极回应”“中性回应”“消极回应”这类标签
+5. 只输出 JSON 数组，例如 ["我会陪着你。","先听你说完。","这件事先到这里吧。"]"""
 
             result = await self.llm.generate(
                 prompt, max_tokens=100, temperature=0.8, call_type="options"
             )
 
             if result:
-                lines = [l.strip() for l in result.strip().split("\n") if l.strip()]
+                lines = self._parse_option_lines(result)
                 if len(lines) >= 3:
                     return [
                         Option(id=0, text=lines[0], direction="positive",
@@ -299,10 +329,124 @@ class OptionGenerator:
                         Option(id=2, text=lines[2], direction="negative",
                                state_changes={"favorability": -3, "trust": -2, "stress": 2}),
                     ]
+                logger.warning(f"LLM 选项结果不足 3 条，使用上下文降级选项: {result[:120]}")
         except Exception as e:
-            logger.warning(f"LLM 选项生成失败: {e}")
+            logger.warning(f"LLM 选项生成失败: {e}", exc_info=True)
 
         return []
+
+    def _parse_option_lines(self, result: str) -> List[str]:
+        """解析 LLM 选项输出，兼容编号、项目符号和 JSON。"""
+        candidates: List[str] = []
+
+        json_candidates = [result.strip()]
+        fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", result, flags=re.IGNORECASE | re.DOTALL)
+        if fence_match:
+            json_candidates.insert(0, fence_match.group(1).strip())
+        array_match = re.search(r"\[[\s\S]*\]", result)
+        if array_match:
+            json_candidates.insert(0, array_match.group(0).strip())
+
+        for candidate in json_candidates:
+            try:
+                data = json.loads(candidate)
+            except (json.JSONDecodeError, TypeError, ValueError):
+                continue
+
+            if isinstance(data, list):
+                candidates.extend(str(item.get("text", item)) if isinstance(item, dict) else str(item) for item in data)
+            elif isinstance(data, dict):
+                for key in ("options", "player_options", "choices"):
+                    value = data.get(key)
+                    if isinstance(value, list):
+                        candidates.extend(str(item.get("text", item)) if isinstance(item, dict) else str(item) for item in value)
+                        break
+
+            if candidates:
+                break
+
+        if not candidates:
+            candidates = [line for line in re.split(r"[\r\n]+", result) if line.strip()]
+
+        parsed: List[str] = []
+        for item in candidates:
+            text = self._clean_option_text(item)
+            if not text:
+                continue
+            if self._is_generic_option_label(text):
+                continue
+            if len(text) > 36:
+                text = text[:36].rstrip("，。！？、 ")
+            if text not in parsed:
+                parsed.append(text)
+            if len(parsed) >= 3:
+                break
+
+        return parsed
+
+    def _clean_option_text(self, text: str) -> str:
+        text = str(text).strip()
+        text = re.sub(r"^\s*(?:[-*•]|[0-9一二三][\.、:：)]|选项\s*[0-9一二三]?\s*[：:])\s*", "", text)
+        text = re.sub(r"^(?:积极回应|中性回应|消极回应|正向回应|负向回应|保持中性)\s*[：:，,、\-]\s*", "", text)
+        text = text.strip("「」『』“”\"'` ")
+        return text.strip()
+
+    def _is_generic_option_label(self, text: str) -> bool:
+        compact = re.sub(r"[\s：:，,。.!！?？、\-]+", "", text or "")
+        return compact in {"积极回应", "中性回应", "消极回应", "正向回应", "负向回应", "保持中性"}
+
+    def _fallback_options(self, state, dialogue: str) -> List[Option]:
+        """LLM 不可用时的上下文降级选项，避免前端出现抽象标签。"""
+        topic = self._extract_topic(dialogue)
+        event_type = (state.pending_event or {}).get("type", "")
+
+        if event_type in {"first_meeting", "mutual_introduction", "casual_chat"}:
+            texts = [
+                "自然打招呼，问TA刚才在想什么",
+                "先点头回应，聊聊此刻的场景",
+                "礼貌回应后，暂时保持一点距离",
+            ]
+        elif event_type in {"small_conflict", "major_conflict", "betrayal"}:
+            texts = [
+                "先放低声音，认真问TA在意什么",
+                "暂时停下来，给彼此一点整理时间",
+                "把情绪收回去，只留下简短回应",
+            ]
+        elif event_type in {"personal_revelation", "emotional_confession"}:
+            texts = [
+                "接住TA的心意，告诉TA你在听",
+                "轻声追问这件事对TA意味着什么",
+                "避开太深的话题，先保持距离",
+            ]
+        elif topic:
+            texts = [
+                f"围绕“{topic}”回应，靠近TA一点",
+                f"先问清“{topic}”，观察TA的反应",
+                "简单点头，把话题轻轻带过",
+            ]
+        else:
+            texts = [
+                "温柔回应，主动靠近一点",
+                "先听TA说完，再轻声追问",
+                "保持距离，只给出简短回应",
+            ]
+
+        return [
+            Option(id=0, text=texts[0], direction="positive",
+                   state_changes={"favorability": 5, "trust": 3, "happiness": 3}),
+            Option(id=1, text=texts[1], direction="neutral",
+                   state_changes={"favorability": 1, "trust": 1}),
+            Option(id=2, text=texts[2], direction="negative",
+                   state_changes={"favorability": -3, "trust": -2, "stress": 2}),
+        ]
+
+    def _extract_topic(self, dialogue: str) -> str:
+        text = re.sub(r"^[^:：]+[：:]", "", dialogue or "").strip()
+        text = re.sub(r"[。！？!?…\.]+$", "", text)
+        text = re.sub(r"\s+", "", text)
+        if not re.search(r"[\w\u4e00-\u9fff]", text):
+            return ""
+        return text[:8]
 
 
 # ============================================================
