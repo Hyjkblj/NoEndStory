@@ -1,177 +1,185 @@
-# No End Story - 基于 OpenAI 的无限剧情流游戏
+# No End Story — AI 无限剧情流游戏
 
-## 项目简介
+一款基于大语言模型的**无限剧情流文字冒险游戏**。AI 实时生成剧情、对话、选项和场景图像，每次游玩都是独一无二的故事。
 
-No End Story 是一款基于 **OpenAI 原生框架**开发的无限剧情流游戏，通过 AI 实时生成剧情和图像，为玩家提供独一无二的故事体验。
+## 核心特性
 
-### 核心特性
-
-- 🎭 **动态剧情生成**：使用 OpenAI GPT-4o 实时生成个性化剧情
-- 🎨 **AI 图像生成**：集成 DALL·E 3 生成场景和角色图像
-- 🧠 **智能 Agent 系统**：基于 OpenAI Assistants API 构建剧情 Director 和 Writer
-- 💾 **记忆系统**：通过向量数据库和 RAG 技术保持剧情一致性
-- 🚀 **高性能架构**：基于 FastAPI 的异步架构，支持高并发
-
----
+- 🎭 **动态剧情生成** — 大模型实时推进剧情，非脚本化
+- 🎨 **AI 场景图像** — 自动生成场景图、角色立绘、合成画面
+- 🗣️ **语音合成（TTS）** — 角色台词实时语音播报，支持情绪语调
+- 🧠 **记忆系统** — 向量数据库 + RAG，AI 能回忆之前的对话
+- 🔚 **多结局系统** — 好结局 / 坏结局 / 中立结局 / 开放结局
+- 📖 **结局收藏册** — 浏览已达成的结局，可展开查看剧情详情
+- 🚪 **游客免注册体验** — 无需登录即可试玩（每日限制 1 次结局）
+- 🖥️ **桌面应用** — 支持 Electron 打包为 Windows 桌面端
 
 ## 技术栈
 
-### 后端
-- **框架**：FastAPI
-- **AI 模型**：OpenAI GPT-4o, DALL·E 3
-- **AI 框架**：OpenAI Assistants API, Function Calling
-- **数据库**：PostgreSQL
-- **缓存**：Redis
-- **向量数据库**：Pinecone / Weaviate
-- **语言**：Python 3.10+
-
-### 前端（可选）
-- React / Next.js
-- 或 Unity（游戏引擎）
-
----
+| 层级 | 技术 |
+|------|------|
+| 前端 | React 19 + TypeScript + Ant Design 6 + Vite |
+| 桌面端 | Electron |
+| 后端 | Python 3.10+ + FastAPI + Uvicorn |
+| 数据库 | PostgreSQL + SQLAlchemy ORM |
+| 缓存 | Redis |
+| 向量数据库 | ChromaDB |
+| AI 模型 | 火山引擎（豆包）/ DashScope / OpenAI 兼容接口 |
+| TTS | 火山引擎语音合成 / DashScope |
+| 图片生成 | 火山引擎 SeedDream / VectorEngine |
 
 ## 快速开始
 
 ### 前置要求
 
 - Python 3.10+
-- PostgreSQL
+- Node.js 18+
+- PostgreSQL 14+
 - Redis
-- OpenAI API Key
 
-### 安装步骤
+### 后端
 
-1. **克隆项目**
-```bash
-git clone <repository-url>
-cd no-end-story
-```
-
-2. **创建虚拟环境**
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-3. **安装依赖**
-```bash
-pip install -r backend/requirements.txt
-```
-
-4. **配置环境变量**
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的配置
-```
-
-5. **初始化数据库**
 ```bash
 cd backend
-alembic upgrade head
+
+# 创建虚拟环境
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 配置环境变量
+cp .env.example .env
+# 编辑 .env 填入数据库、Redis、AI API Key 等配置
+
+# 初始化数据库
+python create_database.py
+
+# 运行数据库迁移
+python migrations/versions/008_guest_ending_log.py
+
+# 启动
+python run_api.py
 ```
 
-6. **初始化 OpenAI Assistants**
+后端默认运行在 `http://localhost:8000`，API 文档：`http://localhost:8000/docs`
+
+### 前端
+
 ```bash
-python scripts/init_assistants.py
+cd frontend
+
+# 安装依赖
+npm install
+
+# 开发模式
+npm run dev
+
+# 构建
+npm run build
+
+# 桌面端开发
+npm run electron:dev
+
+# 打包桌面端
+npm run electron:build
 ```
 
-7. **启动服务**
-```bash
-uvicorn app.main:app --reload
-```
-
-服务将在 `http://localhost:8000` 启动
-
----
+前端默认运行在 `http://localhost:5173`
 
 ## 项目结构
 
 ```
-no-end-story/
-├── backend/          # 后端服务
-├── frontend/         # 前端（可选）
-├── docs/            # 文档
-└── scripts/         # 工具脚本
+NoEndStory/
+├── backend/
+│   ├── api/
+│   │   ├── routers/          # API 路由（game, auth, health, voice）
+│   │   ├── services/         # 业务逻辑层（GameService, TTS, Image）
+│   │   ├── middleware/       # 中间件（限流、CORS、审计日志）
+│   │   ├── schemas/          # Pydantic 请求/响应模型
+│   │   ├── utils/            # 工具函数（IP 获取等）
+│   │   └── dependencies.py   # FastAPI 依赖注入
+│   ├── game/
+│   │   ├── script_engine_v2/ # 剧情引擎 V2（ScriptEngine + Orchestrator）
+│   │   ├── agents/           # Agent 引擎（旧版）
+│   │   └── story_engine.py   # 故事引擎（事件、对话、结局）
+│   ├── models/               # SQLAlchemy 数据库模型
+│   ├── migrations/           # 数据库迁移脚本
+│   ├── database/             # 数据库管理器
+│   ├── llm/                  # 大模型调用层（多厂商适配）
+│   ├── audio/                # TTS 语音合成
+│   ├── images/               # 图片资源（角色、场景、合成）
+│   └── data/                 # 静态数据（角色、场景定义）
+├── frontend/
+│   ├── src/
+│   │   ├── pages/            # 页面组件
+│   │   │   ├── Home.tsx          # 首页（角色选择 + 侧边栏）
+│   │   │   ├── FirstStep.tsx     # 角色设定（新/继续游戏决策）
+│   │   │   ├── Game.tsx          # 游戏主界面
+│   │   │   ├── EndingArchive.tsx # 结局收藏册
+│   │   │   └── CharacterSetting.tsx
+│   │   ├── hooks/            # 自定义 Hooks（WebSocket, GameInit, Audio）
+│   │   ├── services/         # API 调用层
+│   │   ├── store/            # 状态管理（GameContext）
+│   │   ├── components/       # 通用组件
+│   │   └── utils/            # 工具函数（gameStorage, API 客户端）
+│   └── electron/             # Electron 桌面端入口
+└── docs/                     # 设计文档
 ```
 
-详细结构请参考 [项目结构设计文档](docs/项目结构设计.md)
+## API 概览
 
----
+| 端点 | 方法 | 说明 |
+|------|------|------|
+| `/api/v1/game/init` | POST | 初始化游戏会话 |
+| `/api/v1/game/input` | POST | 处理玩家输入（文本/选项） |
+| `/api/v1/game/check-ending/{thread_id}` | GET | 检查结局条件 |
+| `/api/v1/game/trigger-ending` | POST | 触发结局 |
+| `/api/v1/health` | GET | 健康检查 |
+| `/api/v1/voice/characters/{id}/voices` | GET | 角色音色列表 |
+| `/api/v1/voice/preview` | POST | 音色试听 |
 
-## 文档
+## 游客结局限制
 
-- [基于 OpenAI 的技术架构设计](docs/基于OpenAI的技术架构设计.md)
-- [API 接口详细设计](docs/API接口详细设计.md)
-- [项目结构设计](docs/项目结构设计.md)
+游客（无 Authorization header）每天限触发 **1 次结局**。以 IP 为粒度，次日自动重置。
 
----
-
-## API 使用示例
-
-### 初始化游戏
+- 触发结局后再次开新局 → 返回 `403 GUEST_ENDING_LIMIT`
+- 前端识别此错误码后弹窗提示注册
+- 可通过 `GUEST_ENDING_IP_WHITELIST` 环境变量配置 IP 白名单（默认放行 `127.0.0.1, ::1`）
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/game/init \
-  -H "Content-Type: application/json" \
-  -d '{
-    "user_id": "user_123",
-    "game_mode": "solo"
-  }'
+# .env
+GUEST_ENDING_IP_WHITELIST=127.0.0.1,::1
 ```
 
-### 玩家输入
+## 环境变量
+
+关键配置项（详见 `backend/.env.example`）：
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/game/input \
-  -H "Content-Type: application/json" \
-  -d '{
-    "thread_id": "thread_456",
-    "input": {
-      "type": "text",
-      "content": "我想去海边看看"
-    }
-  }'
+# 数据库
+DB_HOST=localhost
+DB_PORT=5432
+DB_NAME=noendstory
+
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6380
+
+# AI 模型
+VOLCENGINE_ARK_API_KEY=         # 火山引擎 API Key
+LLM_TEXT_MODEL=deepseek-v4-pro-260425
+
+# TTS
+TTS_PROVIDER=volcengine          # volcengine / dashscope / edge-tts
+
+# 图片生成
+VECTORENGINE_API_KEY=            # VectorEngine API Key（可选）
+
+# 游客限制
+GUEST_ENDING_IP_WHITELIST=127.0.0.1,::1
 ```
-
----
-
-## 开发路线图
-
-### Phase 1: 基础框架（已完成）
-- ✅ 项目架构设计
-- ✅ API 设计
-- ✅ 数据库设计
-
-### Phase 2: 核心功能开发（进行中）
-- [ ] OpenAI 集成
-- [ ] Agent 实现
-- [ ] 基础 API 实现
-
-### Phase 3: 功能完善
-- [ ] 图像生成集成
-- [ ] 记忆系统实现
-- [ ] 前端开发
-
-### Phase 4: 优化与测试
-- [ ] 性能优化
-- [ ] 一致性优化
-- [ ] 测试与部署
-
----
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
----
 
 ## 许可证
 
 [MIT License](LICENSE)
-
----
-
-## 联系方式
-
-如有问题，请提交 Issue 或联系项目维护者。
