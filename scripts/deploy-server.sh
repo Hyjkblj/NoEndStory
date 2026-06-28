@@ -56,7 +56,9 @@ fi
 
 domain="$(grep '^APP_DOMAIN=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)"
 port="$(grep '^HTTP_PORT=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)"
+base_path="$(grep '^VITE_APP_BASE_PATH=' "$ENV_FILE" | head -n 1 | cut -d= -f2-)"
 port="${port:-80}"
+base_path="${base_path:-/galgame}"
 
 echo "Starting No End Story server stack..."
 docker compose \
@@ -69,7 +71,7 @@ echo "Waiting for web entry health..."
 for _ in $(seq 1 60); do
   if check_health "http://127.0.0.1:$port/health"; then
     echo "No End Story is healthy."
-    echo "Frontend entry: http://$domain/"
+    echo "Frontend entry: http://$domain$base_path/"
     exit 0
   fi
   sleep 2

@@ -178,6 +178,7 @@ try {
     $frontendImage = Get-EnvValue -FilePath $envFile -Key "FRONTEND_IMAGE" -DefaultValue "ghcr.io/no-end-story/no-end-story-frontend:latest"
     $httpPort = Get-EnvValue -FilePath $envFile -Key "HTTP_PORT" -DefaultValue "80"
     $appDomain = Get-EnvValue -FilePath $envFile -Key "APP_DOMAIN" -DefaultValue "hyjkblj.online"
+    $appBasePath = Get-EnvValue -FilePath $envFile -Key "VITE_APP_BASE_PATH" -DefaultValue "/galgame"
     $localHealthUrl = "http://127.0.0.1:$httpPort/health"
 
     $composeArgs = @(
@@ -203,7 +204,7 @@ try {
 
     Write-Host "6) Wait for web entry health" -ForegroundColor Yellow
     if (Wait-WebHealthy -Url $localHealthUrl -TimeoutSec 120) {
-        Write-Host "Web entry is healthy: http://$appDomain/" -ForegroundColor Green
+        Write-Host "Web entry is healthy: http://$appDomain$appBasePath/" -ForegroundColor Green
         exit 0
     }
 

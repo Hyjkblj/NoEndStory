@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { generateSpeech } from '@/services/api';
+import { generateSpeech, getStaticAssetUrl } from '@/services/api';
 import { logger } from '@/utils/logger';
 
 /** TTS 音频控制状态（全局共享） */
@@ -80,10 +80,7 @@ export function useGameTts(
         emotion_params: emotionParams || undefined,
       });
       if (cancelled || !result?.audio_url) return;
-      const url = result.audio_url.startsWith('http')
-        ? result.audio_url
-        : `${window.location.origin}${result.audio_url}`;
-      const audio = new Audio(url);
+      const audio = new Audio(getStaticAssetUrl(result.audio_url));
       audio.volume = volume;
       _globalAudio = audio;
       audio.play().catch((e) => logger.warn('[游戏] TTS 播放失败:', e));

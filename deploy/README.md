@@ -4,14 +4,34 @@ This deployment exposes only the frontend Nginx service publicly. PostgreSQL, Re
 
 ## Domain
 
-Use `hyjkblj.online` as the frontend entry.
+Use `hyjkblj.online/galgame` as the frontend entry. The app is built with a path prefix so it can share the same domain with other projects.
 
 1. Point the DNS `A` record for `hyjkblj.online` to the server public IP.
 2. Optional: point `www.hyjkblj.online` to the same IP.
 3. Open server firewall port `80`.
 4. If HTTPS is terminated by a cloud load balancer or host Nginx, forward traffic to this stack's `HTTP_PORT`.
 
-The container Nginx is configured with `server_name hyjkblj.online www.hyjkblj.online localhost _;`.
+The container Nginx is configured with `server_name hyjkblj.online www.hyjkblj.online localhost _;` and serves this app under `/galgame/`.
+
+If this domain is shared by multiple projects, run this stack on a private host port and let a host-level Nginx route only `/galgame/` to it:
+
+```env
+HTTP_BIND=127.0.0.1
+HTTP_PORT=18081
+VITE_APP_BASE_PATH=/galgame
+```
+
+```nginx
+location /galgame/ {
+    proxy_pass http://127.0.0.1:18081;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Keep the `/galgame` prefix when proxying; do not strip it.
 
 ## Configure
 
@@ -23,6 +43,7 @@ Edit `deploy/player.env`:
 
 ```env
 APP_DOMAIN=hyjkblj.online
+VITE_APP_BASE_PATH=/galgame
 HTTP_BIND=0.0.0.0
 HTTP_PORT=80
 ALLOWED_ORIGINS=http://hyjkblj.online,https://hyjkblj.online

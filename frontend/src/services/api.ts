@@ -1,5 +1,6 @@
 import axios from 'axios';
 import type { PlayerOption } from '@/types/game';
+import { withAppBasePath } from '@/config/basePath';
 
 const GUEST_ENDING_LIMIT_CODE = 'GUEST_ENDING_LIMIT';
 
@@ -19,7 +20,7 @@ export const isGuestEndingLimitError = (error: unknown): error is GuestEndingLim
   (error instanceof Error && error.name === 'GuestEndingLimitError');
 
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: withAppBasePath('/api'),
   timeout: 30000,
   headers: {
     'Content-Type': 'application/json',
@@ -157,13 +158,13 @@ export const getStaticAssetUrl = (url?: string | null): string => {
     const protocol = typeof window !== 'undefined' ? window.location.protocol : 'http:';
     return `${protocol}${value}`;
   }
-  if (value.startsWith('/')) return value;
-  return `/${value.replace(/^\/+/, '')}`;
+  if (value.startsWith('/')) return withAppBasePath(value);
+  return withAppBasePath(`/${value.replace(/^\/+/, '')}`);
 };
 
 export const checkServerHealth = async (): Promise<boolean> => {
   try {
-    const response = await axios.get('/health', { timeout: 5000 });
+    const response = await axios.get(withAppBasePath('/health'), { timeout: 5000 });
     return response.status === 200;
   } catch (error: unknown) {
     console.error('Backend health check failed:', error);

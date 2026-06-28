@@ -11,6 +11,7 @@ import EndingArchive from '@/pages/EndingArchive';
 import CharacterImageLoadingDemo from '@/pages/CharacterImageLoadingDemo';
 import LoadingDemo from '@/pages/LoadingDemo';
 import NotFound from '@/pages/NotFound';
+import { getRouterBasename } from '@/config/basePath';
 
 const routes = [
   {
@@ -32,7 +33,9 @@ const routes = [
 ];
 
 const isFileProtocol = typeof window !== 'undefined' && window.location.protocol === 'file:';
-const router = (isFileProtocol ? createHashRouter : createBrowserRouter)(routes);
+const router = isFileProtocol
+  ? createHashRouter(routes)
+  : createBrowserRouter(routes, { basename: getRouterBasename() });
 
 function AppRouter() {
   return <RouterProvider router={router} />;

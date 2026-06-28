@@ -1,5 +1,5 @@
-/** W13: WebSocket 连接管理 Hook */
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { withAppBasePath } from '@/config/basePath';
 
 const WS_BASE = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}`;
 
@@ -17,16 +17,27 @@ interface WsMessage {
 
 export function useWebSocket(threadId: string | null) {
   const wsRef = useRef<WebSocket | null>(null);
+  const connectRef = useRef<() => void>(() => {});
+  const reconnectTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null);
+  const shouldReconnectRef = useRef(true);
+  const reconnectAttempt = useRef(0);
   const [connected, setConnected] = useState(false);
   const [dialogueChunks, setDialogueChunks] = useState<string[]>([]);
   const [options, setOptions] = useState<Array<{ id: number; text: string }>>([]);
   const [isFinished, setIsFinished] = useState(false);
-  const reconnectAttempt = useRef(0);
+
+  const clearReconnectTimer = useCallback(() => {
+    if (reconnectTimerRef.current !== null) {
+      window.clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+  }, []);
 
   const connect = useCallback(() => {
     if (!threadId || wsRef.current) return;
+    shouldReconnectRef.current = true;
 
-    const ws = new WebSocket(`${WS_BASE}/api/v1/ws/game/${threadId}`);
+    const ws = new WebSocket(`${WS_BASE}${withAppBasePath(`/api/v1/ws/game/${threadId}`)}`);
 
     ws.onopen = () => {
       setConnected(true);
@@ -41,7 +52,6 @@ export function useWebSocket(threadId: string | null) {
             setDialogueChunks(prev => [...prev, msg.content || '']);
             break;
           case 'dialogue_complete':
-            // full dialogue assembled
             break;
           case 'options':
             setOptions(msg.options || []);
@@ -54,17 +64,22 @@ export function useWebSocket(threadId: string | null) {
             break;
         }
       } catch {
-        // ignore parse errors
+        // Ignore malformed websocket messages.
       }
     };
 
     ws.onclose = () => {
       setConnected(false);
-      wsRef.current = null;
-      // 自动重连（最多3次）
-      if (reconnectAttempt.current < 3) {
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
+
+      if (shouldReconnectRef.current && reconnectAttempt.current < 3) {
         reconnectAttempt.current++;
-        setTimeout(connect, 2000 * reconnectAttempt.current);
+        reconnectTimerRef.current = window.setTimeout(() => {
+          reconnectTimerRef.current = null;
+          connectRef.current();
+        }, 2000 * reconnectAttempt.current);
       }
     };
 
@@ -75,11 +90,17 @@ export function useWebSocket(threadId: string | null) {
     wsRef.current = ws;
   }, [threadId]);
 
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
+
   const disconnect = useCallback(() => {
+    shouldReconnectRef.current = false;
+    clearReconnectTimer();
     wsRef.current?.close();
     wsRef.current = null;
     setConnected(false);
-  }, []);
+  }, [clearReconnectTimer]);
 
   const sendMessage = useCallback((content: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {

@@ -115,8 +115,7 @@ function CharacterSelection() {
     try {
       const result = await getVoicePreviewAudio(v.id, v.preview_text || undefined);
       if (result?.audio_url) {
-        const url = result.audio_url.startsWith('http') ? result.audio_url : `${window.location.origin}${result.audio_url}`;
-        const audio = new Audio(url);
+        const audio = new Audio(getStaticAssetUrl(result.audio_url));
         audio.onended = () => setPreviewingVoiceId(null);
         audio.onerror = () => {
           setPreviewingVoiceId(null);

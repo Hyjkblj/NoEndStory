@@ -135,6 +135,8 @@ services:
     build:
       context: ../frontend
       dockerfile: Dockerfile
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH:-/galgame}
     container_name: noendstory-nginx
     restart: unless-stopped
     depends_on:
